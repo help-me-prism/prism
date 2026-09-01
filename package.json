@@ -48,5 +48,8 @@
       "target": "dmg",
       "category": "public.app-category.productivity"
     }
+  },
+  "dependencies": {
+    "tar": "^7.5.22"
   }
 }

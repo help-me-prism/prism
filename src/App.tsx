@@ -150,9 +150,9 @@ function App() {
     if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
     const sessionId = activeSession.id
     const assistantId = uniqueId('assistant')
-    const selectedAnchors = [...contextAnchors]
+    const selectedAnchors = contextAnchors.filter((anchor) => prompt.includes(`[@${anchor.label}]`))
     const promptWithContext = selectedAnchors.length
-      ? `${prompt}\n\n<prism_context>\n${selectedAnchors.map((anchor) => `[${anchor.type} ${anchor.paperId} ${anchor.anchorId} page=${anchor.page}]\n${anchor.source.slice(0, 2000)}`).join('\n\n')}\n</prism_context>\nAnswer the user's question using the tagged paper context when relevant.`
+      ? `${prompt}\n\n<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.`
       : prompt
     const now = Date.now()
     setInput('')
@@ -226,7 +226,10 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onTagAnchor={(anchor) => setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])} />
+        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onTagAnchor={(anchor) => {
+          setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
+          setInput((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}[@${anchor.label}] `)
+        }} />
 
         <aside className="chat-pane">
           <div className="chat-header">
@@ -248,7 +251,6 @@ function App() {
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
-                {message.anchors && message.anchors.length > 0 && <div className="message-anchors">{message.anchors.map((anchor) => <span key={`${anchor.paperId}-${anchor.anchorId}`}>{anchor.label}</span>)}</div>}
                 <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text || (message.role === 'assistant' ? '●' : '')}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
               </article>
             ))}
@@ -258,7 +260,6 @@ function App() {
 
           <div className="composer-wrap">
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
-            {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} title={anchor.source} onClick={() => setContextAnchors((current) => current.filter((item) => item !== anchor))}><span>{anchor.type === 'equation' ? '∑' : anchor.type === 'page' ? 'P' : '¶'}</span>{anchor.label}<X size={11} /></button>)}</div>}
             <form className="composer" onSubmit={onSubmit}>
               <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
               <div className="composer-bottom">

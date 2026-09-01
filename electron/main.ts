@@ -4,6 +4,7 @@ import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+import * as tar from 'tar'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -11,9 +12,9 @@ type ProviderId = 'codex' | 'claude'
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string }
-type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; downloadedAt: number }
+type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
+type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'equation'; itemIndexes?: number[]; translation?: string }
 
 const activeChats = new Map<string, ActiveChat>()
@@ -240,11 +241,18 @@ async function readSettings(): Promise<AppSettings> {
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
+      autoTranslate: value.autoTranslate !== false,
     }
-  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra' } }
+  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: true } }
 }
 async function writeSettings(patch: Partial<AppSettings>) {
   const current = await readSettings()
+  if (process.env.PRISM_TEST_LIBRARY_PATH) {
+    try {
+      const stored = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<AppSettings>
+      current.libraryPath = typeof stored.libraryPath === 'string' ? stored.libraryPath : undefined
+    } catch { current.libraryPath = undefined }
+  }
   const next = { ...current, ...patch }
   await fs.mkdir(path.dirname(settingsPath()), { recursive: true })
   await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8')
@@ -298,19 +306,77 @@ function extractArxivId(input: string) {
   return match?.[1]
 }
 let lastArxivRequest = 0
+async function semanticArxivSearch(query: string): Promise<ArxivPaper[]> {
+  try {
+    const fields = 'title,authors,abstract,publicationDate,citationCount,externalIds,openAccessPdf'
+    const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=${encodeURIComponent(fields)}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
+    if (!response.ok) return []
+    const body = await response.json() as { data?: Array<{ title?: string; authors?: Array<{ name?: string }>; abstract?: string; publicationDate?: string; citationCount?: number; externalIds?: { ArXiv?: string }; openAccessPdf?: { url?: string } }> }
+    return (body.data ?? []).filter((paper) => paper.externalIds?.ArXiv && paper.title).map((paper) => {
+      const arxivId = paper.externalIds!.ArXiv!
+      return { arxivId, title: paper.title!, authors: (paper.authors ?? []).map((author) => author.name ?? '').filter(Boolean), summary: paper.abstract ?? '', published: paper.publicationDate ?? '', updated: paper.publicationDate ?? '', categories: [], pdfUrl: paper.openAccessPdf?.url ?? `https://arxiv.org/pdf/${arxivId}`, absUrl: `https://arxiv.org/abs/${arxivId}`, citationCount: paper.citationCount }
+    })
+  } catch { return [] }
+}
 async function arxivSearch(input: string) {
   const trimmed = input.trim()
   if (!trimmed) return []
   const wait = Math.max(0, 3000 - (Date.now() - lastArxivRequest))
   if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
   const id = extractArxivId(trimmed)
+  const cleanTitle = trimmed.replace(/["()]/g, ' ').replace(/\s+/g, ' ').trim()
+  const terms = cleanTitle.split(' ').filter(Boolean).slice(0, 14)
+  const rankedQuery = terms.length > 1
+    ? `(ti:"${cleanTitle}") OR (${terms.map((term) => `all:${term}`).join(' AND ')})`
+    : `all:${cleanTitle}`
   const params = id
     ? `id_list=${encodeURIComponent(id)}`
-    : `search_query=${encodeURIComponent(`all:${trimmed}`)}&start=0&max_results=12&sortBy=relevance&sortOrder=descending`
+    : `search_query=${encodeURIComponent(rankedQuery)}&start=0&max_results=20&sortBy=relevance&sortOrder=descending`
   const response = await fetch(`https://export.arxiv.org/api/query?${params}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
   lastArxivRequest = Date.now()
-  if (!response.ok) throw new Error(`arXiv 검색에 실패했습니다 (${response.status}).`)
-  return parseArxivFeed(await response.text())
+  if (!response.ok) {
+    if (!id && response.status === 429) {
+      const fallback = await semanticArxivSearch(trimmed)
+      if (fallback.length) return fallback
+    }
+    throw new Error(`arXiv 검색에 실패했습니다 (${response.status}).`)
+  }
+  const papers = parseArxivFeed(await response.text())
+  if (id || !papers.length) return papers
+  try {
+    const citationResponse = await fetch('https://api.semanticscholar.org/graph/v1/paper/batch?fields=title,citationCount', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Prism/0.1 local desktop research reader' },
+      body: JSON.stringify({ ids: papers.map((paper) => `ARXIV:${paper.arxivId}`) }),
+    })
+    if (citationResponse.ok) {
+      const citations = await citationResponse.json() as Array<{ citationCount?: number } | null>
+      citations.forEach((entry, index) => { if (entry && Number.isFinite(entry.citationCount)) papers[index].citationCount = entry.citationCount })
+    }
+  } catch { /* citation popularity is a best-effort ranking signal */ }
+  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9가-힣]+/g, ' ').trim()
+  const wanted = normalize(trimmed)
+  const wantedTokens = new Set(wanted.split(' ').filter(Boolean))
+  const score = (paper: ArxivPaper) => {
+    const title = normalize(paper.title)
+    const titleTokens = new Set(title.split(' ').filter(Boolean))
+    const overlap = [...wantedTokens].filter((token) => titleTokens.has(token)).length / Math.max(1, wantedTokens.size)
+    const exact = title === wanted ? 1_000_000 : title.startsWith(wanted) ? 100_000 : title.includes(wanted) ? 20_000 : 0
+    return exact + overlap * 10_000 + Math.log10((paper.citationCount ?? 0) + 1) * 500
+  }
+  return papers.sort((left, right) => score(right) - score(left)).slice(0, 20)
+}
+
+async function paperAutocomplete(input: string) {
+  const query = input.trim().slice(0, 100)
+  if (query.length < 2) return []
+  try {
+    const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/autocomplete?query=${encodeURIComponent(query)}`, {
+      headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' },
+    })
+    if (!response.ok) return []
+    const data = await response.json() as { matches?: Array<{ title?: string; authorsYear?: string }> }
+    return (data.matches ?? []).filter((match) => typeof match.title === 'string').slice(0, 6)
+  } catch { return [] }
 }
 
 function yamlString(value: string) { return JSON.stringify(value.replace(/\r?\n/g, ' ')) }
@@ -328,15 +394,27 @@ async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   const pdfPath = path.join(paperDir, 'original.pdf')
   const notePath = path.join(paperDir, `${safeId}.md`)
   const translationPath = path.join(paperDir, 'translation.ko.json')
+  const sourcePath = path.join(paperDir, 'source.tar.gz')
   const response = await fetch(paper.pdfUrl, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
   if (!response.ok) throw new Error(`PDF 다운로드에 실패했습니다 (${response.status}).`)
   const pdf = Buffer.from(await response.arrayBuffer())
   if (pdf.subarray(0, 4).toString() !== '%PDF') throw new Error('다운로드한 파일이 PDF 형식이 아닙니다.')
   await fs.mkdir(paperDir, { recursive: true })
   await fs.writeFile(pdfPath, pdf)
+  let downloadedSourcePath: string | undefined
+  try {
+    const sourceResponse = await fetch(`https://arxiv.org/src/${paper.arxivId}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
+    if (sourceResponse.ok) {
+      await fs.writeFile(sourcePath, Buffer.from(await sourceResponse.arrayBuffer()))
+      downloadedSourcePath = sourcePath
+      const sourceDir = path.join(paperDir, 'source')
+      await fs.mkdir(sourceDir, { recursive: true })
+      try { await tar.x({ file: sourcePath, cwd: sourceDir, preservePaths: false, strict: true }) } catch { /* some submissions are a single compressed TeX file */ }
+    }
+  } catch { /* source files are optional; PDF download remains usable */ }
   await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(paper, null, 2), 'utf8')
   await fs.writeFile(notePath, paperMarkdown(paper, 'original.pdf'), 'utf8')
-  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, downloadedAt: Date.now() }
+  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now() }
   const library = await readLibrary()
   await writeLibrary([record, ...library])
   return record
@@ -432,6 +510,7 @@ ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   const safePatch: Partial<AppSettings> = {}
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
+  if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
   return writeSettings(safePatch)
 })
 ipcMain.handle('workspace:choose', async (event) => {
@@ -445,6 +524,7 @@ ipcMain.handle('workspace:choose', async (event) => {
 })
 ipcMain.handle('library:list', () => readLibrary())
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
+ipcMain.handle('paper:autocomplete', (_event, input: string) => paperAutocomplete(String(input)))
 ipcMain.handle('arxiv:open', (_event, arxivId: string) => {
   const id = extractArxivId(String(arxivId))
   if (!id) throw new Error('올바른 arXiv ID가 아닙니다.')
@@ -453,9 +533,14 @@ ipcMain.handle('arxiv:open', (_event, arxivId: string) => {
 ipcMain.handle('paper:download', async (_event, input: ArxivPaper) => {
   const id = extractArxivId(String(input?.arxivId ?? ''))
   if (!id) throw new Error('올바른 arXiv 논문이 아닙니다.')
-  const [paper] = await arxivSearch(id)
-  if (!paper) throw new Error('arXiv에서 논문 정보를 찾지 못했습니다.')
-  paper.pdfUrl = `https://arxiv.org/pdf/${id}`
+  const paper: ArxivPaper = {
+    arxivId: id, title: String(input.title ?? id).slice(0, 1000),
+    authors: Array.isArray(input.authors) ? input.authors.map(String).slice(0, 200) : [],
+    summary: String(input.summary ?? '').slice(0, 100_000), published: String(input.published ?? ''), updated: String(input.updated ?? ''),
+    categories: Array.isArray(input.categories) ? input.categories.map(String).slice(0, 50) : [],
+    pdfUrl: `https://arxiv.org/pdf/${id}`, absUrl: `https://arxiv.org/abs/${id}`,
+    citationCount: Number.isFinite(input.citationCount) ? input.citationCount : undefined,
+  }
   return downloadPaper(paper)
 })
 ipcMain.handle('paper:pdf', async (_event, arxivId: string) => {
@@ -474,6 +559,20 @@ ipcMain.handle('paper:note:save', async (_event, arxivId: string, content: strin
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   await fs.writeFile(record.notePath, content, 'utf8')
   return true
+})
+ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
+  if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
+  if (typeof dataUrl !== 'string' || dataUrl.length > 30_000_000) throw new Error('피겨 이미지가 너무 큽니다.')
+  const match = dataUrl.match(/^data:image\/png;base64,([a-zA-Z0-9+/=]+)$/)
+  if (!match) throw new Error('피겨 이미지 형식이 올바르지 않습니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  const figuresDir = path.join(path.dirname(record.pdfPath), 'figures')
+  await fs.mkdir(figuresDir, { recursive: true })
+  const imagePath = path.join(figuresDir, `${figureId}.png`)
+  await fs.writeFile(imagePath, Buffer.from(match[1], 'base64'))
+  await fs.writeFile(path.join(figuresDir, `${figureId}.json`), JSON.stringify({ figureId, paperId: arxivId, imagePath, ...((metadata && typeof metadata === 'object') ? metadata : {}) }, null, 2), 'utf8')
+  return imagePath
 })
 ipcMain.handle('translation:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
