@@ -46,13 +46,22 @@ function MessageContent({ text, anchors }: { text: string; anchors?: ContextAnch
     if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
     const anchor = byLabel.get(match[1])
     nodes.push(anchor
-      ? <span key={`${match.index}-${anchor.anchorId}`} className="anchor-token" data-preview={anchor.source.slice(0, 500)} title={anchor.source}>@{anchor.label}</span>
+      ? <AnchorChip key={`${match.index}-${anchor.anchorId}`} anchor={anchor} />
       : match[0])
     cursor = match.index + match[0].length
   }
   if (cursor < text.length) nodes.push(text.slice(cursor))
   return <>{nodes}</>
 }
+
+function AnchorChip({ anchor, onRemove }: { anchor: ContextAnchor; onRemove?: () => void }) {
+  const content = <><span className="anchor-symbol">@</span>{anchor.label}{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : anchor.source.slice(0, 500)}</span></>
+  return onRemove
+    ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
+    : <span className="anchor-token" title={anchor.source}>{content}</span>
+}
+
+function withoutReferences(text: string) { return text.replace(referencePattern, ' ').replace(/\s{2,}/g, ' ').trim() }
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
@@ -138,7 +147,6 @@ function App() {
 
   const canSend = useMemo(() => Boolean(input.trim() && activeSession && !isRunning && activeProvider?.available), [input, activeSession, isRunning, activeProvider])
   const orderedSessions = useMemo(() => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt), [sessions])
-  const inputAnchors = useMemo(() => referencedAnchors(input, [...contextAnchors, ...anchorCatalog]), [input, contextAnchors, anchorCatalog])
 
   function updateSession(sessionId: string, updater: (session: ChatSession) => ChatSession) {
     setSessions((current) => current.map((session) => session.id === sessionId ? updater(session) : session))
@@ -150,6 +158,7 @@ function App() {
     setSessions((current) => [session, ...current])
     setActiveSessionId(session.id)
     setInput('')
+    setContextAnchors([])
   }
 
   function deleteSession(sessionId: string) {
@@ -177,11 +186,13 @@ function App() {
   }
 
   async function send(text = input) {
-    const prompt = text.trim()
+    const rawPrompt = text.trim()
+    const typedAnchors = referencedAnchors(rawPrompt, anchorCatalog)
+    const selectedAnchors = [...contextAnchors, ...typedAnchors].filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index)
+    const prompt = withoutReferences(rawPrompt)
     if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
     const sessionId = activeSession.id
     const assistantId = uniqueId('assistant')
-    const selectedAnchors = referencedAnchors(prompt, [...contextAnchors, ...anchorCatalog])
     const promptWithContext = selectedAnchors.length
       ? `${prompt}\n\n<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.`
       : prompt
@@ -217,6 +228,22 @@ function App() {
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
   }
+
+  function consumeReferences(value: string, includeTrailingToken = false) {
+    const found = referencedAnchors(value, anchorCatalog).filter((anchor) => {
+      const match = value.match(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?`))
+      return Boolean(match && (includeTrailingToken || (match.index ?? 0) + match[0].length < value.length))
+    })
+    if (found.length) setContextAnchors((current) => [...current, ...found].filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index))
+    const cleaned = found.reduce((current, anchor) => current.replace(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?\\s*`, 'g'), ' '), value).replace(/\s{2,}/g, ' ').trimStart()
+    setInput(cleaned)
+  }
+
+  useEffect(() => {
+    if (!input.includes('@')) return
+    const timeout = window.setTimeout(() => consumeReferences(input, true), 450)
+    return () => window.clearTimeout(timeout)
+  }, [input, anchorCatalog])
 
   if (!activeSession) return <main className="app-shell loading-app">Prism을 준비하고 있어요…</main>
 
@@ -259,7 +286,6 @@ function App() {
 
         <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={(anchor) => {
           setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
-          setInput((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${anchor.label} `)
         }} />
 
         <aside className="chat-pane">
@@ -282,7 +308,8 @@ function App() {
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
-                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.text} anchors={message.anchors} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
+                {message.anchors?.length ? <div className={`message-anchors ${message.role}`}>{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} />)}</div> : null}
+                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}
@@ -292,8 +319,8 @@ function App() {
           <div className="composer-wrap">
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
-              {inputAnchors.length > 0 && <div className="context-chips">{inputAnchors.map((anchor) => <button type="button" key={`${anchor.paperId}-${anchor.anchorId}`} className="anchor-token" data-preview={anchor.source.slice(0, 500)} title={anchor.source} onClick={() => setInput((current) => current.replace(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?\\s*`, 'g'), ' ').replace(/\s{2,}/g, ' ').trimStart())}><span>@</span>{anchor.label}<X size={11} /></button>)}</div>}
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
+              {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
+              <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
               <div className="composer-bottom">
                 <button type="button" className="context-button"><MessageSquareText size={14} /> 현재 논문 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}

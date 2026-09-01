@@ -3,7 +3,7 @@
 type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; available: boolean; status: string; models: ProviderModel[] }
-type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'equation' | 'figure' | 'page'; page: number; label: string; source: string }
+type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'equation' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[] }
 type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
