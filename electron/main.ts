@@ -426,6 +426,74 @@ function createWindow() {
 ipcMain.handle('providers:list', () => providerInfo())
 ipcMain.handle('sessions:load', () => loadSessions())
 ipcMain.handle('sessions:save', (_event, sessions: unknown) => saveSessions(sessions))
+ipcMain.handle('settings:get', () => readSettings())
+ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
+  const safePatch: Partial<AppSettings> = {}
+  if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
+  if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
+  return writeSettings(safePatch)
+})
+ipcMain.handle('workspace:choose', async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+  const options = { title: 'Prism 라이브러리 폴더 선택', properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> }
+  const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (result.canceled || !result.filePaths[0]) return null
+  const libraryPath = result.filePaths[0]
+  await fs.mkdir(path.join(libraryPath, '.prism'), { recursive: true })
+  return writeSettings({ libraryPath })
+})
+ipcMain.handle('library:list', () => readLibrary())
+ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
+ipcMain.handle('arxiv:open', (_event, arxivId: string) => {
+  const id = extractArxivId(String(arxivId))
+  if (!id) throw new Error('올바른 arXiv ID가 아닙니다.')
+  return shell.openExternal(`https://arxiv.org/abs/${id}`)
+})
+ipcMain.handle('paper:download', async (_event, input: ArxivPaper) => {
+  const id = extractArxivId(String(input?.arxivId ?? ''))
+  if (!id) throw new Error('올바른 arXiv 논문이 아닙니다.')
+  const [paper] = await arxivSearch(id)
+  if (!paper) throw new Error('arXiv에서 논문 정보를 찾지 못했습니다.')
+  paper.pdfUrl = `https://arxiv.org/pdf/${id}`
+  return downloadPaper(paper)
+})
+ipcMain.handle('paper:pdf', async (_event, arxivId: string) => {
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return new Uint8Array(await fs.readFile(record.pdfPath))
+})
+ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return fs.readFile(record.notePath, 'utf8')
+})
+ipcMain.handle('paper:note:save', async (_event, arxivId: string, content: string) => {
+  if (typeof content !== 'string' || content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  await fs.writeFile(record.notePath, content, 'utf8')
+  return true
+})
+ipcMain.handle('translation:read', async (_event, arxivId: string) => {
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  try { return JSON.parse(await fs.readFile(record.translationPath, 'utf8')) }
+  catch { return null }
+})
+ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[]) => {
+  if (!Array.isArray(segments) || segments.length > 20_000) throw new Error('번역할 문장 데이터가 올바르지 않습니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  const safeSegments = segments.filter((segment) => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && segment.source.length < 10_000)
+    .map((segment) => ({ ...segment, source: segment.source.trim(), itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [] }))
+  void translatePaper(event.sender, record, safeSegments).catch((error) => safeSend(event.sender, 'translation:error', { arxivId, message: error instanceof Error ? error.message : String(error) }))
+  return { started: true }
+})
+ipcMain.handle('translation:cancel', (_event, arxivId: string) => {
+  const child = translationJobs.get(arxivId)
+  if (!child) return false
+  child.kill(); translationJobs.delete(arxivId); return true
+})
 ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   const prompt = request.prompt?.trim()
   if (!prompt || prompt.length > 50_000) throw new Error('메시지는 1자 이상 50,000자 이하여야 합니다.')
@@ -445,6 +513,7 @@ ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {
 app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() }) })
 app.on('window-all-closed', () => {
   for (const active of activeChats.values()) active.process?.kill()
+  for (const child of translationJobs.values()) child.kill()
   codexServer.stop()
   if (process.platform !== 'darwin') app.quit()
 })

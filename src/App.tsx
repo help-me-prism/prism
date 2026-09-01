@@ -4,6 +4,7 @@ import {
   MoreHorizontal, PanelLeftClose, Plus, Search, SendHorizontal, Settings2, Sparkles,
   Square, StickyNote, Trash2, X,
 } from 'lucide-react'
+import PaperWorkspace from './PaperWorkspace'
 
 type JsonRecord = Record<string, unknown>
 
@@ -218,20 +219,7 @@ function App() {
           </aside>
         )}
 
-        <section className="reader-pane">
-          <div className="reader-toolbar">
-            <button className="icon-button" onClick={() => setSidebarOpen((value) => !value)} aria-label="사이드바 토글"><PanelLeftClose size={18} /></button>
-            <div className="page-controls"><button>−</button><span>100%</span><button>＋</button></div>
-            <button className="icon-button"><MoreHorizontal size={19} /></button>
-          </div>
-          <div className="reader-empty">
-            <div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div>
-            <h1>읽을 논문을 열어보세요</h1>
-            <p>PDF를 불러오면 이곳에서 읽고,<br />AI와 함께 내용을 탐색할 수 있어요.</p>
-            <button><Plus size={17} /> PDF 열기</button>
-          </div>
-          <div className="reader-status"><span>논문 뷰어는 다음 단계에서 연결됩니다</span><span><Library size={13} /> Local workspace</span></div>
-        </section>
+        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} />
 
         <aside className="chat-pane">
           <div className="chat-header">
