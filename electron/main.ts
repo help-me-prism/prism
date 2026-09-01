@@ -4,7 +4,9 @@ import { promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
+import { parseLatexStructure, type LatexStructure } from './latex.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -15,7 +17,7 @@ type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { me
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
-type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'equation'; itemIndexes?: number[]; translation?: string }
+type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 const activeChats = new Map<string, ActiveChat>()
 const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; messageId: string }>()
@@ -241,9 +243,9 @@ async function readSettings(): Promise<AppSettings> {
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
-      autoTranslate: value.autoTranslate !== false,
+      autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate !== false,
     }
-  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: true } }
+  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
 }
 async function writeSettings(patch: Partial<AppSettings>) {
   const current = await readSettings()
@@ -405,11 +407,22 @@ async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   try {
     const sourceResponse = await fetch(`https://arxiv.org/src/${paper.arxivId}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
     if (sourceResponse.ok) {
-      await fs.writeFile(sourcePath, Buffer.from(await sourceResponse.arrayBuffer()))
+      const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer())
+      await fs.writeFile(sourcePath, sourceBuffer)
       downloadedSourcePath = sourcePath
       const sourceDir = path.join(paperDir, 'source')
       await fs.mkdir(sourceDir, { recursive: true })
-      try { await tar.x({ file: sourcePath, cwd: sourceDir, preservePaths: false, strict: true }) } catch { /* some submissions are a single compressed TeX file */ }
+      try {
+        await tar.x({ file: sourcePath, cwd: sourceDir, preservePaths: false, strict: true })
+      } catch {
+        let singleSource: string | undefined
+        for (const candidate of [() => sourceBuffer.toString('utf8'), () => gunzipSync(sourceBuffer).toString('utf8')]) {
+          try { const value = candidate(); if (/\\(?:documentclass|begin\s*\{document\})/.test(value)) { singleSource = value; break } } catch { /* try the other source encoding */ }
+        }
+        if (singleSource) await fs.writeFile(path.join(sourceDir, 'main.tex'), singleSource, 'utf8')
+      }
+      const structure = await parseLatexStructure(sourceDir)
+      if (structure) await fs.writeFile(path.join(paperDir, 'latex-structure.json'), JSON.stringify(structure, null, 2), 'utf8')
     }
   } catch { /* source files are optional; PDF download remains usable */ }
   await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(paper, null, 2), 'utf8')
@@ -418,6 +431,16 @@ async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   const library = await readLibrary()
   await writeLibrary([record, ...library])
   return record
+}
+
+async function latexStructure(record: PaperRecord): Promise<LatexStructure | null> {
+  if (!record.sourcePath) return null
+  const paperDir = path.dirname(record.pdfPath)
+  const structurePath = path.join(paperDir, 'latex-structure.json')
+  try { const cached = JSON.parse(await fs.readFile(structurePath, 'utf8')) as LatexStructure; if (cached.version === 2) return cached } catch { /* build for libraries saved before source parsing existed */ }
+  const structure = await parseLatexStructure(path.join(paperDir, 'source'))
+  if (structure) await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf8')
+  return structure
 }
 
 function parseTranslationJson(text: string): Array<{ id: string; translation: string }> {
@@ -454,7 +477,7 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   return final
 }
 
-async function translatePaper(sender: WebContents, record: PaperRecord, segments: TranslationSegment[]) {
+async function translatePaper(sender: WebContents, record: PaperRecord, segments: TranslationSegment[], force = false) {
   const settings = await readSettings()
   const jobKey = record.arxivId
   if (translationJobs.has(jobKey)) throw new Error('이 논문은 이미 번역 중입니다.')
@@ -462,10 +485,13 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     version: 1, provider: settings.translationProvider, model: settings.translationModel,
     sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: [],
   }
-  try { cache = JSON.parse(await fs.readFile(record.translationPath, 'utf8')) } catch { /* first translation */ }
+  if (!force) try { cache = JSON.parse(await fs.readFile(record.translationPath, 'utf8')) } catch { /* first translation */ }
   const existing = new Map(cache.segments.map((segment) => [segment.id, segment]))
   const merged = segments.map((segment) => existing.get(segment.id)?.translation ? { ...segment, translation: existing.get(segment.id)?.translation } : segment)
-  const missing = merged.filter((segment) => segment.kind === 'text' && !segment.translation && segment.source.trim().length > 1)
+  const translatable = (segment: TranslationSegment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.source.trim().length > 1
+  const missing = merged.filter((segment) => translatable(segment) && !segment.translation)
+  const totalSegments = merged.filter(translatable).length
+  safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: 0, total: 0, completedSegments: totalSegments - missing.length, totalSegments, segments: merged, force })
   const batches: TranslationSegment[][] = []
   let batch: TranslationSegment[] = []; let size = 0
   for (const segment of missing) {
@@ -474,15 +500,17 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   }
   if (batch.length) batches.push(batch)
   for (let index = 0; index < batches.length; index += 1) {
-    const prompt = `You translate academic papers into natural, precise Korean. Translate only prose. Never translate, rewrite, or evaluate equations, symbols, citations, variable names, figure labels, or LaTeX. Preserve technical terms when needed. Return ONLY a JSON array of objects with exactly {"id":"...","translation":"..."}, one for every input item, in the same order.\n\nINPUT:\n${JSON.stringify(batches[index].map(({ id, source }) => ({ id, source })))}`
+    const input = batches[index].map(({ id, source, sourceMode, blockId, sectionTitle, paragraphContext }) => ({ id, source, sourceMode: sourceMode ?? 'pdf', blockId, section: sectionTitle, paragraphContext }))
+    const prompt = `You translate academic papers into natural, precise Korean. Translate only the value of "source". LaTeX-derived paragraphContext is read-only context for resolving terminology and sentence boundaries; never translate or return it. Never translate, rewrite, or evaluate equations, symbols, citations, variable names, figure labels, or LaTeX. Preserve technical terms when needed. Return ONLY a JSON array of objects with exactly {"id":"...","translation":"..."}, one for every input item, in the same order.\n\nINPUT:\n${JSON.stringify(input)}`
     const output = await runTranslationCli(settings.translationProvider, settings.translationModel, prompt, jobKey)
     const translated = new Map(parseTranslationJson(output).map((item) => [item.id, item.translation]))
     for (const segment of merged) if (translated.has(segment.id)) segment.translation = translated.get(segment.id)
     cache = { version: 1, provider: settings.translationProvider, model: settings.translationModel, sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: merged }
     await fs.writeFile(record.translationPath, JSON.stringify(cache, null, 2), 'utf8')
-    safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, segments: merged })
+    const completedSegments = merged.filter((segment) => translatable(segment) && segment.translation).length
+    safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, completedSegments, totalSegments, segments: merged, force })
   }
-  for (const segment of merged) if (segment.kind === 'equation') segment.translation = segment.source
+  for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'artifact') segment.translation = segment.source
   await fs.writeFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2), 'utf8')
   safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged })
 }
@@ -548,6 +576,11 @@ ipcMain.handle('paper:pdf', async (_event, arxivId: string) => {
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   return new Uint8Array(await fs.readFile(record.pdfPath))
 })
+ipcMain.handle('paper:latex-structure', async (_event, arxivId: string) => {
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return latexStructure(record)
+})
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
@@ -587,20 +620,20 @@ ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: Tr
   const data = {
     version: 1, paperId: arxivId, generatedAt: new Date().toISOString(),
     anchors: anchors.map((segment) => ({
-      id: segment.id, type: segment.kind === 'equation' ? 'equation' : 'sentence', page: segment.page,
-      source: segment.source, itemIndexes: segment.itemIndexes ?? [],
+      id: segment.id, type: segment.kind, page: segment.page,
+      source: segment.source, itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
     })),
   }
   await fs.writeFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), JSON.stringify(data, null, 2), 'utf8')
   return true
 })
-ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[]) => {
+ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => {
   if (!Array.isArray(segments) || segments.length > 20_000) throw new Error('번역할 문장 데이터가 올바르지 않습니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   const safeSegments = segments.filter((segment) => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && segment.source.length < 10_000)
-    .map((segment) => ({ ...segment, source: segment.source.trim(), itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [] }))
-  void translatePaper(event.sender, record, safeSegments).catch((error) => safeSend(event.sender, 'translation:error', { arxivId, message: error instanceof Error ? error.message : String(error) }))
+    .map((segment) => ({ ...segment, source: segment.source.trim(), paragraphContext: typeof segment.paragraphContext === 'string' ? segment.paragraphContext.slice(0, 12_000) : undefined, sectionTitle: typeof segment.sectionTitle === 'string' ? segment.sectionTitle.slice(0, 500) : undefined, blockId: typeof segment.blockId === 'string' ? segment.blockId.slice(0, 120) : undefined, sourceMode: segment.sourceMode === 'latex' ? 'latex' as const : 'pdf' as const, itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [], itemSlices: Array.isArray(segment.itemSlices) ? segment.itemSlices.filter((slice) => Number.isInteger(slice?.itemIndex) && Number.isFinite(slice?.start) && Number.isFinite(slice?.end)).map((slice) => ({ itemIndex: slice.itemIndex, start: Math.max(0, Math.min(1, slice.start)), end: Math.max(0, Math.min(1, slice.end)) })) : [] }))
+  void translatePaper(event.sender, record, safeSegments, options?.force === true).catch((error) => safeSend(event.sender, 'translation:error', { arxivId, message: error instanceof Error ? error.message : String(error) }))
   return { started: true }
 })
 ipcMain.handle('translation:cancel', (_event, arxivId: string) => {

@@ -10,7 +10,9 @@ type ChatRequest = { prompt: string; sessionId: string; messageId: string; provi
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
-type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'equation'; itemIndexes?: number[]; translation?: string }
+type LatexBlock = { id: string; kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'; source: string; section?: string }
+type LatexStructure = { version: 2; rootFile: string; generatedAt: string; blocks: LatexBlock[] }
+type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
 
 interface Window {
@@ -27,12 +29,13 @@ interface Window {
     openArxiv: (arxivId: string) => Promise<void>
     downloadPaper: (paper: ArxivPaper) => Promise<PaperRecord>
     readPaperPdf: (arxivId: string) => Promise<Uint8Array>
+    readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
     readPaperNote: (arxivId: string) => Promise<string>
     savePaperNote: (arxivId: string, content: string) => Promise<boolean>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
-    startTranslation: (arxivId: string, segments: TranslationSegment[]) => Promise<{ started: boolean }>
+    startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => Promise<{ started: boolean }>
     cancelTranslation: (arxivId: string) => Promise<boolean>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>
