@@ -1,1 +1,7 @@
 .vscode/
+node_modules/
+dist/
+dist-electron/
+release/
+release-incomplete/
+*.log
