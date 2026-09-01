@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   BookOpen, Bot, ChevronDown, Circle, FileText, Highlighter, Library, MessageSquareText,
   MoreHorizontal, PanelLeftClose, Plus, Search, SendHorizontal, Settings2, Sparkles,
@@ -25,6 +25,35 @@ function makeSession(provider: ProviderId = 'codex', model = provider === 'codex
   return { id: uniqueId('session'), title: '새 대화', provider, model, messages: [], createdAt: now, updatedAt: now }
 }
 
+const referencePattern = /\[?@((?:문장|수식|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
+
+function referencedAnchors(text: string, anchors: ContextAnchor[]) {
+  const byLabel = new Map(anchors.map((anchor) => [anchor.label, anchor]))
+  const result: ContextAnchor[] = []; const seen = new Set<string>()
+  for (const match of text.matchAll(referencePattern)) {
+    const anchor = byLabel.get(match[1]); if (!anchor) continue
+    const key = `${anchor.paperId}:${anchor.anchorId}`
+    if (!seen.has(key)) { seen.add(key); result.push(anchor) }
+  }
+  return result
+}
+
+function MessageContent({ text, anchors }: { text: string; anchors?: ContextAnchor[] }) {
+  if (!text) return null
+  const byLabel = new Map((anchors ?? []).map((anchor) => [anchor.label, anchor]))
+  const nodes: ReactNode[] = []; let cursor = 0
+  for (const match of text.matchAll(referencePattern)) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
+    const anchor = byLabel.get(match[1])
+    nodes.push(anchor
+      ? <span key={`${match.index}-${anchor.anchorId}`} className="anchor-token" data-preview={anchor.source.slice(0, 500)} title={anchor.source}>@{anchor.label}</span>
+      : match[0])
+    cursor = match.index + match[0].length
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return <>{nodes}</>
+}
+
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
@@ -35,6 +64,7 @@ function App() {
   const [hydrated, setHydrated] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [contextAnchors, setContextAnchors] = useState<ContextAnchor[]>([])
+  const [anchorCatalog, setAnchorCatalog] = useState<ContextAnchor[]>([])
   const endRef = useRef<HTMLDivElement>(null)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0]
@@ -108,6 +138,7 @@ function App() {
 
   const canSend = useMemo(() => Boolean(input.trim() && activeSession && !isRunning && activeProvider?.available), [input, activeSession, isRunning, activeProvider])
   const orderedSessions = useMemo(() => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt), [sessions])
+  const inputAnchors = useMemo(() => referencedAnchors(input, [...contextAnchors, ...anchorCatalog]), [input, contextAnchors, anchorCatalog])
 
   function updateSession(sessionId: string, updater: (session: ChatSession) => ChatSession) {
     setSessions((current) => current.map((session) => session.id === sessionId ? updater(session) : session))
@@ -150,7 +181,7 @@ function App() {
     if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
     const sessionId = activeSession.id
     const assistantId = uniqueId('assistant')
-    const selectedAnchors = contextAnchors.filter((anchor) => prompt.includes(`[@${anchor.label}]`))
+    const selectedAnchors = referencedAnchors(prompt, [...contextAnchors, ...anchorCatalog])
     const promptWithContext = selectedAnchors.length
       ? `${prompt}\n\n<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.`
       : prompt
@@ -164,7 +195,7 @@ function App() {
       messages: [
         ...session.messages,
         { id: uniqueId('user'), role: 'user', text: prompt, createdAt: now, anchors: selectedAnchors },
-        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1 },
+        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: selectedAnchors },
       ],
     }))
     setContextAnchors([])
@@ -226,9 +257,9 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onTagAnchor={(anchor) => {
+        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={(anchor) => {
           setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
-          setInput((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}[@${anchor.label}] `)
+          setInput((current) => `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${anchor.label} `)
         }} />
 
         <aside className="chat-pane">
@@ -251,7 +282,7 @@ function App() {
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
-                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text || (message.role === 'assistant' ? '●' : '')}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
+                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.text} anchors={message.anchors} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}
@@ -261,6 +292,7 @@ function App() {
           <div className="composer-wrap">
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
+              {inputAnchors.length > 0 && <div className="context-chips">{inputAnchors.map((anchor) => <button type="button" key={`${anchor.paperId}-${anchor.anchorId}`} className="anchor-token" data-preview={anchor.source.slice(0, 500)} title={anchor.source} onClick={() => setInput((current) => current.replace(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?\\s*`, 'g'), ' ').replace(/\s{2,}/g, ' ').trimStart())}><span>@</span>{anchor.label}<X size={11} /></button>)}</div>}
               <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
               <div className="composer-bottom">
                 <button type="button" className="context-button"><MessageSquareText size={14} /> 현재 논문 <ChevronDown size={12} /></button>

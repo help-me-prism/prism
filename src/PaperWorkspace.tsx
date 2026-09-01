@@ -48,19 +48,22 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
       const displayGap = verticalGap > height * 1.8
       const fontSizeBoundary = verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
       const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset
+      if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
       combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
     }
     const start = combined.length; combined += value
     ranges.push({ start, end: combined.length, itemIndex }); previous = item
   }
 
-  const parts: Array<{ text: string; start: number; end: number }> = []
+  const parts: Array<{ text: string; start: number; end: number; blockId: string; paragraphContext: string }> = []
+  let paragraphIndex = 0
   for (const paragraphMatch of combined.matchAll(/[^\n]+/g)) {
     const paragraph = paragraphMatch[0].trim()
     if (!paragraph) continue
+    const blockId = `pdf-p${page}-b${paragraphIndex++}`
     const paragraphStart = paragraphMatch.index + paragraphMatch[0].indexOf(paragraph)
     if (isEquation(paragraph) && paragraph.length < 260) {
-      parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length }); continue
+      parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
     }
     const sentences = typeof Intl.Segmenter === 'function'
       ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(paragraph)]
@@ -69,7 +72,7 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
       const text = sentence.segment.trim()
       if (text.length < 2) continue
       const start = paragraphStart + sentence.index + sentence.segment.indexOf(text)
-      parts.push({ text, start, end: start + text.length })
+      parts.push({ text, start, end: start + text.length, blockId, paragraphContext: paragraph })
     }
   }
   const preliminary = parts.map((part, index) => {
@@ -89,18 +92,23 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
     const caption = /^(?:figure|fig\.|table)\s*\d+/i.test(part.text)
     const shortFragments = matchedItems.filter((item) => item.str.trim().length < 32).length
     const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
-    const likelyGraphicOrTable = !sectionHeading && !caption && punctuation === 0 && (
+    const digitRatio = digits / Math.max(1, part.text.length)
+    const numericLayout = digits >= 6 && digitRatio > .12 && matchedItems.length >= 5
+    const likelyGraphicOrTable = !caption && (numericLayout || (!sectionHeading && (
       (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
-      || (digits / Math.max(1, part.text.length) > .22 && matchedItems.length >= 4)
-    )
+      || (digitRatio > .18 && matchedItems.length >= 4)
+    )))
     const kind: TranslationSegment['kind'] = isEquation(part.text) ? 'equation'
       : caption ? 'caption'
-        : sectionHeading || (punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading'
-          : likelyGraphicOrTable ? 'artifact' : 'text'
-    return { id: `p${page}-s${index}-${shortHash(part.text)}`, page, source: part.text, kind, itemIndexes: itemSlices.map((slice) => slice.itemIndex), itemSlices }
+        : likelyGraphicOrTable ? 'artifact'
+          : sectionHeading || (punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading' : 'text'
+    return { id: `p${page}-s${index}-${shortHash(part.text)}`, page, source: part.text, kind, blockId: part.blockId, paragraphContext: part.paragraphContext, itemIndexes: itemSlices.map((slice) => slice.itemIndex), itemSlices }
   })
+  const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)).length
+  const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
   const classified = preliminary.map((segment, index) => {
     if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
+    if (denseLayoutPage && segment.kind === 'text' && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     return segment
   })
   const merged: TranslationSegment[] = []
@@ -193,13 +201,23 @@ function segmentRects(segment: TranslationSegment, itemRects: ItemRect[]) {
   return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean)
 }
 
-function translationLines(segment: TranslationSegment, itemRects: ItemRect[]) {
-  const rects = segmentRects(segment, itemRects).sort((a, b) => a.top - b.top || a.left - b.left)
-  const lines: ItemRect[][] = []
-  for (const rect of rects) { const line = lines.find((candidate) => Math.abs(candidate[0].top - rect.top) < Math.max(4, rect.height * .55)); if (line) line.push(rect); else lines.push([rect]) }
-  const boxes = lines.map((line) => ({ left: Math.min(...line.map((r) => r.left)), top: Math.min(...line.map((r) => r.top)), width: Math.max(...line.map((r) => r.left + r.width)) - Math.min(...line.map((r) => r.left)), height: Math.max(...line.map((r) => r.height)) }))
-  const text = segment.translation ?? ''; let cursor = 0; const total = boxes.reduce((sum, box) => sum + box.width, 0)
-  return boxes.map((box, index) => { const take = index === boxes.length - 1 ? text.length - cursor : Math.max(1, Math.round(text.length * box.width / Math.max(1, total))); const value = text.slice(cursor, cursor + take); cursor += take; return { box, text: value } })
+function translationBlocks(segments: TranslationSegment[], itemRects: ItemRect[]) {
+  const groups = new Map<string, TranslationSegment[]>()
+  for (const segment of segments) {
+    if (!['text', 'heading', 'caption'].includes(segment.kind) || !segment.translation) continue
+    const key = segment.blockId ?? segment.id; const current = groups.get(key) ?? []; current.push(segment); groups.set(key, current)
+  }
+  return [...groups.entries()].flatMap(([key, blockSegments]) => {
+    const rects = blockSegments.flatMap((segment) => segmentRects(segment, itemRects))
+    if (!rects.length) return []
+    const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top))
+    const width = Math.max(...rects.map((rect) => rect.left + rect.width)) - left; const sourceHeight = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
+    const heights = rects.map((rect) => rect.height).sort((a, b) => a - b); const baseSize = (heights[Math.floor(heights.length / 2)] ?? 10) * .9
+    const units = blockSegments.reduce((sum, segment) => sum + [...(segment.translation ?? '')].reduce((value, character) => value + (/[가-힣]/.test(character) ? 1 : .58), 0), 0)
+    const fitSize = Math.sqrt(Math.max(1, width * sourceHeight) / Math.max(1, units * 1.38)); const fontSize = Math.max(7.6, Math.min(11.2, baseSize, fitSize * 1.18))
+    const lines = Math.max(1, Math.ceil(units * fontSize / Math.max(1, width))); const height = Math.max(sourceHeight, lines * fontSize * 1.38)
+    return [{ key, segments: blockSegments, box: { left, top, width, height }, fontSize }]
+  })
 }
 
 function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translation, mode, highlighted, figureSelect, onHighlight, onTag, onVisible, onFigure }: {
@@ -235,15 +253,16 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
     onFigure(pageNumber, crop.toDataURL('image/png'), { x: x / source.clientWidth, y: y / source.clientHeight, width: width / source.clientWidth, height: height / source.clientHeight })
   }
   const translatedSegments = segments.map((segment) => ({ ...segment, translation: translation.get(segment.id) ?? segment.translation }))
+  const translatedBlocks = translationBlocks(translatedSegments, itemRects)
   return <div className={`continuous-page ${mode}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
-    {mode === 'translated' && <div className="translated-text-layer">{translatedSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).flatMap((segment) => translationLines(segment, itemRects).map((line, index) => <span key={`${segment.id}-${index}`} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={line.box} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)}>{line.text}</span>))}</div>}
+    {mode === 'translated' && <div className="translated-text-layer">{translatedBlocks.map((block) => <div key={block.key} className={`translated-block ${block.segments[0].kind}`} style={{ ...block.box, fontSize: block.fontSize }}>{block.segments.map((segment) => <span key={segment.id} className={`translated-sentence ${segment.id === highlighted ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)}>{segment.translation}{' '}</span>)}</div>)}</div>}
     <div className="anchor-layer">{segments.filter((segment) => segment.kind !== 'artifact').flatMap((segment) => segmentRects(segment, itemRects).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭하여 채팅에 태그" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} />))}</div>
     {figureSelect && <div className="figure-capture-layer" onPointerDown={(event) => { const value = point(event); event.currentTarget.setPointerCapture(event.pointerId); setSelection({ startX: value.x, startY: value.y, x: value.x, y: value.y }) }} onPointerMove={(event) => { if (!selection) return; const value = point(event); setSelection((current) => current ? { ...current, x: value.x, y: value.y } : undefined) }} onPointerUp={finishFigure}>{selection && <span style={{ left: Math.min(selection.startX, selection.x), top: Math.min(selection.startY, selection.y), width: Math.abs(selection.x - selection.startX), height: Math.abs(selection.y - selection.startY) }} />}</div>}
     <span className="page-badge">{pageNumber}</span>
   </div>
 }
 
-export default function PaperWorkspace({ providers, onToggleSidebar, onTagAnchor }: { providers: ProviderInfo[]; sidebarOpen: boolean; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void }) {
+export default function PaperWorkspace({ providers, onToggleSidebar, onTagAnchor, onAnchorCatalog }: { providers: ProviderInfo[]; sidebarOpen: boolean; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void }) {
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: true })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [panel, setPanel] = useState<'notes' | null>(null); const [pdf, setPdf] = useState<PdfDocument>()
@@ -260,8 +279,20 @@ export default function PaperWorkspace({ providers, onToggleSidebar, onTagAnchor
   const translatedCount = translation.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length
   const hasCachedTranslation = cacheExists
   const translationPercent = translationProgress.total ? Math.round(translationProgress.completed / translationProgress.total * 100) : (hasCachedTranslation ? 100 : 0)
+  const anchorCatalog = useMemo(() => {
+    if (!activePaper) return []
+    let sentence = 0; let equation = 0
+    const anchors = allSegments.flatMap((segment): ContextAnchor[] => {
+      if (['text', 'heading', 'caption'].includes(segment.kind)) { sentence += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source }] }
+      if (segment.kind === 'equation') { equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source }] }
+      return []
+    })
+    const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index): ContextAnchor => ({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${index + 1}`, type: 'page', page: index + 1, label: `페이지${index + 1}`, source: `Page ${index + 1} of ${activePaper.title}` })) : []
+    return [...anchors, ...pages]
+  }, [activePaper?.arxivId, allSegments, pdf])
 
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
+  useEffect(() => { onAnchorCatalog(anchorCatalog) }, [anchorCatalog])
   useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([saved, papers]) => { setSettings(saved); setLibrary(papers); if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) } else setFinderOpen(true) }).catch((reason) => setError(String(reason)))
     const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
@@ -303,7 +334,7 @@ export default function PaperWorkspace({ providers, onToggleSidebar, onTagAnchor
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { setSettings(next); setLibrary(await window.prism.listLibrary()) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
   async function startTranslation() { if (!activePaper || !allSegments.length) return; const force = hasCachedTranslation; setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); setViewMode('dual'); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
-  function tagSegment(segment: TranslationSegment) { if (!activePaper) return; const sameKind = allSegments.filter((item) => item.kind === segment.kind); const number = sameKind.findIndex((item) => item.id === segment.id) + 1; onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: segment.kind === 'equation' ? 'equation' : 'sentence', page: segment.page, label: `${segment.kind === 'equation' ? '수식' : '문장'}${number}`, source: segment.source }) }
+  function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
   async function saveFigure(page: number, dataUrl: string, rect: { x: number; y: number; width: number; height: number }) { if (!activePaper) return; const number = Date.now().toString(36); const figureId = `figure-p${page}-${number}`; try { const imagePath = await window.prism.savePaperFigure(activePaper.arxivId, figureId, dataUrl, { page, rect }); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: figureId, type: 'figure', page, label: `피겨${page}-${number.slice(-3)}`, source: `Saved figure region from page ${page}. Image: ${imagePath}. Normalized bounds: ${JSON.stringify(rect)}` }); setFigureSelect(false) } catch (reason) { setError(String(reason)) } }
   function syncScroll(from: HTMLDivElement, to: HTMLDivElement | null) { if (!to || syncLock.current) return; syncLock.current = true; const ratio = from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight); to.scrollTop = ratio * Math.max(0, to.scrollHeight - to.clientHeight); requestAnimationFrame(() => { syncLock.current = false }) }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
