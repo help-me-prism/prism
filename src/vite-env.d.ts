@@ -3,7 +3,8 @@
 type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; available: boolean; status: string; models: ProviderModel[] }
-type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number }
+type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'equation' | 'figure' | 'page'; page: number; label: string; source: string }
+type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[] }
 type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string }
@@ -28,6 +29,7 @@ interface Window {
     readPaperNote: (arxivId: string) => Promise<string>
     savePaperNote: (arxivId: string, content: string) => Promise<boolean>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
+    savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
     startTranslation: (arxivId: string, segments: TranslationSegment[]) => Promise<{ started: boolean }>
     cancelTranslation: (arxivId: string) => Promise<boolean>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>

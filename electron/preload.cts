@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('prism', {
   readPaperNote: (arxivId: string) => ipcRenderer.invoke('paper:note:read', arxivId),
   savePaperNote: (arxivId: string, content: string) => ipcRenderer.invoke('paper:note:save', arxivId, content),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),
+  savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),
   startTranslation: (arxivId: string, segments: unknown) => ipcRenderer.invoke('translation:start', arxivId, segments),
   cancelTranslation: (arxivId: string) => ipcRenderer.invoke('translation:cancel', arxivId),
   sendMessage: (request: unknown) => ipcRenderer.invoke('chat:send', request),

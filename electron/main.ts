@@ -233,14 +233,15 @@ async function saveSessions(value: unknown) {
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json') }
 async function readSettings(): Promise<AppSettings> {
+  const testLibraryPath = process.env.PRISM_TEST_LIBRARY_PATH
   try {
     const value = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<AppSettings>
     return {
-      libraryPath: typeof value.libraryPath === 'string' ? value.libraryPath : undefined,
+      libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
     }
-  } catch { return { translationProvider: 'codex', translationModel: 'gpt-5.6-terra' } }
+  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra' } }
 }
 async function writeSettings(patch: Partial<AppSettings>) {
   const current = await readSettings()
@@ -479,6 +480,20 @@ ipcMain.handle('translation:read', async (_event, arxivId: string) => {
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   try { return JSON.parse(await fs.readFile(record.translationPath, 'utf8')) }
   catch { return null }
+})
+ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: TranslationSegment[]) => {
+  if (!Array.isArray(anchors) || anchors.length > 20_000) throw new Error('anchor 데이터가 올바르지 않습니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  const data = {
+    version: 1, paperId: arxivId, generatedAt: new Date().toISOString(),
+    anchors: anchors.map((segment) => ({
+      id: segment.id, type: segment.kind === 'equation' ? 'equation' : 'sentence', page: segment.page,
+      source: segment.source, itemIndexes: segment.itemIndexes ?? [],
+    })),
+  }
+  await fs.writeFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), JSON.stringify(data, null, 2), 'utf8')
+  return true
 })
 ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[]) => {
   if (!Array.isArray(segments) || segments.length > 20_000) throw new Error('번역할 문장 데이터가 올바르지 않습니다.')

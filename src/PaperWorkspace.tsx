@@ -3,7 +3,7 @@ import * as pdfjs from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, Columns2, Download, ExternalLink, FileText,
-  FolderOpen, Languages, LoaderCircle, NotebookPen, PanelLeftClose, Plus, Search, X,
+  FolderOpen, Languages, LoaderCircle, NotebookPen, PanelLeftClose, Plus, Search, Tag, X,
 } from 'lucide-react'
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
@@ -103,7 +103,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onClo
   )
 }
 
-export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar }: { providers: ProviderInfo[]; sidebarOpen: boolean; onToggleSidebar: () => void }) {
+export default function PaperWorkspace({ providers, onToggleSidebar, onTagAnchor }: { providers: ProviderInfo[]; sidebarOpen: boolean; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void }) {
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-terra' })
   const [library, setLibrary] = useState<PaperRecord[]>([])
   const [tabs, setTabs] = useState<string[]>([])
@@ -123,6 +123,7 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
   const [noteLoaded, setNoteLoaded] = useState(false)
   const [error, setError] = useState('')
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const activeIdRef = useRef<string | undefined>(undefined)
 
   const activePaper = library.find((paper) => paper.arxivId === activeId)
   const pageSegments = useMemo(() => {
@@ -133,6 +134,10 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
   const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
 
   useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
+
+  useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([savedSettings, papers]) => {
       setSettings(savedSettings); setLibrary(papers)
       if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) }
@@ -140,20 +145,24 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
     }).catch((reason) => setError(String(reason)))
     const offProgress = window.prism.onTranslationProgress((payload) => {
       const event = payload as { arxivId?: string; completed?: number; total?: number; segments?: TranslationSegment[] }
-      if (event.arxivId === activeId && event.segments) { setTranslation(event.segments); setTranslationProgress(`${event.completed}/${event.total}`) }
+      if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setTranslationProgress(`${event.completed}/${event.total}`) }
     })
     const offDone = window.prism.onTranslationDone((payload) => {
       const event = payload as { arxivId?: string; segments?: TranslationSegment[] }
-      if (event.arxivId === activeId && event.segments) setTranslation(event.segments)
-      setTranslating(false); setTranslationProgress('완료')
+      if (event.arxivId === activeIdRef.current) {
+        if (event.segments) setTranslation(event.segments)
+        setTranslating(false); setTranslationProgress('완료')
+      }
     })
     const offError = window.prism.onTranslationError((payload) => {
       const event = payload as { arxivId?: string; message?: string }
-      if (event.arxivId === activeId) setError(event.message ?? '번역에 실패했습니다.')
-      setTranslating(false)
+      if (event.arxivId === activeIdRef.current) {
+        setError(event.message ?? '번역에 실패했습니다.')
+        setTranslating(false)
+      }
     })
     return () => { offProgress(); offDone(); offError() }
-  }, [activeId])
+  }, [])
 
   useEffect(() => {
     if (!activePaper) { setPdf(undefined); return }
@@ -169,7 +178,10 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
         const text = await page.getTextContent()
         segments.push(...segmentsFromItems(pageIndex, text.items.filter((item) => 'str' in item) as unknown as PdfTextItem[]))
       }
-      if (!disposed) setAllSegments(segments)
+      if (!disposed) {
+        setAllSegments(segments)
+        void window.prism.savePaperAnchors(activePaper.arxivId, segments)
+      }
     }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
     window.prism.readTranslation(activePaper.arxivId).then((cache) => { if (!disposed && cache) setTranslation(cache.segments) })
     setNoteLoaded(false)
@@ -234,6 +246,15 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
     catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) }
   }
 
+  function tagSegment(segment: TranslationSegment) {
+    if (!activePaper) return
+    onTagAnchor({
+      paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id,
+      type: segment.kind === 'equation' ? 'equation' : 'sentence', page: segment.page,
+      label: `${segment.kind === 'equation' ? '수식' : '문장'} p.${segment.page}`, source: segment.source,
+    })
+  }
+
   return <section className="reader-pane paper-workspace">
     <div className="editor-tabs">
       <button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button>
@@ -243,17 +264,17 @@ export default function PaperWorkspace({ providers, sidebarOpen, onToggleSidebar
       <div className="paper-toolbar">
         <div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => setPageNumber((page) => page - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => setPageNumber((page) => page + 1)}><ArrowRight size={14} /></button></div>
         <div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId}</small></div>
-        <div className="reader-actions"><select value={scale} onChange={(event) => setScale(Number(event.target.value))}><option value={.85}>85%</option><option value={1}>100%</option><option value={1.1}>110%</option><option value={1.3}>130%</option><option value={1.5}>150%</option></select><button className={panel === 'translation' ? 'active' : ''} onClick={() => setPanel(panel === 'translation' ? null : 'translation')}><Languages size={14} /> 번역</button><button className={panel === 'notes' ? 'active' : ''} onClick={() => setPanel(panel === 'notes' ? null : 'notes')}><NotebookPen size={14} /> 노트</button></div>
+        <div className="reader-actions"><select value={scale} onChange={(event) => setScale(Number(event.target.value))}><option value={.85}>85%</option><option value={1}>100%</option><option value={1.1}>110%</option><option value={1.3}>130%</option><option value={1.5}>150%</option></select><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지 ${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지 태그</button><button className={panel === 'translation' ? 'active' : ''} onClick={() => setPanel(panel === 'translation' ? null : 'translation')}><Languages size={14} /> 번역</button><button className={panel === 'notes' ? 'active' : ''} onClick={() => setPanel(panel === 'notes' ? null : 'notes')}><NotebookPen size={14} /> 노트</button></div>
       </div>
       <div className={`paper-content ${panel ? 'with-sidecar' : ''}`}>
         <div className="pdf-scroll"><div className="pdf-page" style={{ width: canvasRef.current?.style.width }}><canvas ref={canvasRef} />
-          <div className="anchor-layer">{pageSegments.flatMap((segment) => (segment.itemIndexes ?? []).map((itemIndex) => { const rect = itemRects[itemIndex]; return rect ? <span key={`${segment.id}-${itemIndex}`} className={segment.id === highlighted ? 'highlighted' : ''} style={rect} onMouseEnter={() => setHighlighted(segment.id)} onMouseLeave={() => setHighlighted(undefined)} /> : null }))}</div>
+          <div className="anchor-layer">{pageSegments.flatMap((segment) => (segment.itemIndexes ?? []).map((itemIndex) => { const rect = itemRects[itemIndex]; return rect ? <span key={`${segment.id}-${itemIndex}`} className={segment.id === highlighted ? 'highlighted' : ''} style={rect} title="클릭하여 채팅에 태그" onMouseEnter={() => setHighlighted(segment.id)} onMouseLeave={() => setHighlighted(undefined)} onClick={() => tagSegment(segment)} /> : null }))}</div>
           {highlightedSegment && <div className="anchor-chip">{highlightedSegment.kind === 'equation' ? '수식' : '문장'} · {highlightedSegment.id.split('-').slice(0, 2).join(':')}</div>}
         </div></div>
         {panel === 'translation' && <aside className="translation-panel">
           <header><div><Languages size={16} /><span><strong>한국어 번역</strong><small>{translation.length ? `${settings.translationProvider} · ${settings.translationModel}` : '아직 번역되지 않음'}</small></span></div><button onClick={() => setPanel(null)}><X size={16} /></button></header>
           <div className="translation-settings"><select value={settings.translationProvider} disabled={translating} onChange={(event) => { const provider = event.target.value as ProviderId; const model = providers.find((item) => item.id === provider)?.models[0]?.id; void updateTranslationSetting({ translationProvider: provider, translationModel: model }) }}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select><select value={settings.translationModel} disabled={translating} onChange={(event) => void updateTranslationSetting({ translationModel: event.target.value })}>{translationProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select><button onClick={() => void startTranslation()} disabled={translating || !translationProvider?.available || !allSegments.length}>{translating ? <><LoaderCircle className="spin" size={13} /> {translationProgress}</> : translation.length ? '누락분 번역' : '전체 번역'}</button></div>
-          <div className="translation-copy">{pageSegments.map((segment) => <p key={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} onMouseEnter={() => setHighlighted(segment.id)} onMouseLeave={() => setHighlighted(undefined)}><span>{segment.translation || (segment.kind === 'equation' ? segment.source : '번역 대기 중')}</span><small>{segment.id}</small></p>)}</div>
+          <div className="translation-copy">{pageSegments.map((segment) => <p key={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} title="클릭하여 채팅에 태그" onMouseEnter={() => setHighlighted(segment.id)} onMouseLeave={() => setHighlighted(undefined)} onClick={() => tagSegment(segment)}><span>{segment.translation || (segment.kind === 'equation' ? segment.source : '번역 대기 중')}</span><small>{segment.id}</small></p>)}</div>
         </aside>}
         {panel === 'notes' && <aside className="note-panel"><header><div><NotebookPen size={16} /><span><strong>Paper note</strong><small>Markdown · 자동 저장</small></span></div><button onClick={() => setPanel(null)}><X size={16} /></button></header><textarea value={note} onChange={(event) => setNote(event.target.value)} spellCheck={false} /><footer><span>{activePaper.notePath}</span><span>Obsidian compatible</span></footer></aside>}
       </div>
