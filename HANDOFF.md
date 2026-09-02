@@ -1,8 +1,8 @@
 # Prism 개발 인수인계 노트
 
-마지막 정리: 2026-09-02  
+마지막 정리: 2026-09-03
 작업 브랜치: `kys_enhanced`
-기능 구현 기준 커밋: 이번 작업 완료 커밋(표·수식 보존 및 교차 플랫폼 실행 개선)
+기능 구현 기준: 연구 지식 시스템 1차 완료 감사가 반영된 `kys_enhanced` HEAD
 
 이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
 
@@ -97,6 +97,20 @@ codex login
 - `.nvmrc`, OS별 원클릭 실행 스크립트와 Windows/macOS GitHub Actions 패키징을 추가했다. macOS는 교차 패키징을 피하고 Intel/Apple Silicon 네이티브 runner에서 DMG를 각각 만든다. `release/`는 계속 Git에서 제외하고 Actions artifact로 공유한다.
 
 관련 커밋: `ddfb479`, `caf1f89`, `6474baf`, `5693042`
+
+## 3.3 연구 지식 시스템 1차 구현 완료
+
+- Notes는 읽기 / Live Edit / 분할 모드를 제공하며, 툴바와 `/` 명령으로 제목·목록·표·수식·이미지·callout을 문서형 화면에서 작성한다. Markdown 원문은 round-trip 보존한다.
+- Live Edit에서 제목 섹션 접기와 Markdown 블록 드래그 재정렬을 지원한다. 접힘은 파생 UI 상태이며 본문에 저장하지 않는다.
+- Paper, Concept, Claim, Insight, Question, Project 노드를 Markdown/YAML로 만들고 상태·중요도·확신도와 Paper 읽기 상태를 선택 UI로 편집한다.
+- Markdown 템플릿 CRUD, 타입별 기본값, 즐겨찾기·최근 사용, 정확한 `template_version`, 기존 본문을 덮지 않는 누락 섹션 추가를 지원한다.
+- 내부 링크 자동완성·즉시 Concept/Claim 생성·hover 미리보기·백링크와 승인 상태가 있는 타입 관계를 지원한다.
+- 문장·섹션·수식·표·피겨·페이지 근거 카드를 노트에 삽입하고 PDF 원위치, 역방향 관련 노트, 끊어진 앵커 재연결을 제공한다.
+- 필기를 Claim / Insight / Question으로 승격하면서 근거를 유지하고, 근거를 다른 노트에 충돌 없이 복사하거나 기존 Claim에 연결한다.
+- 전문 검색, 로컬 임베딩, 승인 관계 그래프 검색, 중복·관계·연구 공백 제안과 사용자 승인/거절 흐름을 제공한다.
+- 연구 현황에는 진행 Project, 프로젝트별 Concept/Insight 문맥, 충돌 Paper 쌍, 미완성 Question, 근거 없는 Claim을 표시한다.
+- 로컬 MCP는 검색·Claim 근거·관련 Concept·Paper 비교·앵커 열기·관계 제안·초안 생성의 일곱 도구를 제공한다.
+- 세부 완료 매트릭스와 화면·자동 검증 근거는 `docs/RESEARCH_IMPLEMENTATION_STATUS.md`를 기준으로 한다.
 
 ## 4. 오늘 구현된 내용
 
@@ -193,10 +207,10 @@ codex login
 
 ### 4.7 Markdown 노트
 
-- 논문마다 YAML frontmatter가 있는 `<arxiv-id>.md`를 만든다.
-- 노트 패널에서 편집한 내용은 500ms debounce로 해당 Markdown 파일에 저장한다.
-- frontmatter에 arXiv ID, 제목, 저자, 출판일, 원문 URL, PDF 경로, tags, related 필드를 둔다.
-- 현재는 논문별 단일 자유 형식 Markdown 노트까지만 구현되어 있다.
+- 논문마다 YAML frontmatter가 있는 `<arxiv-id>.md`를 만들고, 독립 Notes 창에서 문서형 편집과 500ms 자동 저장을 제공한다.
+- 연구 지식 노드는 타입별 폴더에 Markdown으로 저장하고 일반 wiki link와 block ID를 유지해 Obsidian에서도 읽고 수정할 수 있다.
+- 사용자 승인 관계와 PDF 앵커는 `.prism/relations`, `.prism/anchors` sidecar에 보강 정보로 저장하되 중요한 의미는 Markdown에도 남긴다.
+- 외부 변경을 감지하고 저장 직전 hash가 달라지면 비교·선택 화면을 띄우며 임시 파일 교체 방식으로 원자 저장한다.
 
 ## 5. 라이브러리 저장 구조
 
@@ -204,6 +218,16 @@ codex login
 library/
   .prism/
     library.json
+    anchors/
+    relations/
+    index/
+  Papers/
+  Concepts/
+  Claims/
+  Insights/
+  Questions/
+  Projects/
+  Templates/
   papers/
     1706.03762/
       original.pdf
@@ -249,7 +273,10 @@ library/
 - 전체 40페이지에서 raw LaTeXiT payload, 번역 block overflow, 세로형 텍스트, 페이지 바깥 이탈 0건 확인
 - Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
 - Notes blur 직후 실제 Markdown 파일 저장 확인
-- Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 약 107MB)
+- 2026-09-03 Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 111.8MB) 및 `scripts/smoke-packaged-launch.mjs`로 패키지 내부 renderer 실제 실행 확인
+- `npm run test:notes-ui` 성공 — 템플릿·지식 노드·근거·관계·검색·제안·문서 편집·충돌·접기·드래그·Ctrl/Cmd·클립보드 회귀
+- `npm run test:mcp` 성공 — 일곱 stdio 도구, 승인 관계, Reader 이동, portable path 검증
+- `npm run test:structure` 성공 — LaTeX 수식·표 원문 byte-for-byte 보존
 - macOS 한글 IME 조합 이벤트를 모사한 UI 회귀 테스트에서 `한글` 두 음절이 중간 렌더링 없이 유지되는 것 확인
 - Codex CLI 존재 여부와 별개로 `codex login status`가 성공해야만 채팅·번역을 사용 가능하게 표시하도록 변경
 - 제공된 PRISM 이미지를 앱 UI PNG, Windows ICO, macOS ICNS로 변환하고 각 형식을 다시 열어 크기와 포맷 확인
@@ -287,16 +314,15 @@ npm run start:fast
    - provider별 멀티모달 CLI 입력 형식을 조사해 이미지 파일/바이트를 구조를 잃지 않고 전송한다.
    - 문장+수식+피겨 여러 개를 한 질문에 넣고 관계를 묻는 통합 테스트가 필요하다.
 
-5. **앵커 기반 노트와 Obsidian 연결**
-   - `paperId + stable anchorId`를 Markdown block ID 또는 별도 annotation index에 연결한다.
-   - 각 문장/수식/피겨에서 바로 노트를 만들고 원문 위치로 돌아갈 수 있게 한다.
-   - `[[paper]]`, related papers, concept tags, backlinks, 논문 간 graph를 설계한다.
-   - 논문 폴더를 이동해도 깨지지 않도록 절대 경로 대신 라이브러리 상대 경로를 사용한다.
+5. **대규모 연구 Vault 운영 검증**
+   - 현재 앵커 노트, 내부 링크, 백링크, 타입 관계, 로컬 그래프와 상대 경로 저장은 구현됐다.
+   - 수천 개 노트와 관계에서 인덱스 재생성 시간, 파일 감시 부하, 검색 지연과 동기화 충돌을 측정하는 corpus가 필요하다.
+   - Git·클라우드 동기화 중 sidecar 충돌을 설명하고 복구하는 운영 UX를 추가한다.
 
 6. **태그 UX 추가 고도화**
-   - 자동완성, 논문 ID 표기, 전송된 칩의 원문 이동은 구현됐다.
+   - 자동완성 키보드 이동·선택, 논문 ID 표기, 전송된 칩의 원문 이동은 구현됐다.
    - 현재 자동완성 catalog는 활성 논문 중심이므로 열려 있는 모든 논문의 `anchors.json`을 합쳐 검색하도록 확장해야 한다.
-   - 자동완성 키보드 위/아래 이동과 Enter 선택, 동일 라벨의 논문별 명시적 qualified syntax를 추가해야 한다.
+   - 동일 라벨의 논문별 명시적 qualified syntax를 추가해야 한다.
 
 7. **백그라운드 번역 작업 관리**
    - 앱 재시작 후 중단된 batch 재개, 명시적 취소, 실패 batch 재시도, 작업 큐가 필요하다.
@@ -312,9 +338,9 @@ npm run start:fast
    - portable EXE 아이콘은 추가됐다. installer, 바로가기, 자동 업데이트가 필요하다.
 
 10. **자동화 테스트와 보안**
-    - 문장 분할/LaTeX parser/검색 ranking/번역 JSON parser 단위 테스트가 없다.
-    - Electron CSP 경고를 제거하고 외부 URL 및 다운로드 제한을 재검토한다.
-    - session에 thumbnail data URL을 저장하므로 대량 피겨 태그 시 15MB 제한에 빨리 도달할 수 있다. thumbnail 파일 경로나 별도 attachment store로 옮겨야 한다.
+    - Electron UI, Notes UI, MCP, Vault 경로와 LaTeX 구조 smoke는 있다. 문장 분할·검색 ranking·번역 JSON parser의 더 작은 단위 테스트를 보강한다.
+    - CSP smoke는 통과한다. 외부 URL과 다운로드 허용 범위는 배포 전에 계속 재검토한다.
+    - 세션 저장 시 thumbnail data URL은 제거하지만, 장기적으로 별도 attachment store와 복구 정책이 필요하다.
 
 ## 8. 구현 시 지켜야 할 결정
 

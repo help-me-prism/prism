@@ -37,7 +37,9 @@ Electron + React 기반 데스크톱 앱과 Codex CLI 채팅 연동이 구현되
 - 원문 문장과 번역 문장은 안정적인 앵커 ID로 연결되어 양쪽에서 함께 강조됩니다. 수식은 번역하지 않고 원형을 유지합니다.
 - 문장·수식·페이지 태그는 채팅 입력창 위의 참조 칩으로 관리되며, `@문장24`를 직접 입력해 검색할 수도 있습니다. 논문 ID, 페이지, 원문 구조는 CLI에 함께 전달됩니다.
 - LaTeX `includegraphics` 자산과 PDF 이미지 객체를 우선 찾아 기본 상태에서 피겨를 클릭할 수 있습니다. 자동 인식되지 않은 영역은 `피겨 캡처`로 드래그 저장할 수 있습니다.
-- 논문별 Markdown 노트는 Reader와 분리된 독립 창에서 편집하고 `anchors.json`과 함께 저장해 Obsidian 연결과 후속 인용 기능의 기반으로 사용합니다.
+- 독립 Notes 창에서 읽기 / Live Edit / 분할 모드, 툴바와 `/` 블록 삽입, 섹션 접기와 블록 드래그를 제공하며 Markdown 원문을 보존합니다.
+- Paper, Concept, Claim, Insight, Question, Project와 개인 템플릿을 Markdown Vault에 저장하고, 내부 링크·백링크·타입 관계·PDF 근거 카드·로컬 그래프·연구 현황을 Prism 안에서 관리합니다.
+- 문장·섹션·수식·표·피겨·페이지 근거에서 PDF와 노트를 양방향으로 이동하고, 필기를 Claim / Insight / Question으로 승격해 원래 근거를 유지합니다.
 - 병기 모드의 원문/한국어 패널 너비를 드래그로 조절하며 스크롤과 확대 동기화를 각각 켜거나 끌 수 있습니다.
 - 왼쪽 논문 트리에서 라이브러리 논문을 탭으로 열고, 채팅 상단에서 AI 문맥에 포함할 논문을 복수 선택할 수 있습니다.
 
@@ -79,6 +81,8 @@ git switch kys_enhanced
 
 화면 회귀 검증은 별도 테스트 프로필과 최소 창 크기에서 Electron을 실행하는 `npm run test:ui`로 수행합니다. 제품 완성도 리뷰와 반복별 확인 결과는 [docs/UX_REVIEW.md](docs/UX_REVIEW.md)에 기록합니다.
 
+연구 지식 기능은 `npm run test:notes-ui`, 로컬 AI 도구 계약은 `npm run test:mcp`로 검증합니다. 세부 구현·화면 검수 상태는 [docs/RESEARCH_IMPLEMENTATION_STATUS.md](docs/RESEARCH_IMPLEMENTATION_STATUS.md)에 정리되어 있습니다.
+
 ### Obsidian과 같은 Vault 사용
 
 Obsidian을 함께 사용할 때는 Prism에서 선택한 라이브러리 폴더를 Obsidian의 **Open folder as vault**로 한 번 등록합니다. 이후 연구 지식 화면의 제목 오른쪽 `Obsidian` 버튼은 현재 Markdown 파일을 열고, PDF 근거 카드의 `Obsidian` 버튼은 해당 block ID 위치까지 이동합니다. Obsidian이 설치되지 않았거나 Vault로 등록되지 않아도 Prism의 작성·검색·링크·그래프 기능에는 영향이 없습니다.
@@ -112,13 +116,15 @@ npm run build
 
 `npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
 
+생성한 패키지가 실제 renderer를 여는지 별도 테스트 프로필로 확인하려면 `node scripts/smoke-packaged-launch.mjs "release/Prism 0.1.0.exe"`를 실행합니다.
+
 `release/`는 빌드 결과라 Git에 저장하지 않습니다. 따라서 예전에 만든 EXE가 폴더에 남아 있다면 최신 소스가 아닐 수 있습니다. 브랜치에 푸시할 때마다 GitHub Actions의 **Build desktop apps**가 Windows portable EXE와 Intel/Apple Silicon용 macOS DMG를 새로 만들며, 해당 실행의 Artifacts에서 내려받을 수 있습니다.
 
 ### macOS
 
 Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 현재 Mac 아키텍처용 DMG를 만들 수 있습니다. GitHub Actions는 Intel(x64)과 Apple Silicon(arm64) runner에서 각각 DMG를 생성합니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
 
-현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 앵커별 노트 블록과 논문 간 연결 그래프입니다.
+현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 대규모 Vault 성능·동기화 검증과 macOS 서명·notarization입니다.
 
 ## 기여하기
 
