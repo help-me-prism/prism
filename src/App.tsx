@@ -99,6 +99,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
+  const composingRef = useRef(false)
   function editorSnapshot() {
     const root = editorRef.current; if (!root) return { text: '', anchors: [] as ContextAnchor[] }
     const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor])); let value = ''; const placed: ContextAnchor[] = []
@@ -128,6 +129,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
 
   useEffect(() => {
     const root = editorRef.current; if (!root) return
+    if (composingRef.current) return
     const snapshot = editorSnapshot(); const sameAnchors = snapshot.anchors.length === anchors.length && snapshot.anchors.every((anchor, index) => placementKey(anchor) === placementKey(anchors[index]) && anchor.textOffset === anchors[index].textOffset)
     if (snapshot.text !== text || !sameAnchors) {
       root.replaceChildren(); const ordered = anchors.map((anchor, index) => ({ anchor, index })).sort((a, b) => (a.anchor.textOffset ?? 0) - (b.anchor.textOffset ?? 0) || a.index - b.index); let cursor = 0
@@ -149,7 +151,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     }
   }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
-  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={() => { readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
 }
 
 function App() {
@@ -396,6 +398,7 @@ function App() {
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (tagSuggestions.length) {
       if (event.key === 'ArrowDown') { event.preventDefault(); setTagSuggestionIndex((index) => (index + 1) % tagSuggestions.length); return }
       if (event.key === 'ArrowUp') { event.preventDefault(); setTagSuggestionIndex((index) => (index - 1 + tagSuggestions.length) % tagSuggestions.length); return }
@@ -455,7 +458,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="titlebar">
-        <div className="brand"><span className="brand-mark">P</span><span>Prism</span></div>
+        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><span>Prism</span></div>
         <div className="document-title"><FileText size={14} /><span>{activeSession.title}</span></div>
       </header>
 

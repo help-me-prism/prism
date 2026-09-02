@@ -147,6 +147,20 @@ try {
   assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-table'))`), 'The table reference was not rendered inline with a type icon.')
   const placedUserText = await evaluate(`[...document.querySelectorAll('.message.user .message-body')].find((body) => body.querySelector('.type-equation'))?.textContent`)
   assert(placedUserText.indexOf('수식2') < placedUserText.indexOf('수식과') && placedUserText.indexOf('표1') < placedUserText.indexOf('표의'), `Placed references did not remain at their sentence offsets: ${placedUserText}`)
+  await evaluate(`(() => {
+    const editor = document.querySelector('.composer-editor')
+    editor.focus()
+    editor.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    editor.textContent = '한'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '한', inputType: 'insertCompositionText', isComposing: true }))
+    editor.textContent = '한글'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '글', inputType: 'insertCompositionText', isComposing: true }))
+    editor.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한글' }))
+    return true
+  })()`)
+  await sleep(150)
+  assert(await evaluate(`document.querySelector('.composer-editor')?.textContent`) === '한글', 'Korean IME composition was interrupted by a controlled-editor rerender.')
+  await evaluate(`(() => { const editor = document.querySelector('.composer-editor'); editor.textContent = ''; editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return true })()`)
   await evaluate(`(() => { const pane = document.querySelector('.messages'); pane.scrollTop = 0; pane.dispatchEvent(new Event('scroll', { bubbles: true })); return true })()`)
   await sleep(100)
   assert(await evaluate(`Boolean(document.querySelector('.jump-latest'))`), 'Scrolling up did not pause chat follow mode.')
@@ -159,7 +173,7 @@ try {
 
   assert(exceptions.length === 0, `Renderer exceptions were reported: ${exceptions.join('; ')}`)
   assert(securityWarnings.length === 0, 'Electron reported an insecure Content Security Policy.')
-  process.stdout.write('Electron UI smoke passed: onboarding, settings, trash, Markdown, inline references, and paused follow mode.\n')
+  process.stdout.write('Electron UI smoke passed: onboarding, settings, trash, Markdown, inline references, Korean IME, and paused follow mode.\n')
 } finally {
   socket?.close()
   electron.kill()

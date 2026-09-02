@@ -82,10 +82,15 @@ function codexModels() {
 }
 
 function providerInfo() {
-  const codexAvailable = Boolean(findCli('codex'))
+  const codexExecutable = findCli('codex')
+  const codexLogin = codexExecutable ? spawnSync(codexExecutable, ['login', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true }) : undefined
+  const codexAvailable = Boolean(codexExecutable && codexLogin?.status === 0)
+  const codexStatus = !codexExecutable ? 'CLI를 찾지 못했습니다'
+    : codexLogin?.status === 0 ? '연결됨'
+      : codexLogin?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
   const claudeAvailable = Boolean(findCli('claude'))
   return [
-    { id: 'codex', name: 'Codex', available: codexAvailable, status: codexAvailable ? '연결됨' : 'CLI를 찾지 못했습니다', models: codexModels() },
+    { id: 'codex', name: 'Codex', available: codexAvailable, status: codexStatus, models: codexModels() },
     { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeAvailable ? '연결됨' : 'Claude CLI 설치 필요', models: [
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
@@ -595,6 +600,7 @@ function createWindow() {
   const initialHeight = testSize ? Math.max(680, Number(testSize[2])) : 920
   const window = new BrowserWindow({
     width: initialWidth, height: initialHeight, minWidth: 1040, minHeight: 680, backgroundColor: '#f5f3ee', titleBarStyle: 'hidden',
+    icon: path.join(__dirname, '../dist/icon.png'),
     titleBarOverlay: process.platform === 'win32' ? { color: '#f5f3ee', symbolColor: '#4a4945', height: 42 } : false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
@@ -611,6 +617,7 @@ function openNotesWindow() {
   if (notesWindow && !notesWindow.isDestroyed()) { notesWindow.show(); notesWindow.focus(); return true }
   notesWindow = new BrowserWindow({
     width: 980, height: 780, minWidth: 700, minHeight: 520, backgroundColor: '#f5f3ee', title: 'Prism Notes',
+    icon: path.join(__dirname, '../dist/icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   notesWindow.on('closed', () => { notesWindow = undefined })

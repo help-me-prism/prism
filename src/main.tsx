@@ -22,7 +22,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
       return (
         <main className="fatal-error">
           <div>
-            <span className="brand-mark">P</span>
+            <img className="brand-mark" src="./icon.png" alt="" />
             <h1>화면을 표시하지 못했어요</h1>
             <p>{this.state.error.message}</p>
             <button onClick={() => window.location.reload()}>앱 다시 불러오기</button>

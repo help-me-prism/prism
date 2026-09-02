@@ -114,6 +114,16 @@ DDPM 25페이지와 Attention Is All You Need 15페이지를 처음부터 끝까
 | P1 | 작성 중 태그 제거 | 태그 본문 전체가 제거 클릭 영역이라 참조 확인과 삭제 의도가 섞였다. | 라벨과 별도의 작은 `×` 버튼을 만들고, `×`를 눌렀을 때만 태그를 제거하면서 주변 문장은 보존한다. | 완료 |
 | P2 | 화면 회귀 속도 | 마지막 lazy page가 준비되기 전에 자동 점검이 다음 단계로 넘어가고 작은 창 캡처로 페이지 전체를 비교하기 어려웠다. | 40페이지를 직접 순회해 raw artifact, overflow, 세로 텍스트, 페이지 이탈을 기록하는 audit를 추가하고 캡처 전 창을 화면 가용 크기로 확대한다. | 완료 |
 
+## 11차 관찰 — macOS 입력·연결 상태 핫픽스
+
+친구의 실제 macOS DMG 테스트 화면을 기준으로 입력기와 첫 실행 상태를 점검했다.
+
+| 우선순위 | 영역 | 관찰 | 조치 | 상태 |
+| --- | --- | --- | --- | --- |
+| P0 | 한글 IME 입력 | 문장·수식·피겨 태그가 있는 `contenteditable` 입력창에서 한글 조합 중 부모 상태가 갱신되면 DOM을 다시 만들어 조합이 한 음절마다 끊겼다. | `compositionstart`부터 `compositionend`까지 DOM/state 동기화를 유예하고, 조합 중 Enter 및 keyCode 229를 전송 키로 처리하지 않는다. 두 음절 조합 회귀를 UI smoke test에 추가했다. | 자동 검증 완료, 실제 Mac 재확인 필요 |
+| P0 | Codex 연결 오표시 | CLI 실행 파일만 발견해도 `연결됨`으로 표시해, 로그인되지 않은 DMG에서도 입력 가능 상태처럼 보였다. | 공식 CLI의 `codex login status` 종료 코드를 확인해 로그인 성공일 때만 사용 가능하게 하고, 미설치·로그인 필요·확인 실패를 구분해 표시한다. | Windows 검증 완료, 실제 Mac 재확인 필요 |
+| P1 | 앱 아이콘 | 임시 `P` 글자와 Electron 기본 아이콘이 헤더·실행 파일·DMG에 섞여 있었다. | 제공된 PRISM 이미지를 앱 헤더, Notes, favicon, Windows ICO, macOS ICNS 및 BrowserWindow 아이콘에 적용했다. | 소스·Windows 형식 검증 완료, 실제 DMG 확인 필요 |
+
 ## 후속 집중 검토
 
 첫 실행 개선 후 실제 논문을 테스트 라이브러리에 저장해 다음을 별도 반복한다.
@@ -141,3 +151,4 @@ DDPM 25페이지와 Attention Is All You Need 15페이지를 처음부터 끝까
 | 8차 | 커서 위치 태그, AI 위치 문맥 | `npm run test:ui` 성공 | 실제 2006.11239에서 문장 가운데 수식 태그를 삽입하고 태그 뒤에 계속 입력했으며, 저장 메시지의 두 참조가 각각 원래 문장 위치에 재현됨을 확인 | 통과 |
 | 9차 | 라이브러리 카드 순서, Notes 레포지토리 표시 | `npm run build`, `npm run test:ui` 성공 | 메인 1480×920과 Notes 980×780 화면에서 `paper_review` 카드 위치와 CURRENT REPOSITORY 표시를 확인 | 통과 |
 | 10차 | 전체 페이지 metadata·수식·그림 분류, 태그 ×, 페이지 이동 | `npm run test:structure`, `npm run test:ui` 성공, DDPM 25/25·Attention 15/15 audit 완료 | 2560×1392 최대화 화면에서 DDPM 2·3·5·7·14·25 및 Attention 3·6·8·11·13·14·15페이지를 원문과 비교. raw artifact·overflow·세로 텍스트·페이지 이탈 0건 | 통과 |
+| 11차 | macOS 한글 IME, Codex 로그인 판별, 새 앱 아이콘 | `npm run build`, `npm run test:ui` 성공. PNG/ICO/ICNS 디코딩 확인 | 패키지 모드 UI 캡처에서 새 헤더 아이콘과 두 음절 한글 조합 보존 확인. macOS DMG 실기기 확인은 후속 | 조건부 통과 |

@@ -22,7 +22,7 @@ button { color: inherit; }
 .loading-app { align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
 .titlebar { height: 43px; flex: 0 0 43px; display: grid; grid-template-columns: 220px 1fr 220px; align-items: center; border-bottom: 1px solid var(--line); background: #f5f3ee; -webkit-app-region: drag; padding: 0 14px; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; }
-.brand-mark { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px 6px 9px 6px; background: #282727; color: white; font-family: Georgia, serif; font-size: 13px; }
+.brand-mark { width: 24px; height: 24px; display: block; flex: 0 0 24px; border-radius: 6px; object-fit: cover; }
 .document-title { justify-self: center; display: flex; align-items: center; gap: 7px; color: #686762; font-size: 12px; }
 
 .workspace { min-height: 0; flex: 1; display: flex; }

@@ -58,7 +58,7 @@ export default function NotesWindow() {
 
   return <main className="notes-window">
     <aside className="notes-library">
-      <header><span className="brand-mark">P</span><div><strong>Prism Notes</strong><small>Markdown research notebook</small></div></header>
+      <header><img className="brand-mark" src="./icon.png" alt="" /><div><strong>Prism Notes</strong><small>Markdown research notebook</small></div></header>
       <button className={`notes-folder ${libraryPath ? 'configured' : ''}`} title={libraryPath ?? '라이브러리 폴더를 선택하세요'} onClick={async () => { if (!(await saveCurrentNote())) return; const result = await window.prism.chooseWorkspace(); if (result) await refresh() }}><FolderOpen size={15} />{libraryPath ? <span><small>CURRENT REPOSITORY</small><strong>{libraryPath.split(/[\\/]/).filter(Boolean).at(-1)}</strong></span> : '라이브러리 폴더 선택'}</button>
       <p>논문 노트</p>
       <div>{library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === activeId ? 'active' : ''} onClick={() => void selectPaper(paper.arxivId)}><FileText size={14} /><span><strong>{paper.title}</strong><small>{paper.arxivId}</small></span></button>)}</div>
