@@ -92,10 +92,10 @@ function textWithPlacedReferences(text: string, anchors: ContextAnchor[]) {
   }, text)
 }
 
-function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown, onRemove }: {
+function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown }: {
   text: string; anchors: ContextAnchor[]; disabled: boolean; focusPlacementId?: string
   onChange: (text: string, anchors: ContextAnchor[]) => void; onCaretChange: (offset: number) => void
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void; onRemove: (placementId: string) => void
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
@@ -134,10 +134,11 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
       for (const { anchor } of ordered) {
         const offset = Math.max(cursor, Math.min(text.length, anchor.textOffset ?? 0)); if (offset > cursor) root.append(document.createTextNode(text.slice(cursor, offset)))
         const wrapper = document.createElement('span'); wrapper.className = 'composer-anchor'; wrapper.dataset.placementId = placementKey(anchor); wrapper.contentEditable = 'false'
-        const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'anchor-token'; chip.title = anchor.source
+        const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = anchor.source
         const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
-        const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId; const close = document.createElement('span'); close.className = 'composer-anchor-close'; close.textContent = '×'
-        chip.append(symbol, label, paper, close); chip.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); onRemove(placementKey(anchor)) }); wrapper.append(chip); root.append(wrapper); cursor = offset
+        const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId
+        const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
+        chip.append(symbol, label, paper); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper); cursor = offset
       }
       if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
     }
@@ -146,7 +147,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
       const range = document.createRange(); range.setStartAfter(token); range.collapse(true); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); root.focus()
       const anchor = anchors.find((item) => placementKey(item) === focusPlacementId); lastFocusedPlacementRef.current = focusPlacementId; onCaretChange(anchor?.textOffset ?? text.length)
     }
-  }, [text, anchors, focusPlacementId, onRemove, onCaretChange])
+  }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
   return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={() => { readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
 }
@@ -440,10 +441,6 @@ function App() {
     setContextAnchors((current) => [...current, { ...anchor, placementId, textOffset: offset }]); setFocusPlacementId(placementId)
   }
 
-  function removePlacedAnchor(placementId: string) {
-    const removed = contextAnchors.find((anchor) => placementKey(anchor) === placementId); setContextAnchors((current) => current.filter((anchor) => placementKey(anchor) !== placementId)); setComposerCaret(removed?.textOffset ?? composerCaret); setFocusPlacementId(undefined)
-  }
-
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
 
@@ -535,7 +532,7 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onRemove={removePlacedAnchor} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
+              <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
