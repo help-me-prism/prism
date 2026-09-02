@@ -1,0 +1,73 @@
+const port = Number(process.env.PRISM_DEBUG_PORT ?? process.argv[2] ?? 9223)
+const action = process.argv[3]
+const value = process.argv[4] ?? ''
+const requestedTitle = process.argv[5]
+
+const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json())
+const page = (requestedTitle ? pages.find((candidate) => candidate.type === 'page' && candidate.title === requestedTitle) : undefined)
+  ?? pages.find((candidate) => candidate.type === 'page' && candidate.title === 'Prism')
+  ?? pages.find((candidate) => candidate.type === 'page')
+if (!page?.webSocketDebuggerUrl) throw new Error(`No Electron page found on port ${port}`)
+
+const socket = new WebSocket(page.webSocketDebuggerUrl)
+const pending = new Map()
+let sequence = 0
+socket.addEventListener('message', (event) => {
+  const message = JSON.parse(String(event.data))
+  if (!message.id) return
+  const callback = pending.get(message.id)
+  if (!callback) return
+  pending.delete(message.id)
+  if (message.error) callback.reject(new Error(message.error.message))
+  else callback.resolve(message.result)
+})
+await new Promise((resolve, reject) => {
+  socket.addEventListener('open', resolve, { once: true })
+  socket.addEventListener('error', reject, { once: true })
+})
+function send(method, params = {}) {
+  sequence += 1
+  return new Promise((resolve, reject) => {
+    pending.set(sequence, { resolve, reject })
+    socket.send(JSON.stringify({ id: sequence, method, params }))
+  })
+}
+
+if (action === 'click-label') {
+  const encoded = JSON.stringify(value)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('button')].find((candidate) => candidate.getAttribute('aria-label') === ${encoded}); if (!element) throw new Error('Button not found'); element.click(); return true })()` })
+} else if (action === 'click-text') {
+  const encoded = JSON.stringify(value)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('button')].find((candidate) => candidate.innerText.trim() === ${encoded}); if (!element) throw new Error('Button not found'); element.click(); return true })()` })
+} else if (action === 'fill-label') {
+  const [label, text] = value.split('=', 2)
+  if (!label || text === undefined) throw new Error('fill-label expects label=value')
+  const encodedLabel = JSON.stringify(label)
+  const encodedText = JSON.stringify(text)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('input, textarea')].find((candidate) => candidate.getAttribute('aria-label') === ${encodedLabel}); if (!element) throw new Error('Field not found'); const setter = Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set; setter.call(element, ${encodedText}); element.dispatchEvent(new Event('input', { bubbles: true })); return true })()` })
+} else if (action === 'append-label') {
+  const [label, text] = value.split('=', 2)
+  if (!label || text === undefined) throw new Error('append-label expects label=value')
+  const encodedLabel = JSON.stringify(label)
+  const encodedText = JSON.stringify(text)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('input, textarea')].find((candidate) => candidate.getAttribute('aria-label') === ${encodedLabel}); if (!element) throw new Error('Field not found'); const setter = Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set; setter.call(element, element.value + ${encodedText}); element.dispatchEvent(new Event('input', { bubbles: true })); element.blur(); return true })()` })
+} else if (action === 'press') {
+  const key = value
+  const keyCode = key === 'Escape' ? 27 : key === 'Enter' ? 13 : key === 'Tab' ? 9 : 0
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
+} else if (action === 'evaluate') {
+  const result = await send('Runtime.evaluate', { expression: value, returnByValue: true, awaitPromise: true })
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
+  if (result.result?.value !== undefined) process.stdout.write(`${JSON.stringify(result.result.value)}\n`)
+} else if (action === 'scroll-page') {
+  const target = Number(value)
+  if (!Number.isInteger(target) || target < 1) throw new Error('scroll-page expects a positive page number')
+  const result = await send('Runtime.evaluate', { expression: `(() => { let found = 0; for (const pane of document.querySelectorAll('.document-scroll')) { pane.style.scrollBehavior = 'auto'; const page = pane.querySelector('.continuous-page[data-page$="-${target}"]'); if (page) { pane.scrollTop = Math.max(0, page.offsetTop - 18); found += 1 } } return found })()`, returnByValue: true })
+  process.stdout.write(`${result.result?.value ?? 0}\n`)
+} else {
+  throw new Error(`Unknown action: ${action}`)
+}
+
+await new Promise((resolve) => setTimeout(resolve, 120))
+socket.close()
