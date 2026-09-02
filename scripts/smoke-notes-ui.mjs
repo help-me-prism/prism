@@ -10,6 +10,7 @@ const port = 9324
 const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-notes-smoke-'))
 const libraryPath = path.join(temporaryRoot, 'library')
 const profilePath = path.join(temporaryRoot, 'profile')
+const externalUrlLog = path.join(temporaryRoot, 'external-urls.log')
 const paperPath = path.join(libraryPath, 'papers', 'test.0001')
 const notePath = path.join(paperPath, 'test.0001.md')
 const initialNote = `---
@@ -47,7 +48,7 @@ await fs.writeFile(path.join(libraryPath, '.prism', 'library.json'), JSON.string
 
 const electron = spawn(electronPath, [`--remote-debugging-port=${port}`, `--user-data-dir=${profilePath}`, '.'], {
   cwd: process.cwd(),
-  env: { ...process.env, PRISM_TEST_LIBRARY_PATH: libraryPath, PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1' },
+  env: { ...process.env, PRISM_TEST_LIBRARY_PATH: libraryPath, PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_EXTERNAL_URL_LOG: externalUrlLog },
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 })
@@ -201,6 +202,7 @@ try {
   assert(createdTypes.length === 5, 'The remaining knowledge node types were not created through the public IPC contract.')
   for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md'], ['Projects', 'Diffusion objective 개선 연구.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
   assert((await fs.readFile(path.join(libraryPath, 'Projects', 'Diffusion objective 개선 연구.md'), 'utf8')).includes('template_id: "project-research-context"'), 'A Project did not use its Markdown default template.')
+  const claimNodeId = await notesConnection.evaluate(`window.prism.listKnowledgeNodes().then((nodes) => nodes.find((node) => node.title.includes('노이즈 예측')).id)`)
 
   async function chooseKnowledgeProperty(label, value, expectedLine) {
     await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label=${JSON.stringify(label)}]'); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, ${JSON.stringify(value)}); select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
@@ -209,6 +211,14 @@ try {
   await chooseKnowledgeProperty('지식 노트 상태', 'established', 'status: established')
   await chooseKnowledgeProperty('지식 노트 중요도', 'high', 'importance: high')
   await chooseKnowledgeProperty('지식 노트 확신도', 'low', 'confidence: low')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="현재 노트를 Obsidian에서 열기"]').click()`)
+  await waitFor(async () => { try { return (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).length === 1 } catch { return false } }, 'Opening the current note did not invoke an Obsidian URI.')
+  let obsidianLocations = (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).map((uri) => new URL(uri).searchParams.get('path'))
+  assert(obsidianLocations[0] === claimPath, `The Obsidian file URI did not preserve the native absolute path: ${obsidianLocations[0]}`)
+  await notesConnection.evaluate(`window.prism.openKnowledgeNodeInObsidian({ nodeId: ${JSON.stringify(claimNodeId)}, heading: '지지 근거' })`)
+  await waitFor(async () => (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).length === 2, 'Opening an Obsidian heading did not invoke a second URI.')
+  obsidianLocations = (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).map((uri) => new URL(uri).searchParams.get('path'))
+  assert(obsidianLocations[1] === `${claimPath}#지지 근거`, 'The Obsidian URI did not encode and restore its heading target.')
 
   let knowledgeViews = await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)
   assert(knowledgeViews.projects.length === 1 && knowledgeViews.projects[0].relativePath === 'Projects/Diffusion objective 개선 연구.md', 'The Project data view did not expose a portable Vault-relative Project path.')
@@ -330,6 +340,13 @@ try {
   await waitFor(() => mainConnection.evaluate(`window.__openedEvidence?.[0]?.anchorId === 'equation-p2-3'`), 'Clicking the evidence card did not ask the Reader to open the stable PDF anchor.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('prism-evidence:') && (await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-equation-p2-3'), 'The evidence reference was not preserved in portable Markdown.')
+  await notesConnection.evaluate(`document.querySelector('.evidence-card-actions button[aria-label$="Obsidian에서 열기"]').click()`)
+  await waitFor(async () => (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).length === 3, 'Opening an evidence block in Obsidian did not invoke a block-addressed URI.')
+  obsidianLocations = (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).map((uri) => new URL(uri).searchParams.get('path'))
+  assert(obsidianLocations[2] === `${claimPath}#^evidence-test-0001-equation-p2-3`, 'The Obsidian URI did not preserve the evidence block target.')
+  const obsidianScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const obsidianScreenshotPath = path.resolve('tmp/ui/notes-obsidian-navigation.png')
+  await fs.writeFile(obsidianScreenshotPath, Buffer.from(obsidianScreenshot.data, 'base64'))
   knowledgeViews = await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)
   assert(knowledgeViews.unsupportedClaims.length === 0, 'A Claim with an embedded PDF evidence card remained in the unsupported view.')
   try {
@@ -488,7 +505,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, Project templates and research data views, structured properties, full-text search, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, full-text search, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

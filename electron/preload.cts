@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('prism', {
   listKnowledgeNodes: () => ipcRenderer.invoke('knowledge:list'),
   searchKnowledge: (query: string) => ipcRenderer.invoke('knowledge:search', query),
   listKnowledgeDataViews: () => ipcRenderer.invoke('knowledge:views'),
+  openKnowledgeNodeInObsidian: (request: unknown) => ipcRenderer.invoke('knowledge:open-in-obsidian', request),
   createKnowledgeNode: (request: unknown) => ipcRenderer.invoke('knowledge:create', request),
   readKnowledgeNode: (id: string) => ipcRenderer.invoke('knowledge:read', id),
   saveKnowledgeNode: (id: string, request: unknown) => ipcRenderer.invoke('knowledge:save', id, request),

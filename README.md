@@ -79,6 +79,12 @@ git switch kys_enhanced
 
 화면 회귀 검증은 별도 테스트 프로필과 최소 창 크기에서 Electron을 실행하는 `npm run test:ui`로 수행합니다. 제품 완성도 리뷰와 반복별 확인 결과는 [docs/UX_REVIEW.md](docs/UX_REVIEW.md)에 기록합니다.
 
+### Obsidian과 같은 Vault 사용
+
+Obsidian을 함께 사용할 때는 Prism에서 선택한 라이브러리 폴더를 Obsidian의 **Open folder as vault**로 한 번 등록합니다. 이후 연구 지식 화면의 제목 오른쪽 `Obsidian` 버튼은 현재 Markdown 파일을 열고, PDF 근거 카드의 `Obsidian` 버튼은 해당 block ID 위치까지 이동합니다. Obsidian이 설치되지 않았거나 Vault로 등록되지 않아도 Prism의 작성·검색·링크·그래프 기능에는 영향이 없습니다.
+
+Prism은 Markdown 링크와 저장 경로를 Vault 기준 `/` 상대 경로로 유지합니다. 외부 앱을 여는 순간에만 현재 운영체제의 절대 경로를 만들며 이 경로는 노트에 저장하지 않습니다. URI 동작과 heading/block 규칙은 [Obsidian 공식 URI 문서](https://help.obsidian.md/Extending%2BObsidian/Obsidian%2BURI)를 따릅니다. Windows와 macOS 경로 변환은 `npm run test:notes-ui`에 포함된 호환성 테스트로 확인할 수 있습니다.
+
 ### Windows 실행 파일
 
 `npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.

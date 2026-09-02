@@ -29,6 +29,7 @@ type KnowledgeLevel = 'low' | 'medium' | 'high'
 type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; relativePath: string; revision: string; modifiedAt: number }
 type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 type KnowledgeDataViews = { projects: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; unsupportedClaims: KnowledgeNodeRecord[] }
+type ObsidianOpenRequest = { nodeId: string; heading?: string; blockId?: string }
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -68,6 +69,7 @@ interface Window {
     listKnowledgeNodes: () => Promise<KnowledgeNodeRecord[]>
     searchKnowledge: (query: string) => Promise<KnowledgeSearchResult[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
+    openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     readKnowledgeNode: (id: string) => Promise<NoteSnapshot>
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>

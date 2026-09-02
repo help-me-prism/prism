@@ -15,7 +15,7 @@
     "start:fast": "electron .",
     "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
-    "test:notes-ui": "npm run build && node scripts/smoke-notes-ui.mjs",
+    "test:notes-ui": "npm run build && node scripts/test-vault-compatibility.mjs && node scripts/smoke-notes-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable --publish never",
     "package:mac": "npm run build && electron-builder --mac dmg --publish never",
     "package:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",

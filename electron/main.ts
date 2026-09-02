@@ -13,6 +13,7 @@ import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listK
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
+import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -737,6 +738,16 @@ ipcMain.handle('knowledge:search', async (_event, query: string) => {
 ipcMain.handle('knowledge:views', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeDataViews(settings.libraryPath)
+})
+ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpenRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const node = (await listKnowledgeNodes(settings.libraryPath)).find((item) => item.id === request.nodeId)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  const uri = buildObsidianOpenUri(settings.libraryPath, node.relativePath, { heading: request.heading, blockId: request.blockId })
+  if (process.env.PRISM_TEST_EXTERNAL_URL_LOG) await fs.appendFile(process.env.PRISM_TEST_EXTERNAL_URL_LOG, `${uri}\n`, 'utf8')
+  else await shell.openExternal(uri)
+  return true
 })
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()

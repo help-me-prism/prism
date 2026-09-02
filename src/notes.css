@@ -149,6 +149,7 @@
 .knowledge-data-view > div > button strong { display: -webkit-box; line-height: 1.35; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .knowledge-heading { min-height: 88px; display: flex; align-items: stretch; flex-direction: column; justify-content: center; gap: 7px; padding: 9px 14px; border-bottom: 1px solid #e1ddd5; background: #f8f6f2; }
 .knowledge-heading > div:first-child { min-width: 0; }
+.knowledge-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }.knowledge-title-row > div { min-width: 0; }.knowledge-title-row > button { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 7px; border: 1px solid #c9c5bc; border-radius: 11px; background: #fff; color: #655d70; font-size: 7px; cursor: pointer; }.knowledge-title-row > button:hover { border-color: #a99bc5; background: #f2eef8; color: #6553a0; }
 .knowledge-heading small { display: block; overflow: hidden; margin-bottom: 4px; color: #918b83; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-heading h3 { overflow: hidden; margin: 0; color: #393631; font: 600 15px Georgia, "Noto Serif KR Variable", serif; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-properties { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px; }
