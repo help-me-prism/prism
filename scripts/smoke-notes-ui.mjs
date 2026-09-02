@@ -209,7 +209,7 @@ try {
   await chooseKnowledgeProperty('지식 노트 중요도', 'high', 'importance: high')
   await chooseKnowledgeProperty('지식 노트 확신도', 'low', 'confidence: low')
 
-  await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 연결 추가"]').click()`)
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 링크 추가"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-link-picker'))`), 'The knowledge link picker did not open.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-link-picker > div > button')].find((button) => button.textContent.includes('Reverse diffusion')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
@@ -237,6 +237,46 @@ try {
   assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.wiki-link-menu'))`), 'Choosing an inline knowledge link did not close autocomplete.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('[[Questions/가중치는 품질에 어떤 영향을 주는가|가중치는 품질에 어떤 영향을 주는가]]'), 'Inline knowledge autocomplete did not save the selected Obsidian link.')
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장'))?.disabled === true`), 'The knowledge editor did not settle after saving the inline link.')
+
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 관계 추가"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.relation-picker'))`), 'The typed relation picker did not open.')
+  await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label="지식 관계 유형"]'); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, 'supports'); select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.relation-choice')?.textContent === '지지함'`), 'The typed relation picker did not apply the selected relation type.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.relation-picker > div > button')].find((button) => button.textContent.includes('Reverse diffusion')).click()`)
+  try {
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-relations article small')?.textContent.includes('지지함')`), 'Creating a typed relation did not render its outgoing relation card.')
+  } catch (reason) {
+    const debug = await notesConnection.evaluate(`({ footer: document.querySelector('.knowledge-manager > footer > span')?.textContent, relationPicker: Boolean(document.querySelector('.relation-picker')), relationText: document.querySelector('.knowledge-relations')?.textContent })`)
+    let files = []; try { files = await fs.readdir(path.join(libraryPath, '.prism', 'relations')) } catch { /* directory was not created */ }
+    throw new Error(`${reason.message} Debug: ${JSON.stringify(debug)} Files: ${JSON.stringify(files)}\nClaim: ${await fs.readFile(claimPath, 'utf8')}`)
+  }
+  let relationFiles = await fs.readdir(path.join(libraryPath, '.prism', 'relations'))
+  assert(relationFiles.length === 1 && relationFiles[0].startsWith('relation-'), 'A typed relation was not stored as an independent sidecar.')
+  const relationRecord = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', relationFiles[0]), 'utf8'))
+  assert(relationRecord.type === 'supports' && relationRecord.creator === 'user' && relationRecord.reviewStatus === 'approved', 'The relation sidecar did not preserve type, creator, and review status.')
+  assert((await fs.readFile(claimPath, 'utf8')).includes('> [!abstract] 관계 · 지지함'), 'The approved relation was not kept as human-readable Markdown.')
+  const relationsScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const relationsScreenshotPath = path.resolve('tmp/ui/notes-typed-relations.png')
+  await fs.writeFile(relationsScreenshotPath, Buffer.from(relationsScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('.knowledge-relations article > button:first-child').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === 'Reverse diffusion' && document.querySelector('.knowledge-relations article small')?.textContent.includes('지지함')`), 'The target Concept did not show the relation as incoming.')
+  await notesConnection.evaluate(`document.querySelector('.knowledge-relations article > button:first-child').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'The incoming relation card did not navigate back to its source.')
+  await notesConnection.evaluate(`document.querySelector('.knowledge-relations .relation-delete').click()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.knowledge-relations')`), 'Deleting an outgoing relation did not remove its card.')
+  relationFiles = await fs.readdir(path.join(libraryPath, '.prism', 'relations'))
+  assert(relationFiles.length === 0 && !(await fs.readFile(claimPath, 'utf8')).includes('prism-relation:'), 'Deleting a relation did not remove its sidecar and generated Markdown block.')
+  assert((await fs.readFile(claimPath, 'utf8')).includes('[[Concepts/Reverse diffusion|Reverse diffusion]]'), 'Deleting a typed relation removed a separate user-authored wiki link.')
+  const aiRelation = await notesConnection.evaluate(`(async () => {
+    const source = (await window.prism.listKnowledgeNodes()).find((node) => node.title.includes('노이즈 예측'));
+    const snapshot = await window.prism.readKnowledgeNode(source.id);
+    return window.prism.createKnowledgeRelation({ sourceId: source.id, targetId: ${JSON.stringify(createdTypes[2])}, type: 'extends', creator: 'ai', expectedRevision: snapshot.revision });
+  })()`)
+  assert(aiRelation.saved && aiRelation.relation.creator === 'ai' && aiRelation.relation.reviewStatus === 'pending', 'An AI relation did not start in pending review state.')
+  assert(!(await fs.readFile(claimPath, 'utf8')).includes(aiRelation.relation.id), 'A pending AI relation modified user Markdown before approval.')
+  const removedAiRelation = await notesConnection.evaluate(`window.prism.deleteKnowledgeRelation({ id: ${JSON.stringify(aiRelation.relation.id)}, expectedRevision: ${JSON.stringify(aiRelation.snapshot.revision)} })`)
+  assert(removedAiRelation.saved && (await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).length === 0, 'Deleting a pending AI relation did not remove its sidecar.')
 
   claimMarkdown = await fs.readFile(claimPath, 'utf8')
   await replaceEditor(notesConnection, `${claimMarkdown}\n사용자가 문서형 화면에서 추가한 판단.\n`, '.knowledge-editor .cm-content')
@@ -411,7 +451,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, knowledge links, inline autocomplete and backlinks, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, knowledge links, inline autocomplete, backlinks and typed relations, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()
