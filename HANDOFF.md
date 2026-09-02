@@ -1,10 +1,10 @@
 # Prism 개발 인수인계 노트
 
 마지막 정리: 2026-09-02  
-작업 브랜치: `kys`  
-기능 구현 기준 커밋: `80be200` (`feat: expand paper workspace controls`)
+작업 브랜치: `kys_enhanced`
+기능 구현 기준 커밋: `5693042` (`fix: harden cross-platform CLI and session storage`)
 
-이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys`와 `git pull origin kys`를 실행하고 이 문서를 읽는다.
+이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
 
 ## 1. 제품 목표
 
@@ -68,6 +68,23 @@ codex login
 - 전송된 메시지의 태그 칩을 클릭하면 해당 논문 탭·페이지·anchor 위치로 이동한다.
 
 관련 커밋: `80be200`
+
+## 3.2 `kys_enhanced` 제품 완성도 개선
+
+- 실제 Electron 창을 캡처·조작하는 외부 의존성 없는 CDP 진단 도구와 격리된 `npm run test:ui` smoke를 추가했다. smoke는 1040×680 최소 창 크기에서 첫 실행, 검색 dialog 포커스/Escape, 설정, 대화 삭제 undo, CSP를 확인한다.
+- 제품 리뷰와 반복별 검증 결과는 `docs/UX_REVIEW.md`에 기록한다.
+- 검색 modal의 빈 상태, 안내, 글자 크기, 접근성 이름과 키보드 닫기를 개선했다.
+- 무반응 설정/더보기 컨트롤을 실제 CLI 상태·라이브러리·단축키 설정 dialog로 교체했다.
+- 대화 삭제는 6초 undo를 제공하고 마지막 대화나 실행 중 대화의 삭제를 막는다.
+- `@` 자동완성에 위/아래, Enter/Tab 선택, Escape 닫기를 추가했다.
+- 15페이지 테스트 논문에서 약 24초 걸리던 초기 리더 진입을 약 2초로 줄였다. PDF를 피겨 preview보다 먼저 열고 인접 페이지만 canvas/operator를 lazy render하며 전체 앵커 분석 진행률을 표시한다.
+- Notes는 논문·라이브러리 전환, blur, unload에서 dirty 내용을 flush하고 절대 경로 대신 로컬 Markdown 파일명을 표시한다.
+- 번역 진행 중 버튼으로 작업을 중지할 수 있으며 완료된 batch cache는 유지한다.
+- renderer CSP를 명시하고 Electron 보안 경고를 smoke 회귀 조건으로 추가했다.
+- macOS Finder 실행의 제한된 PATH를 고려해 Homebrew, `~/.local/bin`, npm global, Claude local 경로를 탐색한다. `PRISM_CODEX_PATH`, `PRISM_CLAUDE_PATH` override도 지원한다.
+- 세션 저장 전 피겨 thumbnail data URL만 제거해 15MB 초과로 전체 채팅 자동 저장이 중단되는 문제를 예방한다. 원본 피겨 파일과 anchor 문맥은 유지한다.
+
+관련 커밋: `ddfb479`, `caf1f89`, `6474baf`, `5693042`
 
 ## 4. 오늘 구현된 내용
 
@@ -213,6 +230,10 @@ library/
 - `@문` 입력 시 8개 앵커 자동완성, 선택 후 원시 입력 제거와 칩 생성 확인
 - 왼쪽 검색 버튼에서 기존 arXiv Finder가 열리는 것 확인
 - Notes 버튼에서 별도 Electron 창이 열리고 논문 목록과 Markdown textarea가 표시되는 것 확인
+- `npm run test:ui` 성공 — 1040×680 최소 창, 검색 dialog, 설정, 삭제 undo, CSP 검증
+- Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
+- Notes blur 직후 실제 Markdown 파일 저장 확인
+- Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 약 107MB)
 
 테스트용으로 실제 사용자 설정을 바꾸지 않으려면 다음 환경 변수를 사용할 수 있다.
 
@@ -284,11 +305,11 @@ npm run start:fast
 - AI로 넘길 때 단순 문자열 `@문장36`만 보내지 말고 구조화된 anchor metadata를 함께 보낸다.
 - arXiv LaTeX가 있으면 우선 사용하되, 없거나 파싱/컴파일에 실패하면 PDF 기반 파이프라인을 유지한다.
 - 논문/노트 경로는 Windows/macOS 모두를 위해 Node `path` API와 라이브러리 상대 경로를 사용한다.
-- 의미 있는 작업 단위가 끝날 때마다 `kys` 브랜치에 커밋하고 `origin/kys`로 푸시한다.
+- 의미 있는 작업 단위가 끝날 때마다 `kys_enhanced` 브랜치에 커밋하고 `origin/kys_enhanced`로 푸시한다.
 - 사용자가 만든 파일이나 unrelated working-tree 변경은 덮어쓰지 않는다.
 
 ## 9. 다음 대화에 전달할 시작 프롬프트 예시
 
 ```text
-Prism 저장소의 kys 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys에 커밋하고 origin/kys로 푸시해.
+Prism 저장소의 kys_enhanced 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md, docs/UX_REVIEW.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, UX_REVIEW의 미완료 항목과 HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys_enhanced에 커밋하고 origin/kys_enhanced로 푸시해.
 ```

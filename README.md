@@ -66,6 +66,8 @@ npm start
 
 첫 실행 전 터미널에서 `codex login`을 마쳐야 합니다. `npm run build`로 타입 검사와 프로덕션 번들을 확인할 수 있습니다.
 
+화면 회귀 검증은 별도 테스트 프로필과 최소 창 크기에서 Electron을 실행하는 `npm run test:ui`로 수행합니다. 제품 완성도 리뷰와 반복별 확인 결과는 [docs/UX_REVIEW.md](docs/UX_REVIEW.md)에 기록합니다.
+
 ### Windows 실행 파일
 
 `npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.

@@ -18,7 +18,7 @@ const electron = spawn(electronPath, [
   '.',
 ], {
   cwd: process.cwd(),
-  env: { ...process.env, PRISM_TEST_LIBRARY_PATH: libraryPath, PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1' },
+  env: { ...process.env, PRISM_TEST_LIBRARY_PATH: libraryPath, PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1040x680' },
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: true,
 })
@@ -92,10 +92,12 @@ try {
     dialog: document.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby'),
     activeLabel: document.activeElement?.getAttribute('aria-label'),
     fatal: Boolean(document.querySelector('.fatal-error')),
+    viewport: { width: innerWidth, height: innerHeight },
   }))()`)
   assert(initial.dialog === 'paper-finder-title', 'The first-run paper finder is not exposed as a dialog.')
   assert(initial.activeLabel === 'arXiv 논문 검색어', 'The paper search field did not receive initial focus.')
   assert(!initial.fatal, 'The renderer displayed the fatal error screen.')
+  assert(initial.viewport.width === 1040 && initial.viewport.height === 680, `Minimum window size was not applied: ${initial.viewport.width}x${initial.viewport.height}`)
 
   await press('Escape', 27)
   assert(await evaluate(`!document.querySelector('.paper-finder')`), 'Escape did not close the paper finder.')

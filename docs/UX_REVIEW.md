@@ -71,3 +71,4 @@
 | 2차 | PDF 선표시·분석 진행률·페이지 lazy rendering | `npm run build` 성공 | 같은 15페이지 논문을 재실행 후 2초 시점에 첫 페이지와 전체 리더 사용 가능 확인 | 통과 |
 | 3차 | Notes 저장 flush·번역 중지·CSP | `npm run test:ui` 성공 | Notes 독립 창 렌더 및 blur 직후 Markdown 파일 반영, renderer CSP 경고 없음 확인 | 통과 |
 | 4차 | macOS CLI 탐색·세션 저장 용량 보호 | `npm run test:ui` 성공 | Windows CLI 발견·세션 저장 회귀 없음, macOS 실제 기기 검증은 후속 | 통과 |
+| 최종 회귀 | 최소 창·Windows 패키징 | `npm run test:ui`, `npm run package:win` 성공 | 1040×680 실제 리더 화면에서 잘림 없는 조작 확인 | 통과 |

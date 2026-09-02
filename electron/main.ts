@@ -586,8 +586,11 @@ function loadRenderer(window: BrowserWindow, view?: string) {
 }
 
 function createWindow() {
+  const testSize = process.env.PRISM_TEST_WINDOW_SIZE?.match(/^(\d{3,4})x(\d{3,4})$/)
+  const initialWidth = testSize ? Math.max(1040, Number(testSize[1])) : 1480
+  const initialHeight = testSize ? Math.max(680, Number(testSize[2])) : 920
   const window = new BrowserWindow({
-    width: 1480, height: 920, minWidth: 1040, minHeight: 680, backgroundColor: '#f5f3ee', titleBarStyle: 'hidden',
+    width: initialWidth, height: initialHeight, minWidth: 1040, minHeight: 680, backgroundColor: '#f5f3ee', titleBarStyle: 'hidden',
     titleBarOverlay: process.platform === 'win32' ? { color: '#f5f3ee', symbolColor: '#4a4945', height: 42 } : false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
