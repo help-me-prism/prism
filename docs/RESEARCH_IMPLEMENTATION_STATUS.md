@@ -41,12 +41,14 @@
 
 검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-link-preview.png`, `notes-evidence-autocomplete.png`, `notes-inline-create.png`.
 
-### C. 근거 카드 작업
+### C. 근거 카드 작업 — 완료
 
 - 근거 카드를 다른 지식 노트에 충돌 없이 복사한다.
 - 근거 카드에서 기존 Claim 연결과 관계 타입 변경을 수행한다.
 - 관계 sidecar에 선택적인 직접 근거 앵커를 기록한다.
 - 섹션 앵커를 근거 유형에 포함하고 PDF 왕복 이동을 검증한다.
+
+검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-evidence-copy.png`, `notes-evidence-claim.png`, `notes-section-evidence.png`.
 
 ### D. 블록 상호작용
 

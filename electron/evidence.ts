@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { listKnowledgeNodes, readKnowledgeNode } from './knowledge.js'
 
-export type EvidenceAnchorType = 'sentence' | 'equation' | 'table' | 'figure' | 'page'
+export type EvidenceAnchorType = 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'
 export type EvidencePaper = { arxivId: string; title: string; pdfPath: string }
 export type EvidenceAnchor = {
   paperId: string
@@ -52,16 +52,16 @@ async function figureAnchors(paper: EvidencePaper): Promise<StoredAnchor[]> {
 export async function listEvidenceAnchors(libraryPath: string, papers: EvidencePaper[]): Promise<EvidenceAnchor[]> {
   const result: EvidenceAnchor[] = []
   for (const paper of papers) {
-    const counters: Record<EvidenceAnchorType, number> = { sentence: 0, equation: 0, table: 0, figure: 0, page: 0 }
+    const counters: Record<EvidenceAnchorType, number> = { sentence: 0, section: 0, equation: 0, table: 0, figure: 0, page: 0 }
     const stored = [...await storedAnchors(libraryPath, paper), ...await figureAnchors(paper)]
     const maxPage = stored.reduce((maximum, item) => Number.isInteger(item.page) ? Math.max(maximum, Number(item.page)) : maximum, 0)
     for (const item of stored) {
       if (typeof item.id !== 'string' || item.id.length < 1 || item.id.length > 300 || typeof item.type !== 'string' || !sourceTypes.has(item.type)
         || !Number.isInteger(item.page) || Number(item.page) < 1 || typeof item.source !== 'string') continue
-      const type: EvidenceAnchorType = item.type === 'equation' || item.type === 'table' || item.type === 'figure' ? item.type : 'sentence'
+      const type: EvidenceAnchorType = item.type === 'heading' ? 'section' : item.type === 'equation' || item.type === 'table' || item.type === 'figure' ? item.type : 'sentence'
       counters[type] += 1
       const source = item.source.slice(0, 20_000)
-      result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: item.id, type, page: Number(item.page), label: `${type === 'sentence' ? '문장' : type === 'equation' ? '수식' : type === 'table' ? '표' : '피겨'}${counters[type]}`, source, sourceHash: digest(source), availability: 'linked' })
+      result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: item.id, type, page: Number(item.page), label: `${type === 'sentence' ? '문장' : type === 'section' ? '섹션' : type === 'equation' ? '수식' : type === 'table' ? '표' : '피겨'}${counters[type]}`, source, sourceHash: digest(source), availability: 'linked' })
     }
     for (let page = 1; page <= maxPage; page += 1) result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: `p${page}`, type: 'page', page, label: `페이지${page}`, source: `Page ${page} of ${paper.title}`, sourceHash: digest(`Page ${page} of ${paper.title}`), availability: 'linked' })
   }

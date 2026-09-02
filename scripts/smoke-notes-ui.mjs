@@ -37,6 +37,7 @@ await fs.mkdir(path.join(libraryPath, '.prism', 'anchors'), { recursive: true })
 await fs.mkdir(path.join(paperPath, 'figures'), { recursive: true })
 await fs.writeFile(notePath, initialNote, 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
+  { id: 'heading-p1-introduction', type: 'heading', page: 1, source: 'Introduction' },
   { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
   { id: 'equation-p2-3', type: 'equation', page: 2, source: 'L_simple = E[||epsilon - epsilon_theta(x_t,t)||^2]' },
   { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
@@ -447,7 +448,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.textContent.includes('노이즈 예측은')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'The origin Claim did not reopen after suggestion review.')
 
-  assert(await notesConnection.evaluate(`window.prism.listEvidenceAnchors().then((items) => new Set(items.map((item) => item.type)).size)`) === 5, 'The evidence catalog did not expose sentence, equation, table, figure, and page anchors.')
+  assert(await notesConnection.evaluate(`window.prism.listEvidenceAnchors().then((items) => new Set(items.map((item) => item.type)).size)`) === 6, 'The evidence catalog did not expose sentence, section, equation, table, figure, and page anchors.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-picker'))`), 'The PDF evidence picker did not open.')
   assert(await notesConnection.evaluate(`document.querySelectorAll('.evidence-picker > div > button').length`) >= 5, 'The evidence picker did not list the stored PDF anchors.')
@@ -457,6 +458,20 @@ try {
   await mainConnection.evaluate(`(() => { window.__openedEvidence = []; window.prism.onOpenEvidenceAnchor((anchor) => window.__openedEvidence.push(anchor)); })()`)
   await notesConnection.evaluate(`document.querySelector('.evidence-open').click()`)
   await waitFor(() => mainConnection.evaluate(`window.__openedEvidence?.[0]?.anchorId === 'equation-p2-3'`), 'Clicking the evidence card did not ask the Reader to open the stable PDF anchor.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
+  await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label="PDF 근거 유형"]'); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, 'section'); select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.evidence-picker > div > button strong')?.textContent === 'Editor fixture' && document.querySelector('.evidence-picker')?.textContent.includes('Introduction')`), 'Filtering evidence by section did not expose the stored heading anchor.')
+  const sectionEvidenceScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const sectionEvidenceScreenshotPath = path.resolve('tmp/ui/notes-section-evidence.png')
+  await fs.writeFile(sectionEvidenceScreenshotPath, Buffer.from(sectionEvidenceScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('.evidence-picker > div > button').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-heading-p1-introduction'), 'The section evidence card was not saved as portable Markdown.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-strip article')].find((article) => article.textContent.includes('Introduction')).querySelector('.evidence-open').click()`)
+  await waitFor(() => mainConnection.evaluate(`window.__openedEvidence?.[1]?.type === 'section' && window.__openedEvidence?.[1]?.anchorId === 'heading-p1-introduction'`), 'Clicking the section evidence card did not ask the Reader to open and highlight its heading anchor.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="섹션1 근거 링크 삭제"]').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => !(await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-heading-p1-introduction'), 'Removing the section evidence card was not saved.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('prism-evidence:') && (await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-equation-p2-3'), 'The evidence reference was not preserved in portable Markdown.')
   const copyTargetPath = path.join(libraryPath, 'Concepts', 'Reverse diffusion.md')
@@ -516,6 +531,7 @@ try {
 
   const changedEquation = 'L_simple now uses an updated epsilon parameterization.'
   await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
+    { id: 'heading-p1-introduction', type: 'heading', page: 1, source: 'Introduction' },
     { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
     { id: 'equation-p2-3', type: 'equation', page: 2, source: changedEquation },
     { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
@@ -690,7 +706,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

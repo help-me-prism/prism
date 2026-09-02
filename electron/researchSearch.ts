@@ -11,7 +11,7 @@ const indexRelativePath = '.prism/index/research-search-v1.json'
 type IndexEntry = { nodeId: string; revision: string; title: string; relativePath: string; plain: string; terms: Record<string, number>; vector: number[] }
 type ResearchIndex = { version: 1; signature: string; generatedAt: string; idf: Record<string, number>; entries: IndexEntry[] }
 export type ResearchSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number; textScore: number; semanticScore: number }
-export type ResearchEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
+export type ResearchEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
 export type ResearchContext = { query: string; seeds: ResearchSearchResult[]; nodes: KnowledgeNodeRecord[]; relations: KnowledgeRelationRecord[]; evidence: ResearchEvidence[] }
 export type ResearchIndexStatus = { nodeCount: number; signature: string; rebuilt: boolean; relativePath: typeof indexRelativePath }
 
@@ -108,7 +108,7 @@ function evidenceFrom(markdown: string, nodeId: string) {
   const result: ResearchEvidence[] = []
   for (const match of markdown.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)) try {
     const item = JSON.parse(decodeURIComponent(match[1])) as Partial<ResearchEvidence>
-    if (typeof item.paperId === 'string' && typeof item.anchorId === 'string' && ['sentence', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) && Number.isInteger(item.page) && typeof item.label === 'string' && typeof item.paperTitle === 'string' && typeof item.source === 'string') result.push({ nodeId, paperId: item.paperId, anchorId: item.anchorId, type: item.type!, page: item.page!, label: item.label, paperTitle: item.paperTitle, source: item.source })
+    if (typeof item.paperId === 'string' && typeof item.anchorId === 'string' && ['sentence', 'section', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) && Number.isInteger(item.page) && typeof item.label === 'string' && typeof item.paperTitle === 'string' && typeof item.source === 'string') result.push({ nodeId, paperId: item.paperId, anchorId: item.anchorId, type: item.type!, page: item.page!, label: item.label, paperTitle: item.paperTitle, source: item.source })
   } catch { /* Malformed generated metadata remains source Markdown but is not trusted as evidence. */ }
   return result
 }

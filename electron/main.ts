@@ -858,7 +858,7 @@ ipcMain.handle('evidence:list', async () => {
   return listEvidenceAnchors(settings.libraryPath, await readLibrary())
 })
 ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anchorId?: unknown; type?: unknown; page?: unknown; label?: unknown }) => {
-  const validTypes = new Set(['sentence', 'equation', 'table', 'figure', 'page'])
+  const validTypes = new Set(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
   if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId)
     || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300
     || typeof anchor.type !== 'string' || !validTypes.has(anchor.type)

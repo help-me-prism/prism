@@ -4,7 +4,7 @@ import path from 'node:path'
 import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 
 export type KnowledgeRelationType = 'discusses' | 'supports' | 'contradicts' | 'extends' | 'uses' | 'explains' | 'evidence_for' | 'derived_from' | 'raises' | 'related'
-export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
+export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; createdAt: string }
 export type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
 export type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
@@ -13,7 +13,7 @@ export type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: str
 export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 
 const relationTypes = new Set<KnowledgeRelationType>(['discusses', 'supports', 'contradicts', 'extends', 'uses', 'explains', 'evidence_for', 'derived_from', 'raises', 'related'])
-const evidenceTypes = new Set<RelationEvidenceAnchor['type']>(['sentence', 'equation', 'table', 'figure', 'page'])
+const evidenceTypes = new Set<RelationEvidenceAnchor['type']>(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
 const relationLabels: Record<KnowledgeRelationType, string> = { discusses: '다룸', supports: '지지함', contradicts: '반박함', extends: '확장함', uses: '사용함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', raises: '질문을 제기함', related: '관련' }
 const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
 const relationIdPattern = /^relation-[a-f0-9-]{20,80}$/

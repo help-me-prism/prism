@@ -1,4 +1,4 @@
-const typeLabels: Record<EvidenceAnchorRef['type'], string> = { sentence: '문장', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
+const typeLabels: Record<EvidenceAnchorRef['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
 
 export type EmbeddedEvidence = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; blockId: string }
 

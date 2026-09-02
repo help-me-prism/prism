@@ -8,7 +8,7 @@ import { listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './re
 import { searchResearchKnowledge } from './researchSearch.js'
 import { listTemplates, markTemplateUsed } from './templates.js'
 
-type EmbeddedEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
+type EmbeddedEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
 type OpenAnchorRequest = { version: 1; requestId: string; requestedAt: string; paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }
 
 const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
@@ -55,7 +55,7 @@ function embeddedEvidence(markdown: string, nodeId: string): EmbeddedEvidence[] 
   for (const match of markdown.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)) try {
     const item = JSON.parse(decodeURIComponent(match[1])) as Partial<EmbeddedEvidence>
     if (typeof item.paperId === 'string' && paperIdPattern.test(item.paperId) && typeof item.anchorId === 'string' && item.anchorId.length <= 300
-      && ['sentence', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) && Number.isInteger(item.page) && Number(item.page) > 0
+      && ['sentence', 'section', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) && Number.isInteger(item.page) && Number(item.page) > 0
       && typeof item.label === 'string' && typeof item.paperTitle === 'string' && typeof item.source === 'string') result.push({ nodeId, paperId: item.paperId, anchorId: item.anchorId, type: item.type!, page: item.page!, label: item.label.slice(0, 300), paperTitle: item.paperTitle.slice(0, 500), source: item.source.slice(0, 20_000) })
   } catch { /* Malformed generated metadata is never returned to an MCP client. */ }
   return result
@@ -120,7 +120,7 @@ export async function readMcpOpenAnchorRequest(libraryPath: string): Promise<Ope
   if (!value || typeof value !== 'object') return undefined
   const item = value as Partial<OpenAnchorRequest>
   if (item.version !== 1 || typeof item.requestId !== 'string' || typeof item.requestedAt !== 'string' || typeof item.paperId !== 'string' || !paperIdPattern.test(item.paperId)
-    || typeof item.anchorId !== 'string' || item.anchorId.length > 300 || !['sentence', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) || !Number.isInteger(item.page) || Number(item.page) < 1 || typeof item.label !== 'string') return undefined
+    || typeof item.anchorId !== 'string' || item.anchorId.length > 300 || !['sentence', 'section', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) || !Number.isInteger(item.page) || Number(item.page) < 1 || typeof item.label !== 'string') return undefined
   return item as OpenAnchorRequest
 }
 
