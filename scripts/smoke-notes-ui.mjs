@@ -346,6 +346,75 @@ try {
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 6`), 'Clearing knowledge search did not restore the complete node list.')
 
+  const duplicateConceptId = await notesConnection.evaluate(`(async () => {
+    const created = await window.prism.createKnowledgeNode({ nodeType: 'concept', title: 'Reverse diffusion process' });
+    const snapshot = await window.prism.readKnowledgeNode(created.id);
+    const saved = await window.prism.saveKnowledgeNode(created.id, { content: snapshot.content + ${JSON.stringify('\n역확산 과정은 입력의 노이즈를 단계적으로 제거해 표본을 복원한다.\n')}, expectedRevision: snapshot.revision });
+    if (!saved.saved) throw new Error('duplicate concept save conflict');
+    return created.id;
+  })()`)
+  const paperSuggestionPath = path.join(libraryPath, 'Papers', '수동 Paper 노트.md')
+  const paperSuggestionSource = await notesConnection.evaluate(`(async () => {
+    const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[0])});
+    const content = snapshot.content + ${JSON.stringify('\n[[Claims/노이즈 예측은 score matching이다|노이즈 예측은 score matching이다]] 주장을 실험 결과가 지지한다.\n')};
+    const saved = await window.prism.saveKnowledgeNode(${JSON.stringify(createdTypes[0])}, { content, expectedRevision: snapshot.revision });
+    if (!saved.saved) throw new Error('paper suggestion fixture conflict');
+    return saved.snapshot.content;
+  })()`)
+  const generatedSuggestions = await notesConnection.evaluate(`window.prism.suggestKnowledge(${JSON.stringify(createdTypes[0])})`)
+  assert(generatedSuggestions.some((item) => item.kind === 'supports' && item.source.id === createdTypes[0] && item.target?.id === claimNodeId && item.proposedRelation === 'supports'), 'The local suggestion engine did not infer an explicit supporting Claim relation.')
+  assert(!generatedSuggestions.some((item) => item.kind === 'duplicate_concept'), 'A Paper received a duplicate Concept suggestion unrelated to its active context.')
+  assert(generatedSuggestions.some((item) => item.kind === 'evidence_gap' || item.kind === 'research_gap'), 'The local suggestion engine did not expose a research gap.')
+  const duplicateSuggestions = await notesConnection.evaluate(`window.prism.suggestKnowledge(${JSON.stringify(createdTypes[1])})`)
+  assert(duplicateSuggestions.some((item) => item.kind === 'duplicate_concept' && item.source.id === createdTypes[1] && item.target?.id === duplicateConceptId), 'The local suggestion engine did not identify a semantically overlapping Concept from the active Concept.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.querySelector('strong')?.textContent === 'Reverse diffusion').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === 'Reverse diffusion'`), 'The source Concept did not open for duplicate review.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="AI 연구 제안 보기"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.knowledge-suggestions article')].find((item) => item.textContent.includes('Reverse diffusion → Reverse diffusion process'))) `), 'The duplicate Concept suggestion was not shown in its relevant active context.')
+  const duplicateScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const duplicateScreenshotPath = path.resolve('tmp/ui/notes-ai-duplicate-concept.png')
+  await fs.writeFile(duplicateScreenshotPath, Buffer.from(duplicateScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="AI 연구 제안 닫기"]').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.textContent.includes('수동 Paper 노트')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === '수동 Paper 노트'`), 'The suggestion source Paper did not open.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="AI 연구 제안 보기"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.knowledge-suggestions article')].find((item) => item.textContent.includes('수동 Paper 노트 → 노이즈 예측'))) && Boolean([...document.querySelectorAll('.knowledge-suggestions article')].find((item) => item.textContent.includes('근거 공백'))) `), 'The AI research suggestion review did not render relation and research-gap cards.')
+  const suggestionsScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const suggestionsScreenshotPath = path.resolve('tmp/ui/notes-ai-suggestions.png')
+  await fs.writeFile(suggestionsScreenshotPath, Buffer.from(suggestionsScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-suggestions article')].find((item) => item.textContent.includes('수동 Paper 노트 → 노이즈 예측')).querySelector('footer button').click()`)
+  await waitFor(async () => (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).some((item) => item.type === 'supports' && item.creator === 'ai' && item.reviewStatus === 'pending'), 'Accepting a suggestion did not create a pending AI relation.')
+  assert(await fs.readFile(paperSuggestionPath, 'utf8') === paperSuggestionSource, 'A pending AI suggestion modified the user-owned Markdown body.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="AI 연구 제안 닫기"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.relation-review-actions'))`), 'The pending AI relation did not expose explicit review controls.')
+  const reviewScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const reviewScreenshotPath = path.resolve('tmp/ui/notes-ai-relation-review.png')
+  await fs.writeFile(reviewScreenshotPath, Buffer.from(reviewScreenshot.data, 'base64'))
+  const pendingSuggestedRelation = (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).find((item) => item.type === 'supports' && item.creator === 'ai' && item.reviewStatus === 'pending')
+  const contextBeforeReview = await notesConnection.evaluate(`window.prism.retrieveResearchContext('수동 Paper 노트')`)
+  assert(!contextBeforeReview.relations.some((item) => item.id === pendingSuggestedRelation.id), 'Graph-grounded retrieval followed an unapproved suggestion.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label$="AI 관계 승인"]').click()`)
+  await waitFor(async () => (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).some((item) => item.id === pendingSuggestedRelation.id && item.reviewStatus === 'approved'), 'Approving an AI relation did not persist its reviewed status.')
+  const approvedSuggestionMarkdown = await fs.readFile(paperSuggestionPath, 'utf8')
+  assert(approvedSuggestionMarkdown.includes(pendingSuggestedRelation.id) && approvedSuggestionMarkdown.includes('> [!abstract] 관계 · 지지함'), 'Approving an AI relation did not append its human-readable Markdown relation block.')
+  const contextAfterReview = await notesConnection.evaluate(`window.prism.retrieveResearchContext('수동 Paper 노트')`)
+  assert(contextAfterReview.relations.some((item) => item.id === pendingSuggestedRelation.id && item.reviewStatus === 'approved'), 'Graph-grounded retrieval did not follow an approved AI suggestion.')
+
+  const rejectedFixture = await notesConnection.evaluate(`(async () => { const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[0])}); return window.prism.createKnowledgeRelation({ sourceId: ${JSON.stringify(createdTypes[0])}, targetId: ${JSON.stringify(createdTypes[2])}, type: 'extends', creator: 'ai', expectedRevision: snapshot.revision }); })()`)
+  assert(rejectedFixture.saved && rejectedFixture.relation.reviewStatus === 'pending', 'The rejection fixture was not created as a pending AI relation.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.textContent.includes('노이즈 예측은')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'The review fixture could not navigate away from its source.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.textContent.includes('수동 Paper 노트')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('button[aria-label="목적함수 연결 아이디어 AI 관계 거절"]'))`), 'The second pending relation did not appear for rejection.')
+  const markdownBeforeReject = await fs.readFile(paperSuggestionPath, 'utf8')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="목적함수 연결 아이디어 AI 관계 거절"]').click()`)
+  await waitFor(async () => (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).some((item) => item.id === rejectedFixture.relation.id && item.reviewStatus === 'rejected'), 'Rejecting an AI relation did not persist its reviewed status.')
+  assert(await fs.readFile(paperSuggestionPath, 'utf8') === markdownBeforeReject, 'Rejecting an AI relation changed user Markdown.')
+  assert(!(await notesConnection.evaluate(`window.prism.retrieveResearchContext('수동 Paper 노트')`)).relations.some((item) => item.id === rejectedFixture.relation.id), 'Graph-grounded retrieval followed a rejected AI relation.')
+  assert(duplicateConceptId.startsWith('concept-'), 'The duplicate Concept fixture did not retain a stable ID.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager-body > aside button')].find((button) => button.textContent.includes('노이즈 예측은')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'The origin Claim did not reopen after suggestion review.')
+
   assert(await notesConnection.evaluate(`window.prism.listEvidenceAnchors().then((items) => new Set(items.map((item) => item.type)).size)`) === 5, 'The evidence catalog did not expose sentence, equation, table, figure, and page anchors.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-picker'))`), 'The PDF evidence picker did not open.')
@@ -525,7 +594,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, full-text search, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

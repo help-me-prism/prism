@@ -32,6 +32,7 @@ type ResearchSearchResult = KnowledgeSearchResult & { textScore: number; semanti
 type ResearchEvidence = { nodeId: string; paperId: string; anchorId: string; type: EvidenceAnchorRef['type']; page: number; label: string; paperTitle: string; source: string }
 type ResearchContext = { query: string; seeds: ResearchSearchResult[]; nodes: KnowledgeNodeRecord[]; relations: KnowledgeRelationRecord[]; evidence: ResearchEvidence[] }
 type ResearchIndexStatus = { nodeCount: number; signature: string; rebuilt: boolean; relativePath: '.prism/index/research-search-v1.json' }
+type KnowledgeSuggestion = { id: string; kind: 'duplicate_concept' | 'supports' | 'contradicts' | 'evidence_gap' | 'research_gap'; source: KnowledgeNodeRecord; target?: KnowledgeNodeRecord; proposedRelation?: KnowledgeRelationType; confidence: number; reason: string }
 type KnowledgeDataViews = { projects: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; unsupportedClaims: KnowledgeNodeRecord[] }
 type ObsidianOpenRequest = { nodeId: string; heading?: string; blockId?: string }
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
@@ -42,6 +43,7 @@ type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string;
 type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
 type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; expectedRevision: string }
 type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
+type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 type KnowledgeRelationMutationResult = { saved: true; relation?: KnowledgeRelationRecord; snapshot: NoteSnapshot; relations: KnowledgeRelationView[] } | { saved: false; conflict: NoteSnapshot }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
@@ -75,6 +77,7 @@ interface Window {
     searchResearchKnowledge: (query: string) => Promise<ResearchSearchResult[]>
     retrieveResearchContext: (query: string) => Promise<ResearchContext>
     rebuildResearchIndex: () => Promise<ResearchIndexStatus>
+    suggestKnowledge: (nodeId: string) => Promise<KnowledgeSuggestion[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
     openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
@@ -86,6 +89,7 @@ interface Window {
     listKnowledgeRelations: (id: string) => Promise<KnowledgeRelationView[]>
     createKnowledgeRelation: (request: KnowledgeRelationCreateRequest) => Promise<KnowledgeRelationMutationResult>
     deleteKnowledgeRelation: (request: KnowledgeRelationDeleteRequest) => Promise<KnowledgeRelationMutationResult>
+    reviewKnowledgeRelation: (request: KnowledgeRelationReviewRequest) => Promise<KnowledgeRelationMutationResult>
     listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
