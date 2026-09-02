@@ -6,9 +6,9 @@
 
 | 범위 | 상태 | 검증 근거 |
 | --- | --- | --- |
-| 읽기 / Live Edit / 분할 편집과 Markdown round-trip | 완료 | `npm run test:notes-ui`, `notes-live-edit.png` |
-| 툴바와 `/` 블록 삽입, 표·수식·이미지·callout | 완료 | `npm run test:notes-ui` |
-| 원자적 저장, 외부 변경 감지, 충돌 비교 | 완료 | `notes-conflict.png` |
+| 읽기 / Live Edit / 분할 편집과 Markdown round-trip | 완료 | `npm run test:notes-ui`, `notes-live-edit.png`, `notes-document-blocks.png` |
+| 툴바와 `/` 블록 삽입, 표·수식·이미지·코드·callout | 완료 | `npm run test:notes-ui`, `notes-document-blocks.png` |
+| 원자적 저장, 외부 변경 감지, 충돌 비교 | 완료 | `scripts/test-vault-compatibility.mjs`, `notes-conflict.png` |
 | Markdown 템플릿 CRUD와 타입별 기본값 | 완료 | `notes-templates.png` |
 | 구조화 속성, 여섯 지식 노드 유형 | 완료 | `notes-knowledge.png` |
 | 내부 링크 자동완성, 백링크, 타입 관계 | 완료 | `notes-link-autocomplete.png`, `notes-typed-relations.png` |
@@ -52,17 +52,20 @@
 
 ### D. 블록 상호작용 — 완료
 
+- Live Edit에서 커서 밖의 표·수식·이미지·코드·구분선을 문서 블록으로 렌더링하고, 블록을 누르면 해당 Markdown 원문을 편집한다.
+- 체크박스는 문서형 화면에서 직접 누르며 `[ ]` / `[x]` Markdown을 저장한다.
 - 시각 편집기에서 Markdown 블록 순서를 드래그로 바꾼다.
 - 제목 아래 섹션을 접고 펼치되 접힘 상태는 파생 UI 상태로만 저장한다.
 - Windows Ctrl / macOS Cmd 실행 취소·다시 실행과 붙여넣기 회귀를 명시적으로 검증한다.
 
-검증: `npm run test:notes-ui`, `notes-section-fold.png`, `notes-block-drag.png`, 실제 Electron Ctrl/Cmd 입력 이벤트, OS 클립보드의 다중 행 Markdown 붙여넣기.
+검증: `npm run test:notes-ui`, `notes-document-blocks.png`, `notes-section-fold.png`, `notes-block-drag.png`, 실제 Electron Ctrl/Cmd 입력 이벤트, OS 클립보드의 다중 행 Markdown 붙여넣기.
 
 ### E. 연구 현황 확장과 완료 감사 — 완료
 
 - 충돌하는 논문과 프로젝트별 개념·아이디어 문맥을 로컬 보기에 추가한다.
 - Paper 읽기 상태를 읽을 예정 / 읽는 중 / 읽음 / 보류 선택값으로 분리한다.
 - 같은 Vault의 Windows/macOS 경로 계약과 패키지 빌드를 다시 확인한다.
+- Windows의 일시적 `EPERM`/`EBUSY`/`EACCES` 파일 점유에서 원자 교체를 재시도하고 임시 파일을 정리한다.
 - 모든 항목 완료 후 `RESEARCH_KNOWLEDGE_SYSTEM.md`의 1차 완료 기준을 처음부터 재검증한다.
 
 검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `npm run test:structure`, `npm run package:win`, `node scripts/smoke-packaged-launch.mjs "release/Prism 0.1.0.exe"`, `notes-paper-reading-status.png`, `notes-knowledge-data-views.png`.
@@ -73,14 +76,14 @@ Windows에서는 portable EXE를 새로 만들고 패키지 안의 renderer가 �
 
 | 완료 기준 | 상태 | 검증 근거 |
 | --- | --- | --- |
-| Markdown 문법 없이 논문 노트 작성 | 완료 | 읽기 / Live Edit / 분할 모드, 툴바와 `/` 삽입, `notes-live-edit.png` |
+| Markdown 문법 없이 논문 노트 작성 | 완료 | 읽기 / Live Edit / 분할 모드, 툴바와 `/` 삽입, 문서형 블록 편집, `notes-document-blocks.png` |
 | 개인 템플릿 저장과 새 노트 자동 적용 | 완료 | Markdown 템플릿 CRUD, 기본값, 버전, 즐겨찾기·최근 사용, 누락 섹션 적용 |
 | 속성과 관계를 선택 UI로 지정 | 완료 | 상태·중요도·확신도·읽기 상태 select, 타입 관계 생성·검토 UI |
 | 문장·수식·표·피겨 근거 카드 삽입 | 완료 | Reader와 Notes 양쪽 삽입, `notes-evidence-copy.png` |
 | 근거 카드에서 PDF 원위치 이동 | 완료 | 문장·수식·표·피겨·페이지·섹션 anchor 왕복 테스트 |
 | Claim / Insight 승격 시 원래 근거 유지 | 완료 | 승격된 Markdown과 anchor backlink 회귀, `notes-evidence-promotion.png` |
 | Obsidian에서 본문과 링크를 읽고 수정 | 완료 | 일반 Markdown/YAML/wiki link/block ID 저장 및 file/heading/block URI 테스트 |
-| 외부 수정 감지와 사용자 내용 보호 | 완료 | hash 충돌 감지, 원자 저장, 비교·선택 UI, `notes-conflict.png` |
+| 외부 수정 감지와 사용자 내용 보호 | 완료 | hash 충돌 감지, 일시적 Windows 파일 점유 재시도, 원자 저장, 비교·선택 UI, `notes-conflict.png` |
 | Windows/macOS에서 동일 Vault 사용 | 완료(경로 계약) | `scripts/test-vault-compatibility.mjs`, `/` 상대 경로, OS별 실행·패키지 구성 |
 
 설계안의 Phase 1~5와 1차 구현 완료 기준은 코드 및 로컬 회귀 기준으로 완료됐다. 이후 작업은 실제 macOS 배포 검증, 대규모 Vault 성능, 더 다양한 PDF corpus, 코드 서명처럼 운영·품질 범위를 확장하는 후속 단계다.

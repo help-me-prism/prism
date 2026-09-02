@@ -100,8 +100,9 @@ codex login
 
 ## 3.3 연구 지식 시스템 1차 구현 완료
 
-- Notes는 읽기 / Live Edit / 분할 모드를 제공하며, 툴바와 `/` 명령으로 제목·목록·표·수식·이미지·callout을 문서형 화면에서 작성한다. Markdown 원문은 round-trip 보존한다.
+- Notes는 읽기 / Live Edit / 분할 모드를 제공하며, 툴바와 `/` 명령으로 제목·목록·표·수식·이미지·코드·callout을 문서형 화면에서 작성한다. Live Edit의 커서 밖 표·수식·이미지·코드·구분선은 렌더링되고, 누르면 해당 Markdown 원문 편집으로 전환된다. 체크박스는 문서 화면에서 바로 토글할 수 있으며 Markdown 원문은 round-trip 보존한다.
 - Live Edit에서 제목 섹션 접기와 Markdown 블록 드래그 재정렬을 지원한다. 접힘은 파생 UI 상태이며 본문에 저장하지 않는다.
+- Notes·관계·템플릿·검색·MCP sidecar의 원자 파일 교체는 Windows의 일시적 `EPERM`/`EBUSY`/`EACCES` 점유를 재시도하고 실패한 임시 파일을 정리한다.
 - Paper, Concept, Claim, Insight, Question, Project 노드를 Markdown/YAML로 만들고 상태·중요도·확신도와 Paper 읽기 상태를 선택 UI로 편집한다.
 - Markdown 템플릿 CRUD, 타입별 기본값, 즐겨찾기·최근 사용, 정확한 `template_version`, 기존 본문을 덮지 않는 누락 섹션 추가를 지원한다.
 - 내부 링크 자동완성·즉시 Concept/Claim 생성·hover 미리보기·백링크와 승인 상태가 있는 타입 관계를 지원한다.
@@ -274,7 +275,7 @@ library/
 - Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
 - Notes blur 직후 실제 Markdown 파일 저장 확인
 - 2026-09-03 Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 111.8MB) 및 `scripts/smoke-packaged-launch.mjs`로 패키지 내부 renderer 실제 실행 확인
-- `npm run test:notes-ui` 성공 — 템플릿·지식 노드·근거·관계·검색·제안·문서 편집·충돌·접기·드래그·Ctrl/Cmd·클립보드 회귀
+- `npm run test:notes-ui` 성공 — 템플릿·지식 노드·근거·관계·검색·제안·문서형 표/수식/이미지/코드/체크박스·충돌·접기·드래그·Ctrl/Cmd·클립보드·Windows 원자 교체 재시도 회귀
 - `npm run test:mcp` 성공 — 일곱 stdio 도구, 승인 관계, Reader 이동, portable path 검증
 - `npm run test:structure` 성공 — LaTeX 수식·표 원문 byte-for-byte 보존
 - macOS 한글 IME 조합 이벤트를 모사한 UI 회귀 테스트에서 `한글` 두 음절이 중간 렌더링 없이 유지되는 것 확인
