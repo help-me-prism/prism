@@ -221,7 +221,7 @@ function segmentRects(segment: TranslationSegment, itemRects: ItemRect[]) {
   return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean)
 }
 
-function translationBlocks(segments: TranslationSegment[], itemRects: ItemRect[], scale: number) {
+function translationBlocks(segments: TranslationSegment[], itemRects: ItemRect[], scale: number, pageWidth: number) {
   const groups = new Map<string, TranslationSegment[]>()
   for (const segment of segments) {
     if (!['text', 'heading', 'caption'].includes(segment.kind) || !segment.translation) continue
@@ -230,11 +230,14 @@ function translationBlocks(segments: TranslationSegment[], itemRects: ItemRect[]
   return [...groups.entries()].flatMap(([key, blockSegments]) => {
     const rects = blockSegments.flatMap((segment) => segmentRects(segment, itemRects))
     if (!rects.length) return []
-    const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top))
-    const width = Math.max(...rects.map((rect) => rect.left + rect.width)) - left; const sourceHeight = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
+    const sourceLeft = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top))
+    const sourceWidth = Math.max(...rects.map((rect) => rect.left + rect.width)) - sourceLeft; const sourceHeight = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
+    const pageGutter = 18 * scale; const minimumWidth = Math.min(180 * scale, pageWidth * .38)
+    const width = Math.min(pageWidth - pageGutter * 2, Math.max(sourceWidth, minimumWidth))
+    const left = Math.max(pageGutter, Math.min(sourceLeft, pageWidth - pageGutter - width))
     const heights = rects.map((rect) => rect.height).sort((a, b) => a - b); const baseSize = (heights[Math.floor(heights.length / 2)] ?? 10) * .9
     const units = blockSegments.reduce((sum, segment) => sum + [...(segment.translation ?? '')].reduce((value, character) => value + (/[가-힣]/.test(character) ? 1 : .58), 0), 0)
-    const fitSize = Math.sqrt(Math.max(1, width * sourceHeight) / Math.max(1, units * 1.38)); const fontSize = Math.max(7.6 * scale, Math.min(11.2 * scale, baseSize, fitSize * 1.18))
+    const fitSize = Math.sqrt(Math.max(1, width * sourceHeight) / Math.max(1, units * 1.38)); const fontSize = Math.max(6.4 * scale, Math.min(11.2 * scale, baseSize, fitSize * 1.18))
     const lines = Math.max(1, Math.ceil(units * fontSize / Math.max(1, width))); const height = Math.max(sourceHeight, lines * fontSize * 1.38)
     return [{ key, segments: blockSegments, box: { left, top, width, height }, fontSize }]
   })
@@ -313,7 +316,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
     captureFigure(x, y, width, height)
   }
   const translatedSegments = segments.map((segment) => ({ ...segment, translation: translation.get(segment.id) ?? segment.translation }))
-  const translatedBlocks = translationBlocks(translatedSegments, itemRects, scale)
+  const translatedBlocks = translationBlocks(translatedSegments, itemRects, scale, pageSize.width)
   const sourceFigureRects = sourceFigures.flatMap((figure) => {
     const caption = segments.find((segment) => segment.id === figure.captionAnchorId)
     const rects = caption ? segmentRects(caption, itemRects) : []
@@ -350,6 +353,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
   const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(true); const [dualRatio, setDualRatio] = useState(50); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const documentLayoutRef = useRef<HTMLDivElement>(null); const syncLock = useRef(false)
+  const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
   const activePaper = library.find((paper) => paper.arxivId === activeId); const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
   const translationMap = useMemo(() => new Map(translation.map((segment) => [segment.id, segment.translation ?? ''])), [translation])
   const translatableSegments = allSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind))
@@ -373,7 +377,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { onAnchorCatalog(anchorCatalog) }, [anchorCatalog])
-  useEffect(() => { onWorkspaceState({ library, openPaperIds: tabs, activePaperId: activeId }) }, [library, tabs, activeId])
+  useEffect(() => { onWorkspaceState({ library, openPaperIds: tabs, activePaperId: activeId, libraryPath: settings.libraryPath }) }, [library, tabs, activeId, settings.libraryPath])
   useEffect(() => {
     if (!command) return
     if (command.type === 'search') setFinderOpen(true)
@@ -441,14 +445,49 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
   async function saveFigure(page: number, dataUrl: string, preview: string, rect: { x: number; y: number; width: number; height: number }, sourceFigure?: PaperFigureAsset) { if (!activePaper) return; const number = Date.now().toString(36); const figureId = sourceFigure ? `source-${sourceFigure.id}-${number}` : `figure-p${page}-${number}`; try { const imagePath = await window.prism.savePaperFigure(activePaper.arxivId, figureId, dataUrl, { page, rect, sourceFigureId: sourceFigure?.id, sourcePath: sourceFigure?.sourcePath, caption: sourceFigure?.caption }); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: figureId, type: 'figure', page, label: `피겨${page}-${sourceFigure ? sourceFigure.order + 1 : number.slice(-3)}`, source: `${sourceFigure ? `Matched LaTeX figure ${sourceFigure.order + 1}. Caption: ${sourceFigure.caption ?? 'unknown'}. Source asset: ${sourceFigure.sourcePath ?? 'unavailable'}. ` : ''}Saved figure image: ${imagePath}. Normalized bounds: ${JSON.stringify(rect)}`, preview }); if (!sourceFigure) setFigureSelect(false) } catch (reason) { setError(String(reason)) } }
-  function setPaneZoom(mode: 'original' | 'translated', value: number) { if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value) }
+  function scrollAnchor(pane: HTMLDivElement | null) {
+    if (!pane) return { page: pageNumber, progress: 0 }
+    const pages = [...pane.querySelectorAll<HTMLElement>('.continuous-page')]
+    const marker = pane.scrollTop + pane.clientHeight * .28
+    const current = pages.find((page) => page.offsetTop + page.offsetHeight >= marker) ?? pages.at(-1)
+    if (!current) return { page: pageNumber, progress: 0 }
+    const page = Number(current?.dataset.page?.split('-').at(-1)) || pageNumber
+    const next = pages[pages.indexOf(current) + 1]
+    const span = Math.max(1, (next?.offsetTop ?? (current.offsetTop + current.offsetHeight + 18)) - current.offsetTop)
+    return { page, progress: Math.max(0, Math.min(1, (marker - current.offsetTop) / span)) }
+  }
+  function restoreScrollAnchor(pane: HTMLDivElement | null, anchor: { page: number; progress: number }) {
+    if (!pane) return
+    const current = pane.querySelector<HTMLElement>(`.continuous-page[data-page$="-${anchor.page}"]`)
+    if (!current) return
+    const next = current.nextElementSibling as HTMLElement | null
+    const span = Math.max(1, (next?.offsetTop ?? (current.offsetTop + current.offsetHeight + 18)) - current.offsetTop)
+    pane.scrollTop = Math.max(0, current.offsetTop + span * anchor.progress - pane.clientHeight * .28)
+  }
+  function setPaneZoom(mode: 'original' | 'translated', value: number) {
+    const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
+    zoomAnchorRef.current = scrollAnchor(activePane)
+    if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value)
+  }
   function changeZoom(mode: 'original' | 'translated', direction: -1 | 1) { const current = mode === 'original' ? sourceScale : translatedScale; const target = direction > 0 ? zoomLevels.find((value) => value > current + .001) : [...zoomLevels].reverse().find((value) => value < current - .001); if (target) setPaneZoom(mode, target) }
   useEffect(() => {
     const pairs: Array<[HTMLDivElement | null, 'original' | 'translated']> = [[sourceScrollRef.current, 'original'], [translatedScrollRef.current, 'translated']]
     const cleanups = pairs.flatMap(([pane, mode]) => { if (!pane) return []; const zoomWheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); changeZoom(mode, event.deltaY < 0 ? 1 : -1) }; pane.addEventListener('wheel', zoomWheel, { passive: false }); return [() => pane.removeEventListener('wheel', zoomWheel)] })
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [sourceScale, translatedScale, syncZoomEnabled, activePaper?.arxivId, pdf, viewMode])
-  function syncScroll(from: HTMLDivElement, to: HTMLDivElement | null) { if (!to || syncLock.current) return; syncLock.current = true; const ratio = from.scrollTop / Math.max(1, from.scrollHeight - from.clientHeight); to.scrollTop = ratio * Math.max(0, to.scrollHeight - to.clientHeight); requestAnimationFrame(() => { syncLock.current = false }) }
+  useEffect(() => {
+    const anchor = zoomAnchorRef.current
+    if (!anchor) return
+    const restore = () => { restoreScrollAnchor(sourceScrollRef.current, anchor); restoreScrollAnchor(translatedScrollRef.current, anchor) }
+    const frame = requestAnimationFrame(restore); const timeout = window.setTimeout(restore, 180)
+    zoomAnchorRef.current = undefined
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(timeout) }
+  }, [sourceScale, translatedScale])
+  function syncScroll(from: HTMLDivElement, to: HTMLDivElement | null) {
+    if (!to || syncLock.current) return
+    syncLock.current = true; restoreScrollAnchor(to, scrollAnchor(from))
+    requestAnimationFrame(() => { syncLock.current = false })
+  }
   function startResize(event: ReactPointerEvent<HTMLDivElement>) { const layout = documentLayoutRef.current; if (!layout) return; event.currentTarget.setPointerCapture(event.pointerId); const move = (moveEvent: PointerEvent) => { const rect = layout.getBoundingClientRect(); setDualRatio(Math.max(25, Math.min(75, (moveEvent.clientX - rect.left) / rect.width * 100))) }; const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }; window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop) }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
   const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onVisible={setPageNumber} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)

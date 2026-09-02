@@ -5,7 +5,7 @@ type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; available: boolean; status: string; models: ProviderModel[] }
 type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'equation' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[] }
-type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number }
+type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
@@ -16,7 +16,7 @@ type LatexStructure = { version: 2; rootFile: string; generatedAt: string; block
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
 type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
-type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string }
+type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string; libraryPath?: string }
 
 interface Window {
   prism: {
