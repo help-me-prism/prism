@@ -29,6 +29,7 @@ type KnowledgeLevel = 'low' | 'medium' | 'high'
 type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; relativePath: string; revision: string; modifiedAt: number }
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -62,6 +63,7 @@ interface Window {
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<KnowledgeNodeRecord[]>
+    listKnowledgeBacklinks: (id: string) => Promise<KnowledgeBacklink[]>
     listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void

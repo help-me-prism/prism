@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('prism', {
   saveKnowledgeNode: (id: string, request: unknown) => ipcRenderer.invoke('knowledge:save', id, request),
   updateKnowledgeProperties: (id: string, patch: unknown, expectedRevision: string) => ipcRenderer.invoke('knowledge:update-properties', id, patch, expectedRevision),
   deleteKnowledgeNode: (id: string) => ipcRenderer.invoke('knowledge:delete', id),
+  listKnowledgeBacklinks: (id: string) => ipcRenderer.invoke('knowledge:backlinks', id),
   listEvidenceAnchors: () => ipcRenderer.invoke('evidence:list'),
   openEvidenceAnchor: (anchor: unknown) => ipcRenderer.invoke('evidence:open', anchor),
   onOpenEvidenceAnchor: (callback: (anchor: unknown) => void) => subscribe('evidence:open-requested', callback),

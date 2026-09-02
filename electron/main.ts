@@ -756,6 +756,7 @@ ipcMain.handle('knowledge:delete', async (_event, id: string) => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return deleteKnowledgeNode(settings.libraryPath, String(id))
 })
+ipcMain.handle('knowledge:backlinks', async () => [])
 ipcMain.handle('evidence:list', async () => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
