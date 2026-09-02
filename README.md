@@ -87,7 +87,7 @@ git switch kys_enhanced
 
 ### macOS
 
-Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 Intel(x64)과 Apple Silicon(arm64)용 DMG를 각각 만들 수 있습니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
+Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 현재 Mac 아키텍처용 DMG를 만들 수 있습니다. GitHub Actions는 Intel(x64)과 Apple Silicon(arm64) runner에서 각각 DMG를 생성합니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
 
 현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 앵커별 노트 블록과 논문 간 연결 그래프입니다.
 

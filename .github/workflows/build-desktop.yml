@@ -20,10 +20,15 @@ jobs:
             command: package:win
             artifact: Prism-Windows
             files: release/*.exe
-          - name: macOS Intel and Apple Silicon DMGs
-            os: macos-latest
-            command: package:mac
-            artifact: Prism-macOS
+          - name: macOS Intel DMG
+            os: macos-15-intel
+            command: package:mac:x64
+            artifact: Prism-macOS-Intel
+            files: release/*.dmg
+          - name: macOS Apple Silicon DMG
+            os: macos-15
+            command: package:mac:arm64
+            artifact: Prism-macOS-Apple-Silicon
             files: release/*.dmg
     steps:
       - uses: actions/checkout@v5
