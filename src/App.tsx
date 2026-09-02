@@ -447,6 +447,8 @@ function App() {
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
 
+  useEffect(() => window.prism.onOpenEvidenceAnchor((anchor) => navigateAnchor({ ...anchor, paperTitle: '', source: '' })), [])
+
   useEffect(() => {
     if (!input.includes('@')) return
     const timeout = window.setTimeout(() => consumeReferences(input, true), 450)

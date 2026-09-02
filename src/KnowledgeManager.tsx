@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FilePlus2, Lightbulb, Save, Trash2, X } from 'lucide-react'
-import MarkdownEditor from './MarkdownEditor'
+import { ExternalLink, FilePlus2, Link2, Search, Lightbulb, Save, Trash2, X } from 'lucide-react'
+import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
+import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, type EmbeddedEvidence } from './evidence'
 
 const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question' }
 const statusLabels: Record<KnowledgeStatus, string> = { inbox: 'Inbox', developing: '발전 중', established: '정리됨', archived: '보관됨' }
@@ -19,13 +20,23 @@ export default function KnowledgeManager({ onClose }: { onClose: () => void }) {
   const [newTemplateId, setNewTemplateId] = useState('')
   const [deleteReady, setDeleteReady] = useState(false)
   const [error, setError] = useState('')
+  const [anchors, setAnchors] = useState<EvidenceAnchor[]>([])
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
+  const [evidenceQuery, setEvidenceQuery] = useState('')
+  const [evidenceType, setEvidenceType] = useState<EvidenceAnchorRef['type'] | 'all'>('all')
   const loadingRef = useRef(0)
+  const editorRef = useRef<MarkdownEditorHandle>(null)
   const active = nodes.find((node) => node.id === activeId)
   const compatibleTemplates = useMemo(() => templates.filter((template) => template.nodeType === newType), [templates, newType])
+  const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
+  const matchingAnchors = useMemo(() => {
+    const query = evidenceQuery.trim().toLocaleLowerCase()
+    return anchors.filter((anchor) => (evidenceType === 'all' || anchor.type === evidenceType) && (!query || `${anchor.paperTitle} ${anchor.label} ${anchor.source}`.toLocaleLowerCase().includes(query))).slice(0, 80)
+  }, [anchors, evidenceQuery, evidenceType])
 
   useEffect(() => {
-    Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates()]).then(([items, availableTemplates]) => {
-      setNodes(items); setTemplates(availableTemplates)
+    Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors()]).then(([items, availableTemplates, availableAnchors]) => {
+      setNodes(items); setTemplates(availableTemplates); setAnchors(availableAnchors)
       if (items[0]) void openNode(items[0].id, true)
     }).catch((reason) => setError(String(reason)))
   }, [])
@@ -71,6 +82,15 @@ export default function KnowledgeManager({ onClose }: { onClose: () => void }) {
     } catch (reason) { setError(String(reason)) }
   }
   function discard() { if (snapshot) { setContent(snapshot.content); setDirty(false); setError('') } }
+  function addEvidence(anchor: EvidenceAnchor) {
+    if (linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId)) { setError('이미 이 노트에 연결된 근거입니다.'); return }
+    editorRef.current?.insertText(evidenceMarkdown(anchor)); setEvidenceOpen(false); setEvidenceQuery(''); setError('근거 카드를 삽입했습니다. 저장하면 Markdown에 보존됩니다.')
+  }
+  function unlinkEvidence(item: EmbeddedEvidence) { setContent(removeEvidence(content, item)); setDirty(true); setError('근거 링크만 제거했습니다. PDF 원문은 변경되지 않습니다.') }
+  async function openEvidence(item: EvidenceAnchorRef) {
+    try { await window.prism.openEvidenceAnchor(item); setError('Reader에서 PDF 원문 위치를 열었습니다.') }
+    catch (reason) { setError(String(reason)) }
+  }
   async function remove() {
     if (!activeId || dirty) { setError('본문 변경을 먼저 저장하거나 취소하세요.'); return }
     if (!deleteReady) { setDeleteReady(true); setError('삭제를 한 번 더 누르면 이 노트를 휴지통으로 이동합니다.'); return }
@@ -87,8 +107,10 @@ export default function KnowledgeManager({ onClose }: { onClose: () => void }) {
         <aside><button className="knowledge-new" onClick={startCreate}><FilePlus2 size={13} /> 새 지식 노트</button><div>{nodes.map((node) => <button key={node.id} className={node.id === activeId ? 'active' : ''} onClick={() => void openNode(node.id)}><span><small>{typeLabels[node.nodeType]}</small><strong>{node.title}</strong><i>{node.relativePath}</i></span><em className={`knowledge-status status-${node.status}`}>{statusLabels[node.status]}</em></button>)}</div></aside>
         <main>
           {creating || (!active && !nodes.length) ? <div className="knowledge-create"><h3>새 지식 노트</h3><p>유형과 템플릿을 선택하면 일반 Markdown 파일로 생성됩니다.</p><label><span>유형</span><select aria-label="새 지식 노트 유형" value={newType} onChange={(event) => setNewType(event.target.value as KnowledgeNodeType)}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>제목</span><input autoFocus aria-label="새 지식 노트 제목" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="예: Score matching과 노이즈 예측의 관계" /></label><label><span>템플릿</span><select aria-label="새 지식 노트 템플릿" value={newTemplateId} onChange={(event) => setNewTemplateId(event.target.value)}>{compatibleTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' · 기본값' : ''}</option>)}</select></label><button className="primary" onClick={() => void create()}>노트 만들기</button></div> : active && snapshot ? <>
-            <div className="knowledge-heading"><div><small>{typeLabels[active.nodeType]} · {active.relativePath}</small><h3>{active.title}</h3></div><div className="knowledge-properties"><label><span>상태</span><select aria-label="지식 노트 상태" value={active.status} onChange={(event) => void updateProperty({ status: event.target.value as KnowledgeStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>중요도</span><select aria-label="지식 노트 중요도" value={active.importance} onChange={(event) => void updateProperty({ importance: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>확신도</span><select aria-label="지식 노트 확신도" value={active.confidence} onChange={(event) => void updateProperty({ confidence: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div></div>
-            <div className="knowledge-editor"><MarkdownEditor key={active.id} value={content} onChange={(value) => { setContent(value); setDirty(true); setError('') }} onBlur={() => undefined} liveEdit label={`${active.title} 지식 노트`} /></div>
+            <div className="knowledge-heading"><div><small>{typeLabels[active.nodeType]} · {active.relativePath}</small><h3>{active.title}</h3></div><div className="knowledge-properties"><label><span>상태</span><select aria-label="지식 노트 상태" value={active.status} onChange={(event) => void updateProperty({ status: event.target.value as KnowledgeStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>중요도</span><select aria-label="지식 노트 중요도" value={active.importance} onChange={(event) => void updateProperty({ importance: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>확신도</span><select aria-label="지식 노트 확신도" value={active.confidence} onChange={(event) => void updateProperty({ confidence: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><button className="knowledge-add-evidence" aria-label="PDF 근거 추가" onClick={() => setEvidenceOpen((value) => !value)}><Link2 size={13} /> 근거 추가</button></div></div>
+            {evidenceOpen && <section className="evidence-picker" aria-label="PDF 근거 선택"><header><div><Search size={14} /><input autoFocus aria-label="PDF 근거 검색" value={evidenceQuery} onChange={(event) => setEvidenceQuery(event.target.value)} placeholder="논문 제목, 문장, 수식 검색" /></div><select aria-label="PDF 근거 유형" value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as typeof evidenceType)}><option value="all">모든 유형</option>{(['sentence', 'equation', 'table', 'figure', 'page'] as const).map((type) => <option key={type} value={type}>{evidenceTypeLabel(type)}</option>)}</select><button aria-label="PDF 근거 선택 닫기" onClick={() => setEvidenceOpen(false)}><X size={14} /></button></header><div>{matchingAnchors.length ? matchingAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => addEvidence(anchor)}><span><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.label}</small><strong>{anchor.paperTitle}</strong><p>{anchor.source}</p></span><Link2 size={14} /></button>) : <p className="evidence-empty">저장된 PDF 앵커가 없습니다. Reader에서 논문을 열면 문장·수식·표 앵커가 생성됩니다.</p>}</div></section>}
+            {linkedEvidence.length > 0 && <section className="evidence-strip" aria-label="연결된 PDF 근거"><header><span>연결된 근거</span><small>{linkedEvidence.length}</small></header><div>{linkedEvidence.map((item) => { const current = anchors.find((anchor) => anchor.paperId === item.paperId && anchor.anchorId === item.anchorId); const broken = !current || current.sourceHash !== item.sourceHash; return <article className={broken ? 'needs-relink' : ''} key={item.blockId}><button className="evidence-open" onClick={() => void openEvidence(item)}><span><small>{broken ? '재연결 필요' : `${evidenceTypeLabel(item.type)} · p.${item.page}`}</small><strong>{item.paperTitle}</strong><p>{item.source}</p></span><ExternalLink size={14} /></button><button className="evidence-unlink" aria-label={`${item.label} 근거 링크 삭제`} onClick={() => unlinkEvidence(item)}><X size={12} /></button></article> })}</div></section>}
+            <div className="knowledge-editor"><MarkdownEditor ref={editorRef} key={active.id} value={content} onChange={(value) => { setContent(value); setDirty(true); setError('') }} onBlur={() => undefined} liveEdit label={`${active.title} 지식 노트`} /></div>
           </> : <div className="knowledge-loading">노트를 불러오는 중…</div>}
         </main>
       </div>

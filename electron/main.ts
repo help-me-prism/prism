@@ -10,6 +10,7 @@ import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
 import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { listEvidenceAnchors } from './evidence.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -755,7 +756,11 @@ ipcMain.handle('knowledge:delete', async (_event, id: string) => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return deleteKnowledgeNode(settings.libraryPath, String(id))
 })
-ipcMain.handle('evidence:list', async () => [])
+ipcMain.handle('evidence:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listEvidenceAnchors(settings.libraryPath, await readLibrary())
+})
 ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anchorId?: unknown; type?: unknown; page?: unknown; label?: unknown }) => {
   const validTypes = new Set(['sentence', 'equation', 'table', 'figure', 'page'])
   if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId)
@@ -789,16 +794,22 @@ ipcMain.handle('translation:read', async (_event, arxivId: string) => {
 })
 ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: TranslationSegment[]) => {
   if (!Array.isArray(anchors) || anchors.length > 20_000) throw new Error('anchor 데이터가 올바르지 않습니다.')
+  const settings = await readSettings()
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   const data = {
     version: 1, paperId: arxivId, generatedAt: new Date().toISOString(),
     anchors: anchors.map((segment) => ({
       id: segment.id, type: segment.kind, page: segment.page,
-      source: segment.source, itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
+      source: segment.source, sourceHash: createHash('sha256').update(segment.source).digest('hex'), itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
     })),
   }
   await fs.writeFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), JSON.stringify(data, null, 2), 'utf8')
+  if (settings.libraryPath) {
+    const directory = path.join(settings.libraryPath, '.prism', 'anchors')
+    await fs.mkdir(directory, { recursive: true })
+    await fs.writeFile(path.join(directory, `${arxivId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160)}.json`), JSON.stringify(data, null, 2), 'utf8')
+  }
   return true
 })
 ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => {

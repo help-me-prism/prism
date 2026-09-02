@@ -32,7 +32,15 @@ Related: [[Concepts/Score matching]]
 `
 await fs.mkdir(path.join(libraryPath, '.prism'), { recursive: true })
 await fs.mkdir(paperPath, { recursive: true })
+await fs.mkdir(path.join(libraryPath, '.prism', 'anchors'), { recursive: true })
+await fs.mkdir(path.join(paperPath, 'figures'), { recursive: true })
 await fs.writeFile(notePath, initialNote, 'utf8')
+await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
+  { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+  { id: 'equation-p2-3', type: 'equation', page: 2, source: 'L_simple = E[||epsilon - epsilon_theta(x_t,t)||^2]' },
+  { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
+] }, null, 2), 'utf8')
+await fs.writeFile(path.join(paperPath, 'figures', 'figure-p4-1.json'), JSON.stringify({ figureId: 'figure-p4-1', paperId: 'test.0001', page: 4, caption: 'Overview of the reverse diffusion process.' }, null, 2), 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'library.json'), JSON.stringify([{
   arxivId: 'test.0001', title: 'Editor fixture', authors: ['Prism'], summary: 'Fixture', published: '2026-09-02', updated: '2026-09-02', categories: ['cs.HC'], pdfUrl: '', absUrl: '', pdfPath: path.join(paperPath, 'original.pdf'), notePath, translationPath: path.join(paperPath, 'translation.ko.json'), downloadedAt: Date.now(),
 }], null, 2), 'utf8')
@@ -206,10 +214,34 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('사용자가 문서형 화면에서 추가한 판단.'), 'The knowledge note body was not saved from Live Edit.')
 
+  assert(await notesConnection.evaluate(`window.prism.listEvidenceAnchors().then((items) => new Set(items.map((item) => item.type)).size)`) === 5, 'The evidence catalog did not expose sentence, equation, table, figure, and page anchors.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-picker'))`), 'The PDF evidence picker did not open.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.evidence-picker > div > button').length`) >= 5, 'The evidence picker did not list the stored PDF anchors.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-picker > div > button')].find((button) => button.textContent.includes('L_simple')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-strip article'))`), 'Inserting an evidence anchor did not render a document evidence card.')
+  assert(await notesConnection.evaluate(`document.querySelector('.knowledge-editor .cm-content')?.textContent.includes('PDF 원문 열기')`), 'The evidence card was not inserted into the Markdown document at the editor selection.')
+  await mainConnection.evaluate(`(() => { window.__openedEvidence = []; window.prism.onOpenEvidenceAnchor((anchor) => window.__openedEvidence.push(anchor)); })()`)
+  await notesConnection.evaluate(`document.querySelector('.evidence-open').click()`)
+  await waitFor(() => mainConnection.evaluate(`window.__openedEvidence?.[0]?.anchorId === 'equation-p2-3'`), 'Clicking the evidence card did not ask the Reader to open the stable PDF anchor.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('prism-evidence:') && (await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-equation-p2-3'), 'The evidence reference was not preserved in portable Markdown.')
+  try {
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-heading h3')) && Boolean(document.querySelector('.evidence-strip article'))`), 'The knowledge document did not settle after saving the evidence card.')
+  } catch (reason) {
+    const debug = await notesConnection.evaluate(`({ loading: document.querySelector('.knowledge-loading')?.textContent, footer: document.querySelector('.knowledge-manager > footer')?.textContent, nodes: [...document.querySelectorAll('.knowledge-manager aside strong')].map((item) => item.textContent) })`)
+    throw new Error(`${reason.message} Debug: ${JSON.stringify(debug)}\n${(await fs.readFile(claimPath, 'utf8')).slice(0, 700)}`)
+  }
+
   const knowledgeScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const knowledgeScreenshotPath = path.resolve('tmp/ui/notes-knowledge.png')
   await fs.mkdir(path.dirname(knowledgeScreenshotPath), { recursive: true })
   await fs.writeFile(knowledgeScreenshotPath, Buffer.from(knowledgeScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="수식1 근거 링크 삭제"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.evidence-strip article')`), 'Removing an evidence link did not remove its document card.')
+  assert(await notesConnection.evaluate(`document.querySelector('.knowledge-editor .cm-content')?.textContent.includes('사용자가 문서형 화면에서 추가한 판단.')`), 'Removing an evidence link also removed user-authored content.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => !(await fs.readFile(claimPath, 'utf8')).includes('prism-evidence:'), 'Removing an evidence link was not saved to Markdown.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 닫기"]').click()`)
   await sleep(200)
   assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-manager'))`), 'The knowledge manager did not close.')

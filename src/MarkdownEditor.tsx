@@ -5,7 +5,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; focus: () => void }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; focus: () => void }
 
 type MarkdownEditorProps = {
   value: string
@@ -83,7 +83,8 @@ function liveEditDecorationSet(view: EditorView) {
       } else if (/^\s*>\s?/.test(text)) {
         const callout = text.match(/^\s*>\s*\[![\w-]+\]\s*/i)
         const quote = text.match(/^\s*>\s?/)
-        ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: callout ? 'cm-md-callout' : 'cm-md-quote' }) })
+        const evidenceLink = /^\s*>\s*\[PDF 원문 열기\]\(prism:\/\/paper\//.test(text)
+        ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: evidenceLink ? 'cm-md-evidence-link' : callout ? 'cm-md-callout' : 'cm-md-quote' }) })
         if (!isActive(line.from, line.to) && (callout || quote)) ranges.push({ from: line.from, to: line.from + (callout ?? quote)![0].length, decoration: Decoration.replace({}) })
       }
       else if (/^\s*- \[[ xX]\]\s/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-task' }) })
@@ -91,6 +92,7 @@ function liveEditDecorationSet(view: EditorView) {
       else if (/^\s*```/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-code-fence' }) })
       else if (/^\s*\$\$/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-math-fence' }) })
       else if (/^\s*---\s*$/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-divider' }) })
+      else if (/^\^[a-zA-Z0-9_-]+\s*$/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-block-id' }) })
 
       addInline(line.from, text, /\*\*[^*\n]+\*\*/g, 'cm-md-strong', 2)
       addInline(line.from, text, /(?<!\*)\*[^*\n]+\*(?!\*)/g, 'cm-md-emphasis', 1)
@@ -150,6 +152,18 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
   view.focus()
 }
 
+function insertText(view: EditorView, text: string) {
+  const selection = view.state.selection.main
+  const position = selection.to
+  const before = view.state.doc.sliceString(Math.max(0, position - 2), position)
+  const after = view.state.doc.sliceString(position, Math.min(view.state.doc.length, position + 2))
+  const prefix = position === 0 || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+  const suffix = position === view.state.doc.length || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n'
+  const insert = `${prefix}${text}${suffix}`
+  view.dispatch({ changes: { from: position, insert }, selection: { anchor: position + insert.length }, scrollIntoView: true })
+  view.focus()
+}
+
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -189,7 +203,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeSlashMenu(); insertBlock(view, option.command, { from: current.from, to: current.to })
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, focus: () => viewRef.current?.focus() }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, focus: () => viewRef.current?.focus() }), [])
 
   useEffect(() => {
     if (!hostRef.current) return
