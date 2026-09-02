@@ -17,7 +17,7 @@ export default function NotesWindow() {
     } catch (reason) { setError(String(reason)) }
   }
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { window.document.title = 'Prism Notes'; void refresh() }, [])
   useEffect(() => {
     if (!activeId) { setNote(''); setLoaded(false); return }
     let disposed = false; setLoaded(false); setError('')

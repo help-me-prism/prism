@@ -2,7 +2,7 @@
 
 마지막 정리: 2026-09-02  
 작업 브랜치: `kys`  
-기능 구현 기준 커밋: `188bbe2` (`feat: improve PDF zoom and visual references`)
+기능 구현 기준 커밋: `80be200` (`feat: expand paper workspace controls`)
 
 이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys`와 `git pull origin kys`를 실행하고 이 문서를 읽는다.
 
@@ -51,6 +51,23 @@ codex login
 | `electron/latex.ts` | arXiv LaTeX 소스 전개와 문단·제목·수식·피겨·표 구조 추출 |
 | `electron/preload.cts` | sandboxed renderer에 허용된 IPC API만 노출 |
 | `src/vite-env.d.ts` | renderer와 main 사이에서 사용하는 데이터 타입 |
+
+## 3.1 2026-09-02 추가 구현
+
+- 병기 모드 가운데 divider를 드래그해 원문/한국어 패널 폭을 25~75% 범위에서 조절한다.
+- 원문과 한국어 문서가 각각 배율 상태를 가지며 `스크롤`, `확대` 동기화 토글을 별도로 제공한다. 동기화를 끄면 각 패널의 버튼이나 Ctrl+휠로 독립 조작한다.
+- 한국어 번역 block의 최소/최대 font size를 PDF scale과 함께 배율화해 확대할 때 줄 수가 바뀌던 문제를 수정했다.
+- arXiv LaTeX의 `includegraphics` 파일을 안전한 source 폴더 안에서 찾아 PNG/JPEG/SVG/PDF 자산으로 읽는다. PDF 피겨 파일은 PDF.js로 첫 페이지 preview를 만든다.
+- PDF operator list의 image paint transform도 분석해 이미지 bounding box를 보조 탐지한다. LaTeX 피겨와 PDF 캡션을 순서대로 매칭하고 기본 상태에서 hover/click 가능한 영역을 제공한다.
+- 자동 인식되지 않은 피겨를 위한 기존 수동 모드는 `피겨 캡처`로 이름을 바꿨으며 클릭 또는 드래그 캡처를 유지한다.
+- Notes는 Reader side panel에서 제거하고 `?view=notes` renderer를 쓰는 독립 Electron BrowserWindow로 옮겼다. 논문 목록, Markdown 편집, 500ms 자동 저장을 제공하므로 다른 모니터에 둘 수 있다.
+- 왼쪽 Highlights 항목을 제거했다. `폴더 선택`, 논문 트리, `논문 열기`, 검색 버튼을 실제 PaperWorkspace command에 연결했다.
+- 왼쪽 논문 트리에서 논문을 클릭하면 기존 탭에 열리고, 새 폴더 선택 시 해당 라이브러리의 논문 목록과 첫 탭으로 교체된다.
+- 채팅 모델 설정 아래에 복수 논문 컨텍스트 선택 메뉴를 추가했다. 선택한 논문 ID/제목은 `<paper_context>`로 매 질문에 포함된다.
+- `@` 입력 시 현재 앵커의 자동완성 메뉴를 표시하고, 태그 칩에 논문 ID를 보여 여러 논문 참조를 구분한다.
+- 전송된 메시지의 태그 칩을 클릭하면 해당 논문 탭·페이지·anchor 위치로 이동한다.
+
+관련 커밋: `80be200`
 
 ## 4. 오늘 구현된 내용
 
@@ -188,6 +205,14 @@ library/
 - 폰트 ascent 기준 하이라이트가 실제 텍스트 baseline과 맞는 것 화면 확인
 - 피겨 짧은 클릭 후 PNG 저장, 선택 모드 종료, 피겨 칩 생성 확인
 - 피겨 칩의 280px thumbnail 생성과 호버 미리보기 확인
+- 병기 divider를 드래그해 421/414px에서 314/520px로 패널 비율 변경 확인
+- 확대 동기화를 끈 뒤 원문 115%, 한국어 130%로 독립 변경 확인
+- Attention Is All You Need의 LaTeX source에서 피겨 자산 5개를 찾아 PDF 캡션/이미지 영역과 연결한 것 확인
+- 기본 상태의 피겨 영역 클릭으로 source preview가 있는 태그 칩 생성 확인
+- `피겨 캡처`의 수동 드래그 캡처가 계속 동작하는 것 확인
+- `@문` 입력 시 8개 앵커 자동완성, 선택 후 원시 입력 제거와 칩 생성 확인
+- 왼쪽 검색 버튼에서 기존 arXiv Finder가 열리는 것 확인
+- Notes 버튼에서 별도 Electron 창이 열리고 논문 목록과 Markdown textarea가 표시되는 것 확인
 
 테스트용으로 실제 사용자 설정을 바꾸지 않으려면 다음 환경 변수를 사용할 수 있다.
 
@@ -211,9 +236,10 @@ npm run start:fast
    - 현재 폭은 PDF item width 비율을 사용하므로 kerning이나 복잡한 glyph transform에서는 여전히 몇 픽셀 오차가 날 수 있다.
    - segment ID 안정성을 버전 간 유지하는 migration 전략도 필요하다.
 
-3. **피겨 자동 경계 인식**
-   - 현재 클릭은 주변 고정 크기를 자르는 heuristic이라 실제 피겨 경계와 다를 수 있다.
-   - PDF operator/image object bounding box, 캡션 위치, LaTeX `figure`/`includegraphics` 경로를 결합해 클릭 지점의 실제 피겨를 선택해야 한다.
+3. **피겨 자동 경계 인식 정밀화**
+   - 현재 LaTeX `includegraphics`, PDF 캡션 순서, PDF image paint transform을 결합한 1차 자동 인식이 구현되어 있다.
+   - 여러 `includegraphics`가 한 figure 환경에 포함된 subfigure, vector-only plot, EPS/PGF/TikZ는 완전하지 않다.
+   - 캡션과 이미지의 geometry/order matching score를 추가하고 실제 source figure 파일 여러 개를 composite preview로 만드는 작업이 필요하다.
 
 ### P1 — 핵심 제품 기능
 
@@ -227,10 +253,10 @@ npm run start:fast
    - `[[paper]]`, related papers, concept tags, backlinks, 논문 간 graph를 설계한다.
    - 논문 폴더를 이동해도 깨지지 않도록 절대 경로 대신 라이브러리 상대 경로를 사용한다.
 
-6. **태그 UX 고도화**
-   - `@` 입력 시 검색/자동완성 목록을 띄운다.
-   - 중복 라벨이 생길 수 있는 여러 논문 동시 참조에서 논문 축약명과 안정 ID를 UI에 표시한다.
-   - 전송된 메시지의 참조 칩을 클릭하면 해당 PDF 페이지와 좌표로 이동한다.
+6. **태그 UX 추가 고도화**
+   - 자동완성, 논문 ID 표기, 전송된 칩의 원문 이동은 구현됐다.
+   - 현재 자동완성 catalog는 활성 논문 중심이므로 열려 있는 모든 논문의 `anchors.json`을 합쳐 검색하도록 확장해야 한다.
+   - 자동완성 키보드 위/아래 이동과 Enter 선택, 동일 라벨의 논문별 명시적 qualified syntax를 추가해야 한다.
 
 7. **백그라운드 번역 작업 관리**
    - 앱 재시작 후 중단된 batch 재개, 명시적 취소, 실패 batch 재시도, 작업 큐가 필요하다.
