@@ -11,7 +11,7 @@ import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './note
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
 import { applyTemplateSections, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
-import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
+import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
@@ -839,6 +839,10 @@ ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
 ipcMain.handle('knowledge:relations:create', async (_event, request: KnowledgeRelationCreateRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return createKnowledgeRelation(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:relations:update', async (_event, request: KnowledgeRelationUpdateRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return updateKnowledgeRelation(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:relations:delete', async (_event, request: KnowledgeRelationDeleteRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

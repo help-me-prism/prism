@@ -95,6 +95,7 @@ interface Window {
     copyKnowledgeEvidence: (request: KnowledgeEvidenceCopyRequest) => Promise<NoteSaveResult>
     listKnowledgeRelations: (id: string) => Promise<KnowledgeRelationView[]>
     createKnowledgeRelation: (request: KnowledgeRelationCreateRequest) => Promise<KnowledgeRelationMutationResult>
+    updateKnowledgeRelation: (request: KnowledgeRelationUpdateRequest) => Promise<KnowledgeRelationMutationResult>
     deleteKnowledgeRelation: (request: KnowledgeRelationDeleteRequest) => Promise<KnowledgeRelationMutationResult>
     reviewKnowledgeRelation: (request: KnowledgeRelationReviewRequest) => Promise<KnowledgeRelationMutationResult>
     listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
