@@ -275,6 +275,17 @@ try {
   await sleep(200)
   assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-manager'))`), 'The knowledge manager did not close.')
 
+  const backlinks = await mainConnection.evaluate(`window.prism.listEvidenceBacklinks({ paperId: 'test.0001', anchorId: 'equation-p2-3', type: 'equation', page: 2, label: '수식1' })`)
+  assert(backlinks.length === 1 && backlinks[0].title === 'Score matching 근거 주장', `Evidence backlink lookup did not return only the promoted note: ${JSON.stringify(backlinks)}`)
+  assert(backlinks[0].excerpt.includes(changedEquation), 'The evidence backlink did not include a useful source excerpt.')
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes(${JSON.stringify(backlinks[0].nodeId)})`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === 'Score matching 근거 주장'`), 'Opening an evidence backlink did not focus the exact knowledge note in Notes.')
+  const backlinkScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const backlinkScreenshotPath = path.resolve('tmp/ui/notes-backlink-open.png')
+  await fs.writeFile(backlinkScreenshotPath, Buffer.from(backlinkScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 닫기"]').click()`)
+  await sleep(100)
+
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-modebar button')].find((button) => button.textContent.includes('읽기')).click()`)
   await sleep(100)
   const readState = await notesConnection.evaluate(`(() => ({
@@ -371,7 +382,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, evidence relinking and promotion, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${promotionScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

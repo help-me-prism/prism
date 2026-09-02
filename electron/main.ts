@@ -10,7 +10,7 @@ import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
 import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
-import { listEvidenceAnchors } from './evidence.js'
+import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -772,8 +772,23 @@ ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anch
   mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('evidence:open-requested', anchor)
   return true
 })
-ipcMain.handle('evidence:backlinks', async () => [])
-ipcMain.handle('knowledge:open-in-notes', async () => false)
+ipcMain.handle('evidence:backlinks', async (_event, anchor: { paperId?: unknown; anchorId?: unknown }) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId) || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300) throw new Error('PDF 근거 위치가 올바르지 않습니다.')
+  return listEvidenceBacklinks(settings.libraryPath, anchor.paperId, anchor.anchorId)
+})
+ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  await readKnowledgeNode(settings.libraryPath, id)
+  openNotesWindow()
+  const notify = () => notesWindow?.webContents.send('knowledge:open-requested', id)
+  if (notesWindow?.webContents.isLoading()) notesWindow.webContents.once('did-finish-load', notify); else notify()
+  notesWindow?.show(); notesWindow?.focus()
+  return true
+})
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
   if (typeof dataUrl !== 'string' || dataUrl.length > 30_000_000) throw new Error('피겨 이미지가 너무 큽니다.')

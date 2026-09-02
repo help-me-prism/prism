@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { listKnowledgeNodes, readKnowledgeNode } from './knowledge.js'
 
 export type EvidenceAnchorType = 'sentence' | 'equation' | 'table' | 'figure' | 'page'
 export type EvidencePaper = { arxivId: string; title: string; pdfPath: string }
@@ -15,6 +16,7 @@ export type EvidenceAnchor = {
   sourceHash: string
   availability: 'linked' | 'needs-relink'
 }
+export type EvidenceBacklink = { nodeId: string; title: string; nodeType: 'paper' | 'concept' | 'claim' | 'insight' | 'question'; relativePath: string; excerpt: string }
 
 type StoredAnchor = { id?: unknown; type?: unknown; page?: unknown; source?: unknown }
 const sourceTypes = new Set(['text', 'heading', 'caption', 'equation', 'table', 'figure'])
@@ -64,4 +66,20 @@ export async function listEvidenceAnchors(libraryPath: string, papers: EvidenceP
     for (let page = 1; page <= maxPage; page += 1) result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: `p${page}`, type: 'page', page, label: `페이지${page}`, source: `Page ${page} of ${paper.title}`, sourceHash: digest(`Page ${page} of ${paper.title}`), availability: 'linked' })
   }
   return result.sort((left, right) => left.paperTitle.localeCompare(right.paperTitle) || left.page - right.page || left.label.localeCompare(right.label))
+}
+
+export async function listEvidenceBacklinks(libraryPath: string, paperId: string, anchorId: string): Promise<EvidenceBacklink[]> {
+  const result: EvidenceBacklink[] = []
+  for (const node of await listKnowledgeNodes(libraryPath)) {
+    const snapshot = await readKnowledgeNode(libraryPath, node.id)
+    let matchedSource = ''
+    for (const match of snapshot.content.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)) {
+      try {
+        const value = JSON.parse(decodeURIComponent(match[1])) as { paperId?: unknown; anchorId?: unknown; source?: unknown }
+        if (value.paperId === paperId && value.anchorId === anchorId) { matchedSource = typeof value.source === 'string' ? value.source : ''; break }
+      } catch { /* ignore malformed derived metadata */ }
+    }
+    if (matchedSource || snapshot.content.includes(`prism://paper/${encodeURIComponent(paperId)}?anchor=${encodeURIComponent(anchorId)}`)) result.push({ nodeId: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath, excerpt: matchedSource.slice(0, 240) })
+  }
+  return result
 }

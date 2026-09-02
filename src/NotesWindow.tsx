@@ -34,6 +34,7 @@ export default function NotesWindow() {
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [knowledgeOpen, setKnowledgeOpen] = useState(false)
+  const [requestedKnowledgeId, setRequestedKnowledgeId] = useState<string>()
   const [mode, setMode] = useState<EditorMode>(() => {
     const stored = window.localStorage.getItem('prism.notes.editorMode')
     return stored === 'read' || stored === 'split' ? stored : 'live'
@@ -57,6 +58,7 @@ export default function NotesWindow() {
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
   }, [])
+  useEffect(() => window.prism.onOpenKnowledgeNode((id) => { setRequestedKnowledgeId(id); setKnowledgeOpen(true) }), [])
   useEffect(() => {
     if (!activeId) { setNote(''); setLoaded(false); return }
     let disposed = false; setLoaded(false); setError(''); setNotice(''); setConflict(undefined)
@@ -175,7 +177,7 @@ export default function NotesWindow() {
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
       {error && <div className="notes-error">{error}</div>}
       {templatesOpen && <TemplateManager onClose={() => setTemplatesOpen(false)} />}
-      {knowledgeOpen && <KnowledgeManager onClose={() => setKnowledgeOpen(false)} />}
+      {knowledgeOpen && <KnowledgeManager initialNodeId={requestedKnowledgeId} onClose={() => { setKnowledgeOpen(false); setRequestedKnowledgeId(undefined) }} />}
       {conflict && <div className="notes-conflict-backdrop" role="presentation">
         <section className="notes-conflict" role="dialog" aria-modal="true" aria-labelledby="notes-conflict-title">
           <header><AlertTriangle size={18} /><div><h2 id="notes-conflict-title">외부 변경과 충돌했습니다</h2><p>다른 편집기에서 이 파일을 변경했습니다. 두 버전을 비교한 뒤 보존할 내용을 선택하세요.</p></div></header>

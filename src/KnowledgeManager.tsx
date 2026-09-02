@@ -7,7 +7,7 @@ const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept:
 const statusLabels: Record<KnowledgeStatus, string> = { inbox: 'Inbox', developing: '발전 중', established: '정리됨', archived: '보관됨' }
 const levelLabels: Record<KnowledgeLevel, string> = { low: '낮음', medium: '보통', high: '높음' }
 
-export default function KnowledgeManager({ onClose }: { onClose: () => void }) {
+export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: () => void; initialNodeId?: string }) {
   const [nodes, setNodes] = useState<KnowledgeNodeRecord[]>([])
   const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [activeId, setActiveId] = useState<string>()
@@ -41,9 +41,11 @@ export default function KnowledgeManager({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors()]).then(([items, availableTemplates, availableAnchors]) => {
       setNodes(items); setTemplates(availableTemplates); setAnchors(availableAnchors)
-      if (items[0]) void openNode(items[0].id, true)
+      const initial = items.find((item) => item.id === initialNodeId) ?? items[0]
+      if (initial) void openNode(initial.id, true)
     }).catch((reason) => setError(String(reason)))
   }, [])
+  useEffect(() => { if (initialNodeId && initialNodeId !== activeId) void openNode(initialNodeId) }, [initialNodeId])
   useEffect(() => {
     const preferred = compatibleTemplates.find((template) => template.isDefault) ?? compatibleTemplates[0]
     setNewTemplateId(preferred?.id ?? '')
