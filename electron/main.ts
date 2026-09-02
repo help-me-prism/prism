@@ -772,6 +772,8 @@ ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anch
   mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('evidence:open-requested', anchor)
   return true
 })
+ipcMain.handle('evidence:backlinks', async () => [])
+ipcMain.handle('knowledge:open-in-notes', async () => false)
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
   if (typeof dataUrl !== 'string' || dataUrl.length > 30_000_000) throw new Error('피겨 이미지가 너무 큽니다.')

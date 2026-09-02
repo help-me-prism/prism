@@ -20,5 +20,6 @@ type EvidenceAnchorRef = {
 
 - `evidence:list` returns all anchors available in the local library.
 - `evidence:open` accepts one `EvidenceAnchorRef`, focuses the reader, and emits `evidence:open-requested` to that window.
+- `evidence:backlinks` accepts one `EvidenceAnchorRef` and returns knowledge notes whose Markdown embeds that exact stable anchor.
+- `knowledge:open-in-notes` accepts a stable knowledge node ID, focuses Notes, and emits `knowledge:open-requested` to that window.
 - Invalid identifiers, types, pages, or oversized labels are rejected in the main process.
-

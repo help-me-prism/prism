@@ -31,6 +31,7 @@ type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; temp
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
+type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 
 interface Window {
   prism: {
@@ -64,6 +65,9 @@ interface Window {
     listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
+    listEvidenceBacklinks: (anchor: EvidenceAnchorRef) => Promise<EvidenceBacklink[]>
+    openKnowledgeNodeInNotes: (id: string) => Promise<boolean>
+    onOpenKnowledgeNode: (callback: (id: string) => void) => () => void
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
