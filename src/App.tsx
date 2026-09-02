@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  BookOpen, Bot, ChevronDown, Circle, FileText, Highlighter, Library, MessageSquareText,
-  MoreHorizontal, PanelLeftClose, Plus, Search, SendHorizontal, Settings2, Sparkles,
-  Square, StickyNote, Trash2, X,
+  BookOpen, Bot, Check, ChevronDown, Circle, FileText, FolderOpen, MessageSquareText,
+  MoreHorizontal, Plus, Search, SendHorizontal, Settings2, Sparkles, Square, StickyNote,
+  Trash2, X,
 } from 'lucide-react'
 import PaperWorkspace from './PaperWorkspace'
 
@@ -38,7 +38,7 @@ function referencedAnchors(text: string, anchors: ContextAnchor[]) {
   return result
 }
 
-function MessageContent({ text, anchors }: { text: string; anchors?: ContextAnchor[] }) {
+function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?: ContextAnchor[]; onNavigate?: (anchor: ContextAnchor) => void }) {
   if (!text) return null
   const byLabel = new Map((anchors ?? []).map((anchor) => [anchor.label, anchor]))
   const nodes: ReactNode[] = []; let cursor = 0
@@ -46,7 +46,7 @@ function MessageContent({ text, anchors }: { text: string; anchors?: ContextAnch
     if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
     const anchor = byLabel.get(match[1])
     nodes.push(anchor
-      ? <AnchorChip key={`${match.index}-${anchor.anchorId}`} anchor={anchor} />
+      ? <AnchorChip key={`${match.index}-${anchor.anchorId}`} anchor={anchor} onNavigate={onNavigate} />
       : match[0])
     cursor = match.index + match[0].length
   }
@@ -54,11 +54,11 @@ function MessageContent({ text, anchors }: { text: string; anchors?: ContextAnch
   return <>{nodes}</>
 }
 
-function AnchorChip({ anchor, onRemove }: { anchor: ContextAnchor; onRemove?: () => void }) {
-  const content = <><span className="anchor-symbol">@</span>{anchor.label}{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : anchor.source.slice(0, 500)}</span></>
+function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
+  const content = <><span className="anchor-symbol">@</span><span>{anchor.label}</span><small>{anchor.paperId}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
-    : <span className="anchor-token" title={anchor.source}>{content}</span>
+    : <button type="button" className="anchor-token" title="논문의 해당 위치로 이동" onClick={() => onNavigate?.(anchor)}>{content}</button>
 }
 
 function withoutReferences(text: string) { return text.replace(referencePattern, ' ').replace(/\s{2,}/g, ' ').trim() }
@@ -74,11 +74,18 @@ function App() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [contextAnchors, setContextAnchors] = useState<ContextAnchor[]>([])
   const [anchorCatalog, setAnchorCatalog] = useState<ContextAnchor[]>([])
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
+  const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
+  const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
+  const [paperContextOpen, setPaperContextOpen] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0]
   const activeProvider = providers.find((provider) => provider.id === activeSession?.provider)
   const isRunning = activeSession ? runningIds.includes(activeSession.id) : false
+  const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId))
+  const tagQuery = input.match(/(?:^|\s)@([^\s@]*)$/)?.[1]
+  const tagSuggestions = tagQuery !== undefined ? anchorCatalog.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
 
   useEffect(() => {
     Promise.all([window.prism.listProviders(), window.prism.loadSessions()]).then(([providerList, savedSessions]) => {
@@ -145,6 +152,12 @@ function App() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeSession?.messages, isRunning])
 
+  useEffect(() => {
+    const id = workspaceState.activePaperId
+    if (id) setContextPaperIds((current) => current.includes(id) ? current : [...current, id])
+  }, [workspaceState.activePaperId])
+  useEffect(() => { setContextPaperIds((current) => current.filter((id) => workspaceState.library.some((paper) => paper.arxivId === id))) }, [workspaceState.library])
+
   const canSend = useMemo(() => Boolean(input.trim() && activeSession && !isRunning && activeProvider?.available), [input, activeSession, isRunning, activeProvider])
   const orderedSessions = useMemo(() => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt), [sessions])
 
@@ -193,9 +206,9 @@ function App() {
     if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
     const sessionId = activeSession.id
     const assistantId = uniqueId('assistant')
-    const promptWithContext = selectedAnchors.length
-      ? `${prompt}\n\n<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.`
-      : prompt
+    const paperContext = selectedPapers.length ? `<paper_context>\n${selectedPapers.map((paper) => `<paper id="${paper.arxivId}" title=${JSON.stringify(paper.title)} />`).join('\n')}\n</paper_context>` : ''
+    const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.` : ''
+    const promptWithContext = [prompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
     const now = Date.now()
     setInput('')
     setErrors((current) => { const next = { ...current }; delete next[sessionId]; return next })
@@ -239,6 +252,14 @@ function App() {
     setInput(cleaned)
   }
 
+  function chooseTag(anchor: ContextAnchor) {
+    setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
+    setInput((current) => current.replace(/(?:^|\s)@[^\s@]*$/, (match) => match.startsWith(' ') ? ' ' : ''))
+  }
+
+  function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
+  function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
+
   useEffect(() => {
     if (!input.includes('@')) return
     const timeout = window.setTimeout(() => consumeReferences(input, true), 450)
@@ -258,14 +279,16 @@ function App() {
         {sidebarOpen && (
           <aside className="sidebar">
             <div className="sidebar-actions">
-              <button className="new-paper"><Plus size={16} /> 논문 열기</button>
-              <button className="icon-button" aria-label="검색"><Search size={17} /></button>
+              <button className="new-paper" onClick={() => runWorkspaceCommand('search')}><Plus size={16} /> 논문 열기</button>
+              <button className="icon-button" aria-label="검색" onClick={() => runWorkspaceCommand('search')}><Search size={17} /></button>
             </div>
             <nav>
               <p className="nav-label">WORKSPACE</p>
-              <button className="nav-item active"><BookOpen size={17} /> Reader <span>0</span></button>
-              <button className="nav-item"><StickyNote size={17} /> Notes <span>0</span></button>
-              <button className="nav-item"><Highlighter size={17} /> Highlights <span>0</span></button>
+              <button className="nav-item active"><BookOpen size={17} /> Reader <span>{workspaceState.openPaperIds.length}</span></button>
+              <button className="nav-item" onClick={() => void window.prism.openNotes()}><StickyNote size={17} /> Notes <span>{workspaceState.library.length}</span></button>
+              <button className="nav-item" onClick={() => runWorkspaceCommand('choose-folder')}><FolderOpen size={17} /> 폴더 선택</button>
+              <div className="paper-tree-heading"><p className="nav-label">PAPERS</p><button onClick={() => runWorkspaceCommand('search')} title="arXiv 검색"><Plus size={13} /></button></div>
+              <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === workspaceState.activePaperId ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={13} /><span><strong>{paper.title}</strong><small>{paper.arxivId}</small></span></button>) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
               <div className="session-heading"><p className="nav-label">CHATS</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>
               <div className="session-list">
                 {orderedSessions.map((session) => (
@@ -284,7 +307,7 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={(anchor) => {
+        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={(anchor) => {
           setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
         }} />
 
@@ -297,6 +320,7 @@ function App() {
             <label><span>CLI</span><select value={activeSession.provider} disabled={isRunning} onChange={(event) => changeProvider(event.target.value as ProviderId)}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label>
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
+          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.arxivId).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>AI가 보고 있는 논문</header>{workspaceState.library.map((paper) => { const selected = contextPaperIds.includes(paper.arxivId); return <button key={paper.arxivId} onClick={() => setContextPaperIds((current) => selected ? current.filter((id) => id !== paper.arxivId) : [...current, paper.arxivId])}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages">
             {activeSession.messages.length === 0 ? (
@@ -308,8 +332,8 @@ function App() {
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
-                {message.anchors?.length ? <div className={`message-anchors ${message.role}`}>{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} />)}</div> : null}
-                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
+                {message.anchors?.length ? <div className={`message-anchors ${message.role}`}>{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onNavigate={navigateAnchor} />)}</div> : null}
+                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}
@@ -320,9 +344,10 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
+              {tagSuggestions.length > 0 && <div className="tag-suggestions">{tagSuggestions.map((anchor) => <button type="button" key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
               <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
               <div className="composer-bottom">
-                <button type="button" className="context-button"><MessageSquareText size={14} /> 현재 논문 <ChevronDown size={12} /></button>
+                <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
               </div>
             </form>

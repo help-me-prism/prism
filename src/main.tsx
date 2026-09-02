@@ -2,6 +2,7 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/noto-serif-kr'
 import App from './App'
+import NotesWindow from './NotesWindow'
 import './styles.css'
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
@@ -35,6 +36,6 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Erro
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppErrorBoundary><App /></AppErrorBoundary>
+    <AppErrorBoundary>{new URLSearchParams(window.location.search).get('view') === 'notes' ? <NotesWindow /> : <App />}</AppErrorBoundary>
   </StrictMode>,
 )

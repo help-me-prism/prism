@@ -443,6 +443,47 @@ async function latexStructure(record: PaperRecord): Promise<LatexStructure | nul
   return structure
 }
 
+const figureMime = new Map([
+  ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.webp', 'image/webp'],
+  ['.gif', 'image/gif'], ['.svg', 'image/svg+xml'], ['.pdf', 'application/pdf'],
+])
+
+async function paperFigures(record: PaperRecord) {
+  const structure = await latexStructure(record)
+  if (!structure) return []
+  const sourceRoot = path.resolve(path.dirname(record.pdfPath), 'source')
+  const rootDir = path.dirname(path.resolve(sourceRoot, structure.rootFile))
+  const blocks = structure.blocks.filter((block) => block.kind === 'figure')
+  const result: Array<{ id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }> = []
+  for (let order = 0; order < blocks.length && order < 100; order += 1) {
+    const block = blocks[order]
+    const requested = block.source.match(/\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/)?.[1]?.trim()
+    const caption = block.source.match(/\\caption\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/)?.[1]?.replace(/\\[a-zA-Z]+\s*/g, ' ').replace(/[{}~]/g, ' ').replace(/\s+/g, ' ').trim()
+    let sourcePath: string | undefined; let mimeType: string | undefined; let dataUrl: string | undefined
+    if (requested && !requested.includes('..') && !requested.includes('\\')) {
+      const raw = requested.replace(/\//g, path.sep)
+      const candidates = path.extname(raw) ? [raw] : [...figureMime.keys()].map((extension) => `${raw}${extension}`)
+      for (const candidate of candidates) {
+        for (const base of [rootDir, sourceRoot]) {
+          const resolved = path.resolve(base, candidate)
+          if (!(resolved === sourceRoot || resolved.startsWith(`${sourceRoot}${path.sep}`))) continue
+          try {
+            const stat = await fs.stat(resolved)
+            if (!stat.isFile() || stat.size > 20_000_000) continue
+            const mime = figureMime.get(path.extname(resolved).toLowerCase())
+            if (!mime) continue
+            const bytes = await fs.readFile(resolved); sourcePath = resolved; mimeType = mime; dataUrl = `data:${mime};base64,${bytes.toString('base64')}`
+            break
+          } catch { /* try another extension or base directory */ }
+        }
+        if (sourcePath) break
+      }
+    }
+    result.push({ id: block.id, order, caption, sourcePath, mimeType, dataUrl })
+  }
+  return result
+}
+
 function parseTranslationJson(text: string): Array<{ id: string; translation: string }> {
   const object = text.match(/\[[\s\S]*\]/)?.[0]
   if (!object) throw new Error('번역 모델이 올바른 JSON을 반환하지 않았습니다.')
@@ -515,19 +556,39 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged })
 }
 
+let mainWindow: BrowserWindow | undefined
+let notesWindow: BrowserWindow | undefined
+
+function loadRenderer(window: BrowserWindow, view?: string) {
+  const devUrl = process.env.VITE_DEV_SERVER_URL
+  if (devUrl) window.loadURL(view ? `${devUrl}?view=${encodeURIComponent(view)}` : devUrl)
+  else window.loadFile(path.join(__dirname, '../dist/index.html'), view ? { query: { view } } : undefined)
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1480, height: 920, minWidth: 1040, minHeight: 680, backgroundColor: '#f5f3ee', titleBarStyle: 'hidden',
     titleBarOverlay: process.platform === 'win32' ? { color: '#f5f3ee', symbolColor: '#4a4945', height: 42 } : false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  const devUrl = process.env.VITE_DEV_SERVER_URL
-  if (devUrl) window.loadURL(devUrl); else window.loadFile(path.join(__dirname, '../dist/index.html'))
+  mainWindow = window; window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+  loadRenderer(window)
   window.webContents.on('did-fail-load', (_event, code, description) => console.error(`Renderer failed to load (${code}): ${description}`))
   window.webContents.on('preload-error', (_event, preloadPath, error) => console.error(`Preload failed (${preloadPath}):`, error))
   window.webContents.on('console-message', (_event, _level, message) => console.error(`Renderer console: ${message}`))
   window.webContents.on('render-process-gone', (_event, details) => console.error('Renderer process exited:', details))
   window.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith('https://')) void shell.openExternal(url); return { action: 'deny' } })
+}
+
+function openNotesWindow() {
+  if (notesWindow && !notesWindow.isDestroyed()) { notesWindow.show(); notesWindow.focus(); return true }
+  notesWindow = new BrowserWindow({
+    width: 980, height: 780, minWidth: 700, minHeight: 520, backgroundColor: '#f5f3ee', title: 'Prism Notes',
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  notesWindow.on('closed', () => { notesWindow = undefined })
+  loadRenderer(notesWindow, 'notes')
+  return true
 }
 
 ipcMain.handle('providers:list', () => providerInfo())
@@ -581,6 +642,12 @@ ipcMain.handle('paper:latex-structure', async (_event, arxivId: string) => {
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   return latexStructure(record)
 })
+ipcMain.handle('paper:figures', async (_event, arxivId: string) => {
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return paperFigures(record)
+})
+ipcMain.handle('notes:open', () => openNotesWindow())
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
@@ -657,7 +724,7 @@ ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {
   active.process?.kill(); activeChats.delete(sessionId); return true
 })
 
-app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() }) })
+app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (!mainWindow) createWindow() }) })
 app.on('window-all-closed', () => {
   for (const active of activeChats.values()) active.process?.kill()
   for (const child of translationJobs.values()) child.kill()

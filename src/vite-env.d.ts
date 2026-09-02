@@ -10,10 +10,13 @@ type ChatRequest = { prompt: string; sessionId: string; messageId: string; provi
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
+type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
 type LatexBlock = { id: string; kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'; source: string; section?: string }
 type LatexStructure = { version: 2; rootFile: string; generatedAt: string; blocks: LatexBlock[] }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
+type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
+type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string }
 
 interface Window {
   prism: {
@@ -30,6 +33,8 @@ interface Window {
     downloadPaper: (paper: ArxivPaper) => Promise<PaperRecord>
     readPaperPdf: (arxivId: string) => Promise<Uint8Array>
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
+    readPaperFigures: (arxivId: string) => Promise<PaperFigureAsset[]>
+    openNotes: () => Promise<boolean>
     readPaperNote: (arxivId: string) => Promise<string>
     savePaperNote: (arxivId: string, content: string) => Promise<boolean>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
