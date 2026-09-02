@@ -92,6 +92,7 @@ interface Window {
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<KnowledgeNodeRecord[]>
     listKnowledgeBacklinks: (id: string) => Promise<KnowledgeBacklink[]>
+    copyKnowledgeEvidence: (request: KnowledgeEvidenceCopyRequest) => Promise<NoteSaveResult>
     listKnowledgeRelations: (id: string) => Promise<KnowledgeRelationView[]>
     createKnowledgeRelation: (request: KnowledgeRelationCreateRequest) => Promise<KnowledgeRelationMutationResult>
     deleteKnowledgeRelation: (request: KnowledgeRelationDeleteRequest) => Promise<KnowledgeRelationMutationResult>

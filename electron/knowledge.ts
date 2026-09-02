@@ -32,6 +32,8 @@ const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as Knowle
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
 const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
+const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
+const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
 
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
 function field(source: string, key: string) {
@@ -93,6 +95,24 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
     if (parsed) nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+function evidenceBlock(source: string, blockId: string) {
+  const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n\\r?\\n|$)`))
+  return match?.[1]
+}
+
+export async function copyKnowledgeEvidence(libraryPath: string, request: KnowledgeEvidenceCopyRequest) {
+  if (!nodeIdPattern.test(request.sourceNodeId) || !nodeIdPattern.test(request.targetNodeId) || request.sourceNodeId === request.targetNodeId
+    || !blockIdPattern.test(request.blockId) || !/^[a-f0-9]{64}$/.test(request.expectedTargetRevision)) throw new Error('근거 카드 복사 정보가 올바르지 않습니다.')
+  const source = await readKnowledgeNode(libraryPath, request.sourceNodeId)
+  const block = evidenceBlock(source.content, request.blockId)
+  if (!block) throw new Error('복사할 근거 카드를 찾을 수 없습니다.')
+  const target = await readKnowledgeNode(libraryPath, request.targetNodeId)
+  if (target.revision !== request.expectedTargetRevision) return { saved: false as const, conflict: target }
+  if (new RegExp(`^\\^${request.blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(target.content)) throw new Error('대상 노트에 이미 같은 근거 카드가 있습니다.')
+  return saveKnowledgeNode(libraryPath, request.targetNodeId, { content: `${target.content.trimEnd()}\n\n${block}\n`, expectedRevision: request.expectedTargetRevision })
 }
 
 export function knowledgePlainText(source: string) {

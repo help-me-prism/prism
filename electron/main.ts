@@ -9,7 +9,7 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
@@ -827,6 +827,10 @@ ipcMain.handle('knowledge:backlinks', async (_event, id: string) => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return listKnowledgeBacklinks(settings.libraryPath, id)
+})
+ipcMain.handle('knowledge:evidence:copy', async (_event, request: KnowledgeEvidenceCopyRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return copyKnowledgeEvidence(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
