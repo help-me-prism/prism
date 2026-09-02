@@ -244,6 +244,9 @@ library/
 - 왼쪽 검색 버튼에서 기존 arXiv Finder가 열리는 것 확인
 - Notes 버튼에서 별도 Electron 창이 열리고 논문 목록과 Markdown textarea가 표시되는 것 확인
 - `npm run test:ui` 성공 — 1040×680 최소 창, 검색 dialog, 설정, 삭제 undo, CSP 검증
+- DDPM 25페이지와 Attention Is All You Need 15페이지 전체 번역 UI audit 완료
+- 최대화 2560×1392 병기 화면에서 표·수식·그림·참고문헌·부록 집중 페이지를 원문과 비교 확인
+- 전체 40페이지에서 raw LaTeXiT payload, 번역 block overflow, 세로형 텍스트, 페이지 바깥 이탈 0건 확인
 - Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
 - Notes blur 직후 실제 Markdown 파일 저장 확인
 - Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 약 107MB)
@@ -261,8 +264,8 @@ npm run start:fast
 ### P0 — 다음 작업에서 먼저 다룰 것
 
 1. **한국어 문서 레이아웃 완성도**
-   - 현재 overlay 방식은 긴 한국어 문단이 다음 단락, 2단 컬럼, 각주와 겹칠 수 있다.
-   - 단기안: 페이지/컬럼별 reflow collision 해결, 아래 block 밀어내기, 글꼴 최소 크기 정책 개선.
+   - DDPM과 Attention 두 기준 논문은 전체 페이지 회귀를 통과했다. 다른 PDF의 긴 한국어 문단, 2단 컬럼, 회전 텍스트와 각주는 계속 corpus를 늘려 검증해야 한다.
+   - 단기안: 새 오류 문서를 corpus에 추가하고 `scripts/audit-translation-ui.mjs`의 overflow/raw/outside 지표와 최대화 화면 비교를 함께 수행한다.
    - 장기안: arXiv LaTeX가 정상적으로 존재하는 논문은 텍스트 노드만 번역하고 XeLaTeX/LuaLaTeX로 한국어판 PDF를 재컴파일한다. 컴파일 실패 시 현재 PDF overlay로 fallback한다.
 
 2. **문장/좌표 품질을 다양한 PDF에서 회귀 검증**
@@ -318,11 +321,11 @@ npm run start:fast
 - AI로 넘길 때 단순 문자열 `@문장36`만 보내지 말고 구조화된 anchor metadata를 함께 보낸다.
 - arXiv LaTeX가 있으면 우선 사용하되, 없거나 파싱/컴파일에 실패하면 PDF 기반 파이프라인을 유지한다.
 - 논문/노트 경로는 Windows/macOS 모두를 위해 Node `path` API와 라이브러리 상대 경로를 사용한다.
-- 의미 있는 작업 단위가 끝날 때마다 `kys_enhanced` 브랜치에 커밋하고 `origin/kys_enhanced`로 푸시한다.
+- 의미 있는 작업 단위가 끝날 때마다 `kys_enhanced` 브랜치에 로컬 커밋한다. `git push`와 온라인 macOS 빌드/업로드는 사용자가 명시적으로 요청할 때만 수행한다.
 - 사용자가 만든 파일이나 unrelated working-tree 변경은 덮어쓰지 않는다.
 
 ## 9. 다음 대화에 전달할 시작 프롬프트 예시
 
 ```text
-Prism 저장소의 kys_enhanced 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md, docs/UX_REVIEW.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, UX_REVIEW의 미완료 항목과 HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys_enhanced에 커밋하고 origin/kys_enhanced로 푸시해.
+Prism 저장소의 kys_enhanced 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md, docs/UX_REVIEW.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, UX_REVIEW의 미완료 항목과 HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys_enhanced에 로컬 커밋하고, push와 온라인 macOS 빌드는 내가 명시적으로 요청할 때만 해.
 ```
