@@ -171,17 +171,24 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
   const [query, setQuery] = useState(''); const [results, setResults] = useState<ArxivPaper[]>([])
   const [suggestions, setSuggestions] = useState<Array<{ title: string; authorsYear?: string }>>([])
   const [searching, setSearching] = useState(false); const [downloading, setDownloading] = useState<string>(); const [error, setError] = useState('')
+  const [hasSearched, setHasSearched] = useState(false)
+
+  useEffect(() => {
+    const close = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [onClose])
 
   useEffect(() => {
     if (query.trim().length < 2) { setSuggestions([]); return }
     let disposed = false
-    const timeout = window.setTimeout(() => window.prism.autocompletePapers(query).then((value) => { if (!disposed) setSuggestions(value) }), 280)
+    const timeout = window.setTimeout(() => window.prism.autocompletePapers(query).then((value) => { if (!disposed) setSuggestions(value) }).catch(() => { if (!disposed) setSuggestions([]) }), 280)
     return () => { disposed = true; window.clearTimeout(timeout) }
   }, [query])
 
   async function search(nextQuery = query) {
     if (!nextQuery.trim()) return
-    setQuery(nextQuery); setSuggestions([]); setSearching(true); setError('')
+    setQuery(nextQuery); setSuggestions([]); setSearching(true); setHasSearched(true); setError('')
     try { setResults(await window.prism.searchArxiv(nextQuery)) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setSearching(false) }
   }
   async function download(paper: ArxivPaper) {
@@ -190,10 +197,10 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
     try { onDownloaded(await window.prism.downloadPaper(paper)) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } finally { setDownloading(undefined) }
   }
 
-  return <div className="finder-backdrop"><section className="paper-finder">
-    <header><div><span className="finder-icon">arXiv</span><div><h2>논문 찾기</h2><p>제목, 키워드, arXiv ID 또는 링크를 입력하세요.</p></div></div><button onClick={onClose}><X size={18} /></button></header>
+  return <div className="finder-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="paper-finder" role="dialog" aria-modal="true" aria-labelledby="paper-finder-title">
+    <header><div><span className="finder-icon">arXiv</span><div><h2 id="paper-finder-title">논문 찾기</h2><p>제목, 키워드, arXiv ID 또는 링크를 입력하세요.</p></div></div><button onClick={onClose} aria-label="논문 찾기 닫기"><X size={18} /></button></header>
     {!settings.libraryPath && <button className="folder-callout" onClick={onChooseFolder}><FolderOpen size={18} /><span><strong>라이브러리 폴더가 필요합니다</strong><small>PDF, 소스, 번역, Markdown 노트를 저장할 위치를 선택하세요.</small></span><ArrowRight size={16} /></button>}
-    <div className="finder-search-wrap"><div className="finder-search"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search() }} placeholder="예: attention is all you need, 1706.03762, arxiv.org/abs/…" /><button onClick={() => void search()} disabled={searching}>{searching ? <LoaderCircle className="spin" size={16} /> : '검색'}</button></div>
+    <div className="finder-search-wrap"><div className="finder-search"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search() }} placeholder="예: attention is all you need, 1706.03762, arxiv.org/abs/…" aria-label="arXiv 논문 검색어" /><button onClick={() => void search()} disabled={searching || !query.trim()}>{searching ? <LoaderCircle className="spin" size={16} /> : '검색'}</button></div>
       {suggestions.length > 0 && <div className="search-suggestions">{suggestions.map((item) => <button key={`${item.title}-${item.authorsYear}`} onMouseDown={(event) => event.preventDefault()} onClick={() => void search(item.title)}><Search size={13} /><span><strong>{item.title}</strong><small>{item.authorsYear}</small></span></button>)}</div>}
     </div>
     <div className="finder-options"><label><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => onSettings({ autoTranslate: event.target.checked })} /><span>저장 직후 설정된 모델로 한국어 번역 시작</span></label><small><Settings2 size={12} /> 번역 모델은 논문 화면에서 미리 설정할 수 있습니다.</small></div>
@@ -201,7 +208,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
     <div className="finder-content">{results.length > 0 ? <><p className="result-label">ARXIV RESULTS · 관련도와 인용 수를 함께 반영</p>{results.map((paper, index) => {
       const saved = library.find((item) => item.arxivId === paper.arxivId)
       return <article className="paper-result" key={paper.arxivId}><div><div className="paper-result-meta"><span>#{index + 1}</span><span>{paper.arxivId}</span><span>{paper.categories[0]}</span><span>{paper.published.slice(0, 10)}</span>{typeof paper.citationCount === 'number' && <span>인용 {paper.citationCount.toLocaleString()}</span>}</div><h3>{paper.title}</h3><p className="authors">{paper.authors.slice(0, 4).join(', ')}{paper.authors.length > 4 ? ` 외 ${paper.authors.length - 4}명` : ''}</p><p className="abstract">{paper.summary}</p></div><div className="result-actions"><button onClick={() => void window.prism.openArxiv(paper.arxivId)} title="arXiv에서 보기"><ExternalLink size={14} /></button>{saved ? <button className="primary" onClick={() => { onOpen(saved); onClose() }}><Check size={14} /> 열기</button> : <button className="primary" onClick={() => void download(paper)} disabled={downloading === paper.arxivId}>{downloading === paper.arxivId ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />} 저장</button>}</div></article>
-    })}</> : library.length > 0 ? <><p className="result-label">MY LIBRARY · {library.length}</p>{library.map((paper) => <button className="library-result" key={paper.arxivId} onClick={() => { onOpen(paper); onClose() }}><FileText size={18} /><span><strong>{paper.title}</strong><small>{paper.arxivId} · {paper.authors.slice(0, 2).join(', ')}</small></span><ArrowRight size={15} /></button>)}</> : <div className="finder-empty"><BookOpen size={34} strokeWidth={1.4} /><h3>첫 논문을 찾아보세요</h3><p>저장하면 PDF와 가능한 경우 arXiv 원본 소스도 함께 내려받습니다.</p></div>}</div>
+    })}</> : hasSearched && !searching ? <div className="finder-empty no-results"><Search size={32} strokeWidth={1.4} /><h3>검색 결과가 없습니다</h3><p>논문 제목을 줄이거나 arXiv ID를 직접 입력해 보세요.</p><button onClick={() => { setQuery(''); setHasSearched(false) }}>검색어 지우기</button></div> : library.length > 0 ? <><p className="result-label">MY LIBRARY · {library.length}</p>{library.map((paper) => <button className="library-result" key={paper.arxivId} onClick={() => { onOpen(paper); onClose() }}><FileText size={18} /><span><strong>{paper.title}</strong><small>{paper.arxivId} · {paper.authors.slice(0, 2).join(', ')}</small></span><ArrowRight size={15} /></button>)}</> : <div className="finder-empty"><BookOpen size={34} strokeWidth={1.4} /><h3>첫 논문을 찾아보세요</h3><p>저장하면 원문 PDF와 가능한 LaTeX 소스, 번역과 Markdown 노트를 한 폴더에서 관리합니다.</p><div className="finder-steps"><span><b>1</b> 논문 검색</span><span><b>2</b> 로컬 저장</span><span><b>3</b> 읽고 질문하기</span></div></div>}</div>
   </section></div>
 }
 

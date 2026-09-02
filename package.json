@@ -10,6 +10,7 @@
     "build": "tsc && vite build && tsc -p electron/tsconfig.json",
     "start": "npm run build && electron .",
     "start:fast": "electron .",
+    "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable",
     "package:mac": "npm run build && electron-builder --mac dmg"
   },

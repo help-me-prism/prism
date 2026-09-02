@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   BookOpen, Bot, Check, ChevronDown, Circle, FileText, FolderOpen, MessageSquareText,
-  MoreHorizontal, Plus, Search, SendHorizontal, Settings2, Sparkles, Square, StickyNote,
-  Trash2, X,
+  Plus, RefreshCw, Search, SendHorizontal, Settings2, Sparkles, Square, StickyNote,
+  Trash2, Undo2, X,
 } from 'lucide-react'
 import PaperWorkspace from './PaperWorkspace'
 
@@ -78,6 +78,9 @@ function App() {
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
   const [paperContextOpen, setPaperContextOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
+  const [deletedSession, setDeletedSession] = useState<{ session: ChatSession; index: number }>()
   const endRef = useRef<HTMLDivElement>(null)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0]
@@ -86,6 +89,19 @@ function App() {
   const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId))
   const tagQuery = input.match(/(?:^|\s)@([^\s@]*)$/)?.[1]
   const tagSuggestions = tagQuery !== undefined ? anchorCatalog.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
+
+  useEffect(() => { setTagSuggestionIndex(0) }, [tagQuery, anchorCatalog])
+  useEffect(() => {
+    if (!deletedSession) return
+    const timeout = window.setTimeout(() => setDeletedSession(undefined), 6000)
+    return () => window.clearTimeout(timeout)
+  }, [deletedSession])
+  useEffect(() => {
+    if (!settingsOpen) return
+    const close = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setSettingsOpen(false) }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [settingsOpen])
 
   useEffect(() => {
     Promise.all([window.prism.listProviders(), window.prism.loadSessions()]).then(([providerList, savedSessions]) => {
@@ -175,17 +191,33 @@ function App() {
   }
 
   function deleteSession(sessionId: string) {
-    if (runningIds.includes(sessionId)) return
+    if (runningIds.includes(sessionId) || sessions.length <= 1) return
     setSessions((current) => {
+      const index = current.findIndex((session) => session.id === sessionId)
+      const removed = current[index]
+      if (!removed) return current
       const remaining = current.filter((session) => session.id !== sessionId)
-      if (remaining.length) {
-        if (activeSessionId === sessionId) setActiveSessionId(remaining[0].id)
-        return remaining
-      }
-      const replacement = makeSession()
-      setActiveSessionId(replacement.id)
-      return [replacement]
+      setDeletedSession({ session: removed, index })
+      if (activeSessionId === sessionId) setActiveSessionId(remaining[Math.min(index, remaining.length - 1)].id)
+      return remaining
     })
+  }
+
+  function undoDeleteSession() {
+    if (!deletedSession) return
+    setSessions((current) => {
+      if (current.some((session) => session.id === deletedSession.session.id)) return current
+      const next = [...current]
+      next.splice(Math.min(deletedSession.index, next.length), 0, deletedSession.session)
+      return next
+    })
+    setActiveSessionId(deletedSession.session.id)
+    setDeletedSession(undefined)
+  }
+
+  async function refreshProviders() {
+    try { setProviders(await window.prism.listProviders()) }
+    catch (reason) { if (activeSession) setErrors((current) => ({ ...current, [activeSession.id]: String(reason) })) }
   }
 
   function changeProvider(provider: ProviderId) {
@@ -239,6 +271,12 @@ function App() {
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (tagSuggestions.length) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); setTagSuggestionIndex((index) => (index + 1) % tagSuggestions.length); return }
+      if (event.key === 'ArrowUp') { event.preventDefault(); setTagSuggestionIndex((index) => (index - 1 + tagSuggestions.length) % tagSuggestions.length); return }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') { event.preventDefault(); chooseTag(tagSuggestions[tagSuggestionIndex] ?? tagSuggestions[0]); return }
+      if (event.key === 'Escape') { event.preventDefault(); setInput((current) => current.replace(/(?:^|\s)@[^\s@]*$/, '')); return }
+    }
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
   }
 
@@ -272,7 +310,7 @@ function App() {
     <main className="app-shell">
       <header className="titlebar">
         <div className="brand"><span className="brand-mark">P</span><span>Prism</span></div>
-        <div className="document-title"><FileText size={14} /><span>{activeSession.title}</span><ChevronDown size={14} /></div>
+        <div className="document-title"><FileText size={14} /><span>{activeSession.title}</span></div>
       </header>
 
       <div className="workspace">
@@ -292,17 +330,19 @@ function App() {
               <div className="session-heading"><p className="nav-label">CHATS</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>
               <div className="session-list">
                 {orderedSessions.map((session) => (
-                  <button key={session.id} className={`session-item ${session.id === activeSession.id ? 'selected' : ''}`} onClick={() => setActiveSessionId(session.id)}>
-                    <span className={`session-provider provider-${session.provider}`}>{session.provider === 'codex' ? 'C' : 'A'}</span>
-                    <span className="session-copy"><strong>{session.title}</strong><small>{session.model}{runningIds.includes(session.id) ? ' · 응답 중…' : ''}</small></span>
-                    <span className="delete-session" role="button" onClick={(event) => { event.stopPropagation(); deleteSession(session.id) }}><Trash2 size={12} /></span>
-                  </button>
+                  <div key={session.id} className={`session-item ${session.id === activeSession.id ? 'selected' : ''}`}>
+                    <button className="session-select" onClick={() => setActiveSessionId(session.id)} aria-current={session.id === activeSession.id ? 'page' : undefined}>
+                      <span className={`session-provider provider-${session.provider}`}>{session.provider === 'codex' ? 'C' : 'A'}</span>
+                      <span className="session-copy"><strong>{session.title}</strong><small>{session.model}{runningIds.includes(session.id) ? ' · 응답 중…' : ''}</small></span>
+                    </button>
+                    <button className="delete-session" onClick={() => deleteSession(session.id)} disabled={sessions.length <= 1 || runningIds.includes(session.id)} aria-label={`${session.title} 대화 삭제`} title={sessions.length <= 1 ? '마지막 대화는 삭제할 수 없습니다' : '대화 삭제'}><Trash2 size={12} /></button>
+                  </div>
                 ))}
               </div>
             </nav>
             <div className="sidebar-footer">
               <div className="provider-badge"><span className={`status-dot ${activeProvider?.available ? 'online' : ''}`} /><div><strong>{activeProvider?.name ?? activeSession.provider}</strong><small>{activeProvider?.status ?? '확인 중…'}</small></div></div>
-              <button className="icon-button" aria-label="설정"><Settings2 size={17} /></button>
+              <button className="icon-button" aria-label="설정" onClick={() => setSettingsOpen(true)}><Settings2 size={17} /></button>
             </div>
           </aside>
         )}
@@ -314,7 +354,7 @@ function App() {
         <aside className="chat-pane">
           <div className="chat-header">
             <div><span className="ai-icon"><Sparkles size={15} /></span><strong>AI Research Assistant</strong></div>
-            <div className="header-buttons"><button onClick={() => newChat()} title="새 대화"><Plus size={17} /></button><button><MoreHorizontal size={18} /></button></div>
+            <div className="header-buttons"><button onClick={() => newChat()} title="새 대화" aria-label="새 대화"><Plus size={17} /></button><button onClick={() => setSettingsOpen(true)} title="앱 설정" aria-label="앱 설정"><Settings2 size={17} /></button></div>
           </div>
           <div className="model-bar">
             <label><span>CLI</span><select value={activeSession.provider} disabled={isRunning} onChange={(event) => changeProvider(event.target.value as ProviderId)}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label>
@@ -327,7 +367,7 @@ function App() {
               <div className="chat-welcome">
                 <div className="welcome-orbit"><Bot size={27} /></div><h2>무엇이 궁금한가요?</h2>
                 <p>{activeProvider?.name ?? 'AI'} · {activeProvider?.models.find((model) => model.id === activeSession.model)?.name ?? activeSession.model}<br />세션은 이 기기에 자동 저장됩니다.</p>
-                <div className="suggestions">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => void send(suggestion)}>{suggestion}<SendHorizontal size={13} /></button>)}</div>
+                <div className="suggestions">{suggestions.map((suggestion) => <button key={suggestion} disabled={!activeProvider?.available} onClick={() => void send(suggestion)}>{suggestion}<SendHorizontal size={13} /></button>)}</div>
               </div>
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
@@ -344,8 +384,8 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
-              {tagSuggestions.length > 0 && <div className="tag-suggestions">{tagSuggestions.map((anchor) => <button type="button" key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} />
+              {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
+              <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} aria-label="AI에게 질문" aria-autocomplete="list" />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
@@ -355,6 +395,15 @@ function App() {
           </div>
         </aside>
       </div>
+      {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
+        <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
+        <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>터미널에서 로그인한 로컬 CLI를 사용합니다.</small></div><button onClick={() => void refreshProviders()}><RefreshCw size={14} /> 다시 확인</button></div>
+          <div className="provider-list">{providers.map((provider) => <div key={provider.id}><span className={`status-dot ${provider.available ? 'online' : ''}`} /><div><strong>{provider.name}</strong><small>{provider.status}</small></div><span>{provider.available ? '사용 가능' : '설치 또는 로그인 필요'}</span></div>)}</div>
+        </div>
+        <div className="settings-section"><strong>라이브러리</strong><p>논문 PDF, 번역, 피겨와 Markdown 노트는 선택한 로컬 폴더에 저장됩니다.</p><button className="settings-action" onClick={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }}><FolderOpen size={15} /> 라이브러리 폴더 변경</button></div>
+        <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
+      </section></div>}
+      {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 삭제했습니다.</strong><small>6초 동안 되돌릴 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
     </main>
   )
 }
