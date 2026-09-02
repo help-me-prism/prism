@@ -20,6 +20,7 @@ export type KnowledgeNodeRecord = {
 }
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
@@ -86,6 +87,37 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
     if (parsed) nodes.push({ ...parsed, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+function linkTargets(source: string) {
+  const searchable = source.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, ' '))
+  return [...searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)].map((match) => ({
+    index: match.index ?? 0,
+    target: match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim(),
+  }))
+}
+
+export async function listKnowledgeBacklinks(libraryPath: string, targetId: string): Promise<KnowledgeBacklink[]> {
+  const nodes = await listKnowledgeNodes(libraryPath)
+  const target = nodes.find((node) => node.id === targetId)
+  if (!target) throw new Error('지식 노트를 찾을 수 없습니다.')
+  const targetPath = target.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
+  const targetBase = targetPath.split('/').at(-1)!
+  const backlinks: KnowledgeBacklink[] = []
+  for (const node of nodes) {
+    if (node.id === targetId) continue
+    const snapshot = await readKnowledgeNode(libraryPath, node.id)
+    const link = linkTargets(snapshot.content).find((item) => {
+      const normalized = item.target.toLocaleLowerCase()
+      return normalized === targetPath || (!normalized.includes('/') && normalized === targetBase)
+    })
+    if (!link) continue
+    const lineStart = snapshot.content.lastIndexOf('\n', link.index) + 1
+    const lineEnd = snapshot.content.indexOf('\n', link.index)
+    const excerpt = snapshot.content.slice(lineStart, lineEnd < 0 ? snapshot.content.length : lineEnd).replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, targetValue, alias) => alias || targetValue).trim().slice(0, 240)
+    backlinks.push({ nodeId: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath, excerpt })
+  }
+  return backlinks.sort((left, right) => left.title.localeCompare(right.title))
 }
 
 export async function createKnowledgeNode(libraryPath: string, request: KnowledgeCreateRequest) {

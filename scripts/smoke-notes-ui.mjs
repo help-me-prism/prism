@@ -209,6 +209,24 @@ try {
   await chooseKnowledgeProperty('지식 노트 중요도', 'high', 'importance: high')
   await chooseKnowledgeProperty('지식 노트 확신도', 'low', 'confidence: low')
 
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 연결 추가"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-link-picker'))`), 'The knowledge link picker did not open.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-link-picker > div > button')].find((button) => button.textContent.includes('Reverse diffusion')).click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('[[Concepts/Reverse diffusion|Reverse diffusion]]'), 'The knowledge link was not saved as portable Obsidian Markdown.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager aside button')].find((button) => button.textContent.includes('Reverse diffusion')).click()`)
+  try {
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === 'Reverse diffusion' && document.querySelector('.knowledge-backlinks strong')?.textContent.includes('노이즈 예측')`), 'Opening the linked Concept did not show the source Claim as a backlink.')
+  } catch (reason) {
+    const debug = await notesConnection.evaluate(`(async () => ({ title: document.querySelector('.knowledge-heading h3')?.textContent, backlinkText: document.querySelector('.knowledge-backlinks')?.textContent, direct: await window.prism.listKnowledgeBacklinks(${JSON.stringify(createdTypes[1])}) }))()`)
+    throw new Error(`${reason.message} Debug: ${JSON.stringify(debug)}\nClaim: ${await fs.readFile(claimPath, 'utf8')}`)
+  }
+  const linksScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const linksScreenshotPath = path.resolve('tmp/ui/notes-links-backlinks.png')
+  await fs.writeFile(linksScreenshotPath, Buffer.from(linksScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('.knowledge-backlinks button').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'Clicking a knowledge backlink did not return to its source note.')
+
   claimMarkdown = await fs.readFile(claimPath, 'utf8')
   await replaceEditor(notesConnection, `${claimMarkdown}\n사용자가 문서형 화면에서 추가한 판단.\n`, '.knowledge-editor .cm-content')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
@@ -382,7 +400,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, knowledge links and backlinks, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${linksScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

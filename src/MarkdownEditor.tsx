@@ -154,7 +154,8 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
 
 function insertText(view: EditorView, text: string) {
   const selection = view.state.selection.main
-  const position = selection.to
+  const frontmatter = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
+  const position = Math.max(selection.to, frontmatter?.[0].length ?? 0)
   const before = view.state.doc.sliceString(Math.max(0, position - 2), position)
   const after = view.state.doc.sliceString(position, Math.min(view.state.doc.length, position + 2))
   const prefix = position === 0 || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
