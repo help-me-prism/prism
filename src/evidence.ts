@@ -32,4 +32,10 @@ export function removeEvidence(markdown: string, target: EmbeddedEvidence) {
   return markdown.replace(pattern, '').replace(/\n{3,}/g, '\n\n')
 }
 
+export function replaceEvidence(markdown: string, target: EmbeddedEvidence, replacement: EvidenceAnchor) {
+  const escaped = target.blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`> \\[!evidence\\][^\\n]*(?:\\n>[^\\n]*)*\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\n\\^${escaped}`)
+  return markdown.replace(pattern, evidenceMarkdown(replacement))
+}
+
 export function evidenceTypeLabel(type: EvidenceAnchorRef['type']) { return typeLabels[type] }

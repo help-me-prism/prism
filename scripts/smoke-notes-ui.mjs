@@ -237,6 +237,35 @@ try {
   const knowledgeScreenshotPath = path.resolve('tmp/ui/notes-knowledge.png')
   await fs.mkdir(path.dirname(knowledgeScreenshotPath), { recursive: true })
   await fs.writeFile(knowledgeScreenshotPath, Buffer.from(knowledgeScreenshot.data, 'base64'))
+
+  const changedEquation = 'L_simple now uses an updated epsilon parameterization.'
+  await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
+    { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+    { id: 'equation-p2-3', type: 'equation', page: 2, source: changedEquation },
+    { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
+  ] }, null, 2), 'utf8')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 앵커 새로고침"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-strip article.needs-relink'))`), 'A changed source hash did not mark the evidence card for relinking.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 선택 닫기"]').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-card-actions button')].find((button) => button.textContent.includes('재연결')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.evidence-picker > div > button')].find((button) => button.textContent.includes('updated epsilon'))) `), 'The relink picker did not offer the updated anchor.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-picker > div > button')].find((button) => button.textContent.includes('updated epsilon')).click()`)
+  assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.evidence-strip article.needs-relink'))`), 'Choosing the updated anchor did not resolve the broken evidence state.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes(changedEquation), 'The relinked source was not saved to Markdown.')
+
+  await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-card-actions button')].find((button) => button.textContent.includes('승격')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.evidence-promote'))`), 'The evidence promotion dialog did not open.')
+  const promotionScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const promotionScreenshotPath = path.resolve('tmp/ui/notes-evidence-promotion.png')
+  await fs.writeFile(promotionScreenshotPath, Buffer.from(promotionScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="승격 노트 제목"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, 'Score matching 근거 주장'); input.dispatchEvent(new Event('input', { bubbles: true })); [...document.querySelectorAll('.evidence-promote footer button')].find((button) => button.textContent.includes('승격하기')).click(); })()`)
+  const promotedPath = path.join(libraryPath, 'Claims', 'Score matching 근거 주장.md')
+  await waitFor(async () => { try { const value = await fs.readFile(promotedPath, 'utf8'); return value.includes('prism-evidence:') && value.includes('[[Claims/노이즈 예측은 score matching이다|노이즈 예측은 score matching이다]]') } catch { return false } }, 'Promoting evidence did not preserve both the PDF anchor and origin note link.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent === 'Score matching 근거 주장'`), 'The promoted Claim was not opened after creation.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager aside button')].find((button) => button.textContent.includes('노이즈 예측은 score matching이다')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'The origin Claim did not reopen after promotion.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="수식1 근거 링크 삭제"]').click()`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.evidence-strip article')`), 'Removing an evidence link did not remove its document card.')
   assert(await notesConnection.evaluate(`document.querySelector('.knowledge-editor .cm-content')?.textContent.includes('사용자가 문서형 화면에서 추가한 판단.')`), 'Removing an evidence link also removed user-authored content.')
@@ -342,7 +371,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, evidence relinking and promotion, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${promotionScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()
