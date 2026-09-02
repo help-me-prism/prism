@@ -36,6 +36,12 @@ if (action === 'click-label') {
 } else if (action === 'click-text') {
   const encoded = JSON.stringify(value)
   await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('button')].find((candidate) => candidate.innerText.trim() === ${encoded}); if (!element) throw new Error('Button not found'); element.click(); return true })()` })
+} else if (action === 'fill-label') {
+  const [label, text] = value.split('=', 2)
+  if (!label || text === undefined) throw new Error('fill-label expects label=value')
+  const encodedLabel = JSON.stringify(label)
+  const encodedText = JSON.stringify(text)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('input, textarea')].find((candidate) => candidate.getAttribute('aria-label') === ${encodedLabel}); if (!element) throw new Error('Field not found'); const setter = Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set; setter.call(element, ${encodedText}); element.dispatchEvent(new Event('input', { bubbles: true })); return true })()` })
 } else if (action === 'press') {
   const key = value
   const keyCode = key === 'Escape' ? 27 : key === 'Enter' ? 13 : key === 'Tab' ? 9 : 0

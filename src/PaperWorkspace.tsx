@@ -249,16 +249,25 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
   const canvasRef = useRef<HTMLCanvasElement>(null); const pageRef = useRef<HTMLDivElement>(null); const [itemRects, setItemRects] = useState<ItemRect[]>([])
   const [detectedFigureRects, setDetectedFigureRects] = useState<ItemRect[]>([])
   const [pageSize, setPageSize] = useState({ width: 612 * scale, height: 792 * scale })
+  const [nearViewport, setNearViewport] = useState(pageNumber <= 2); const [rendered, setRendered] = useState(false)
   const [selection, setSelection] = useState<{ startX: number; startY: number; x: number; y: number }>()
   const selectionRef = useRef<{ startX: number; startY: number; x: number; y: number } | undefined>(undefined)
   useEffect(() => {
-    if (!canvasRef.current) return
+    if (!pageRef.current || nearViewport) return
+    const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) { setNearViewport(true); observer.disconnect() } }, { rootMargin: '1000px 0px' })
+    observer.observe(pageRef.current)
+    return () => observer.disconnect()
+  }, [nearViewport])
+  useEffect(() => {
+    if (!canvasRef.current || !nearViewport) return
+    setRendered(false)
     let cancelled = false; let renderTask: ReturnType<Awaited<ReturnType<PdfDocument['getPage']>>['render']> | undefined
     pdfDocument.getPage(pageNumber).then(async (page) => {
       if (cancelled || !canvasRef.current) return
       const viewport = page.getViewport({ scale }); setPageSize({ width: viewport.width, height: viewport.height }); const ratio = window.devicePixelRatio || 1; const canvas = canvasRef.current; const context = canvas.getContext('2d')!
       canvas.width = Math.floor(viewport.width * ratio); canvas.height = Math.floor(viewport.height * ratio); canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`
       renderTask = page.render({ canvas, canvasContext: context, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] }); await renderTask.promise
+      if (!cancelled) setRendered(true)
       const content = await page.getTextContent(); const items = content.items.filter((item) => 'str' in item) as unknown as PdfTextItem[]; const styles = content.styles as Record<string, PdfTextStyle>
       if (!cancelled) setItemRects(items.map((item) => {
         const tx = pdfjs.Util.transform(viewport.transform, item.transform); const height = Math.max(5, Math.hypot(tx[2], tx[3])); const style = item.fontName ? styles[item.fontName] : undefined
@@ -282,7 +291,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
       } catch { if (!cancelled) setDetectedFigureRects([]) }
     }).catch(() => undefined)
     return () => { cancelled = true; renderTask?.cancel() }
-  }, [pdfDocument, pageNumber, scale])
+  }, [pdfDocument, pageNumber, scale, nearViewport])
   useEffect(() => { if (!pageRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting && entry.intersectionRatio > .3) onVisible(pageNumber) }, { threshold: [.3, .6] }); observer.observe(pageRef.current); return () => observer.disconnect() }, [pageNumber, onVisible])
 
   function point(event: ReactPointerEvent) { const box = pageRef.current!.getBoundingClientRect(); return { x: event.clientX - box.left, y: event.clientY - box.top } }
@@ -318,7 +327,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
   const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = detectedFigureRects.length
     ? [...detectedFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures[index], rect })), ...sourceFigureRects.slice(detectedFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
     : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
-  return <div className={`continuous-page ${mode}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
+  return <div className={`continuous-page ${mode} ${rendered ? 'rendered' : 'pending'}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
+    {!rendered && <div className="page-loading"><LoaderCircle className="spin" size={16} /><span>페이지 {pageNumber} 준비 중</span></div>}
     {mode === 'translated' && <div className="translated-text-layer">{translatedBlocks.map((block) => <div key={block.key} className={`translated-block ${block.segments[0].kind}`} style={{ ...block.box, fontSize: block.fontSize }}>{block.segments.map((segment) => <span key={segment.id} className={`translated-sentence ${segment.id === highlighted ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)}>{segment.translation}{' '}</span>)}</div>)}</div>}
     {mode === 'original' && <div className="source-figure-layer">{automaticFigures.map(({ key, figure, rect }, index) => <button key={key} style={rect} title={`${figure?.caption || `PDF 피겨 ${index + 1}`} · 클릭하여 채팅에 태그`} onClick={() => captureFigure(rect.left, rect.top, rect.width, rect.height, figure)}><Image size={15} /><span>피겨 {figure ? figure.order + 1 : index + 1}</span></button>)}</div>}
     <div className="anchor-layer">{segments.filter((segment) => segment.kind !== 'artifact').flatMap((segment) => segmentRects(segment, itemRects).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭하여 채팅에 태그" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} />))}</div>
@@ -337,6 +347,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [sourceStatus, setSourceStatus] = useState<{ mode: 'latex' | 'pdf'; matched: number; total: number }>({ mode: 'pdf', matched: 0, total: 0 })
   const [translating, setTranslating] = useState(false); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
+  const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
   const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(true); const [dualRatio, setDualRatio] = useState(50); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const documentLayoutRef = useRef<HTMLDivElement>(null); const syncLock = useRef(false)
   const activePaper = library.find((paper) => paper.arxivId === activeId); const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
@@ -392,12 +403,17 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   useEffect(() => {
     if (!activePaper) { setPdf(undefined); return }
-    let disposed = false; setPageNumber(1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError(''); setViewMode('original')
+    let disposed = false; setPageNumber(1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError(''); setViewMode('original'); setLoadStatus({ phase: 'pdf', completed: 0, total: 0 })
     Promise.all([window.prism.readPaperPdf(activePaper.arxivId), window.prism.readLatexStructure(activePaper.arxivId), window.prism.readPaperFigures(activePaper.arxivId)]).then(async ([data, latex, figures]) => {
-      const preparedFigures = await Promise.all(figures.map(prepareFigureAsset)); if (!disposed) setFigureAssets(preparedFigures)
-      const loaded = await pdfjs.getDocument({ data }).promise; if (disposed) return; setPdf(loaded)
+      void Promise.all(figures.map(prepareFigureAsset)).then((preparedFigures) => { if (!disposed) setFigureAssets(preparedFigures) })
+      const loaded = await pdfjs.getDocument({ data }).promise; if (disposed) return; setPdf(loaded); setLoadStatus({ phase: 'analyzing', completed: 0, total: loaded.numPages })
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
       const segments: TranslationSegment[] = []
-      for (let page = 1; page <= loaded.numPages; page += 1) { const pdfPage = await loaded.getPage(page); const text = await pdfPage.getTextContent(); segments.push(...segmentsFromItems(page, text.items.filter((item) => 'str' in item) as unknown as PdfTextItem[])) }
+      for (let page = 1; page <= loaded.numPages; page += 1) {
+        const pdfPage = await loaded.getPage(page); const text = await pdfPage.getTextContent(); segments.push(...segmentsFromItems(page, text.items.filter((item) => 'str' in item) as unknown as PdfTextItem[]))
+        if (!disposed) setLoadStatus({ phase: 'analyzing', completed: page, total: loaded.numPages })
+        if (page % 2 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0))
+      }
       if (disposed) return
       const source = enrichWithLatex(segments, latex); const translatable = source.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length
       setSourceStatus({ mode: source.matched > translatable * .35 ? 'latex' : 'pdf', matched: source.matched, total: translatable })
@@ -413,7 +429,8 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
         autoStartedRef.current.add(activePaper.arxivId); setTranslating(true); setTranslationProgress({ completed: 0, total: translatable }); setViewMode('dual')
         void window.prism.startTranslation(activePaper.arxivId, source.segments, { force: false }).catch((reason) => { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) })
       }
-    }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      setLoadStatus(undefined)
+    }).catch((reason) => { setLoadStatus(undefined); setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { disposed = true }
   }, [activePaper?.arxivId])
   function openPaper(paper: PaperRecord) { setTabs((current) => current.includes(paper.arxivId) ? current : [...current, paper.arxivId]); setActiveId(paper.arxivId) }
@@ -440,6 +457,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <button key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`} onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span><i onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i></button> : null })}<button className="add-tab" onClick={() => setFinderOpen(true)}><Plus size={15} /></button></div></div>
     {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => window.document.querySelector(`[data-page$="-${pageNumber - 1}"]`)?.scrollIntoView()}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => window.document.querySelector(`[data-page$="-${pageNumber + 1}"]`)?.scrollIntoView()}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId} · {sourceStatus.mode === 'latex' ? `LaTeX 우선 ${sourceStatus.matched}/${sourceStatus.total}` : 'PDF fallback'} · 소스 피겨 {figureAssets.length}</small></div><div className="reader-actions"><div className="document-mode"><button className={viewMode === 'original' ? 'active' : ''} onClick={() => setViewMode('original')}>원문</button><button className={viewMode === 'translated' ? 'active' : ''} onClick={() => setViewMode('translated')}>한국어</button><button className={viewMode === 'dual' ? 'active' : ''} onClick={() => setViewMode('dual')}><Columns2 size={13} /> 병기</button></div>{viewMode === 'dual' && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button></div></div>
       <div className="translation-control"><Languages size={14} /><label><span>번역 CLI</span><select value={settings.translationProvider} disabled={translating} onChange={(event) => { const provider = event.target.value as ProviderId; void updateSettings({ translationProvider: provider, translationModel: providers.find((item) => item.id === provider)?.models[0]?.id }) }}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label><label><span>모델</span><select value={settings.translationModel} disabled={translating} onChange={(event) => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label><label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => void updateSettings({ autoTranslate: event.target.checked })} /> 자동 번역</label>{(translating || hasCachedTranslation) && <div className="translation-meter" title={`${translationProgress.completed || translatedCount} / ${translationProgress.total || translatableSegments.length}문장`}><span><i style={{ width: `${translationPercent}%` }} /></span><strong>{translating ? `${translationProgress.completed}/${translationProgress.total}문장 · ${translationPercent}%` : `${translatedCount}문장 번역됨`}</strong></div>}<button onClick={() => void startTranslation()} disabled={translating || !translationProvider?.available || !allSegments.length}>{translating ? <><LoaderCircle className="spin" size={13} /> 번역 중</> : hasCachedTranslation ? '재번역' : '번역 시작'}</button>{figureSelect && <strong className="capture-hint">피겨를 클릭하거나 영역을 드래그하세요</strong>}</div>
+      {loadStatus?.phase === 'analyzing' && <div className="paper-analysis-status" role="status"><LoaderCircle className="spin" size={13} /><span>논문 구조와 참조 위치를 분석하고 있어요</span><div><i style={{ width: `${loadStatus.total ? loadStatus.completed / loadStatus.total * 100 : 0}%` }} /></div><strong>{loadStatus.completed} / {loadStatus.total}페이지</strong></div>}
       {error && <div className="paper-error">{error}<button onClick={() => setError('')}><X size={13} /></button></div>}
       <div ref={documentLayoutRef} className={`paper-content document-layout mode-${viewMode}`} style={viewMode === 'dual' ? { gridTemplateColumns: `${dualRatio}% 7px calc(${100 - dualRatio}% - 7px)` } : undefined}>
         {(viewMode === 'original' || viewMode === 'dual') && <div className="document-column"><header><span><FileText size={13} /> 원문 PDF</span>{paneZoom('original')}</header><div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => viewMode === 'dual' && syncScrollEnabled && syncScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div></div>}
