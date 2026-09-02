@@ -1,0 +1,43 @@
+name: Build desktop apps
+
+on:
+  push:
+    branches: [kys_enhanced]
+  pull_request:
+    branches: [kys_enhanced]
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows portable
+            os: windows-latest
+            command: package:win
+            artifact: Prism-Windows
+            files: release/*.exe
+          - name: macOS universal DMG
+            os: macos-latest
+            command: package:mac
+            artifact: Prism-macOS
+            files: release/*.dmg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ${{ matrix.command }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14

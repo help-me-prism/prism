@@ -5,14 +5,18 @@
   "description": "A local AI workspace for reading and understanding research papers.",
   "main": "dist-electron/main.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "tsc -p electron/tsconfig.json && concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc && vite build && tsc -p electron/tsconfig.json",
     "start": "npm run build && electron .",
     "start:fast": "electron .",
+    "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable",
-    "package:mac": "npm run build && electron-builder --mac dmg"
+    "package:mac": "npm run build && electron-builder --mac dmg --universal"
   },
   "devDependencies": {
     "@types/node": "latest",

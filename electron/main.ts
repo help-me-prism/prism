@@ -17,7 +17,7 @@ type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { me
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
-type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 const activeChats = new Map<string, ActiveChat>()
 const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; messageId: string }>()
@@ -571,7 +571,7 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     const completedSegments = merged.filter((segment) => translatable(segment) && segment.translation).length
     safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, completedSegments, totalSegments, segments: merged, force })
   }
-  for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'artifact') segment.translation = segment.source
+  for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'table' || segment.kind === 'artifact') segment.translation = segment.source
   await fs.writeFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2), 'utf8')
   safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged })
 }

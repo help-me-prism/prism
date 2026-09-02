@@ -56,6 +56,10 @@ if (action === 'click-label') {
   const keyCode = key === 'Escape' ? 27 : key === 'Enter' ? 13 : key === 'Tab' ? 9 : 0
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
+} else if (action === 'evaluate') {
+  const result = await send('Runtime.evaluate', { expression: value, returnByValue: true, awaitPromise: true })
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
+  if (result.result?.value !== undefined) process.stdout.write(`${JSON.stringify(result.result.value)}\n`)
 } else {
   throw new Error(`Unknown action: ${action}`)
 }

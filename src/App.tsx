@@ -6,7 +6,7 @@ import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import {
   BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, FileText, FolderOpen, Image,
-  MessageSquareText, Plus, RefreshCw, RotateCcw, SendHorizontal, Settings2, Sigma,
+  MessageSquareText, Plus, RefreshCw, RotateCcw, SendHorizontal, Settings2, Sigma, Table2,
   Sparkles, Square, StickyNote, TextQuote, Trash2, Undo2, X,
 } from 'lucide-react'
 import PaperWorkspace from './PaperWorkspace'
@@ -30,7 +30,7 @@ function makeSession(provider: ProviderId = 'codex', model = provider === 'codex
   return { id: uniqueId('session'), title: '새 대화', provider, model, messages: [], createdAt: now, updatedAt: now }
 }
 
-const referencePattern = /\[?@((?:문장|수식|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
+const referencePattern = /\[?@((?:문장|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
 
 function referencedAnchors(text: string, anchors: ContextAnchor[]) {
   const byLabel = new Map(anchors.map((anchor) => [anchor.label, anchor]))
@@ -60,7 +60,7 @@ function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?:
 }
 
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
-  const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
+  const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'table' ? Table2 : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
   const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>{anchor.paperId}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>

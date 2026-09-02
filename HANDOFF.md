@@ -2,7 +2,7 @@
 
 마지막 정리: 2026-09-02  
 작업 브랜치: `kys_enhanced`
-기능 구현 기준 커밋: `a9f29b8` (`feat: enrich chat reading and recovery`)
+기능 구현 기준 커밋: 이번 작업 완료 커밋(표·수식 보존 및 교차 플랫폼 실행 개선)
 
 이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
 
@@ -20,8 +20,10 @@ Prism은 논문을 검색·보관하고 원문과 한국어 번역을 읽으면�
 
 ## 2. 현재 실행 방법
 
+Node.js 22.12 이상에서 Windows는 `run-windows.cmd`, macOS는 `run-macos.command`를 더블클릭하면 최초 의존성 설치와 현재 소스 빌드 후 실행된다. 터미널에서는 다음을 사용한다.
+
 ```powershell
-npm install
+npm ci
 npm start
 ```
 
@@ -29,7 +31,7 @@ npm start
 - 타입 검사와 프로덕션 빌드: `npm run build`
 - Windows portable EXE: `npm run package:win`
 - 생성 파일: `release/Prism 0.1.0.exe`
-- macOS DMG 명령: `npm run package:mac` — 실제 Mac 빌드 및 서명 검증은 아직 하지 않았다.
+- macOS universal DMG 명령: `npm run package:mac` — GitHub Actions의 macOS runner에서도 생성한다. 실제 Mac UX 및 서명 검증은 아직 필요하다.
 
 `index.html`을 브라우저에서 직접 열면 `file://` CORS 문제로 동작하지 않는다. 반드시 Electron 실행 명령이나 패키징된 EXE를 사용한다.
 
@@ -89,6 +91,10 @@ codex login
 - renderer CSP를 명시하고 Electron 보안 경고를 smoke 회귀 조건으로 추가했다.
 - macOS Finder 실행의 제한된 PATH를 고려해 Homebrew, `~/.local/bin`, npm global, Claude local 경로를 탐색한다. `PRISM_CODEX_PATH`, `PRISM_CLAUDE_PATH` override도 지원한다.
 - 세션 저장 전 피겨 thumbnail data URL만 제거해 15MB 초과로 전체 채팅 자동 저장이 중단되는 문제를 예방한다. 원본 피겨 파일과 anchor 문맥은 유지한다.
+- LaTeX 수식은 PDF 수식 segment와 토큰 유사도로 연결하고, 표는 `table`/`tabular` 원본 블록을 PDF 표 캡션에 연결해 별도 구조 태그로 노출한다. AI 문맥에는 축약하지 않은 원본 LaTeX가 전달된다.
+- 한국어 번역층이 수식·표·피겨를 덮지 않도록 겹침이 적은 방향으로 텍스트 block을 확장하고, 보호 구조 영역은 원본 PDF canvas에서 다시 그려 글자·선 누락을 막는다.
+- 채팅 인라인 태그에 표 타입과 아이콘을 추가했으며 UI smoke가 수식과 표 태그를 함께 검증한다.
+- `.nvmrc`, OS별 원클릭 실행 스크립트와 Windows/macOS GitHub Actions 패키징을 추가했다. `release/`는 계속 Git에서 제외하고 Actions artifact로 공유한다.
 
 관련 커밋: `ddfb479`, `caf1f89`, `6474baf`, `5693042`
 

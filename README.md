@@ -57,10 +57,21 @@ library/
     translation.ko.json
 ```
 
+## 새 컴퓨터에서 실행
+
+Node.js 22.12 이상(LTS 권장)과 Git을 설치한 뒤 저장소를 받습니다.
+
 ```bash
-npm install
-npm start
+git clone <저장소 주소>
+cd prism
+git switch kys_enhanced
 ```
+
+- Windows: `run-windows.cmd`를 더블클릭합니다.
+- macOS: `run-macos.command`를 더블클릭합니다. 처음 한 번 macOS가 막으면 파일을 우클릭하고 **열기**를 선택합니다.
+- 터미널: `npm ci` 후 `npm start`를 실행합니다.
+
+두 실행 스크립트는 `node_modules`가 없을 때 잠금 파일과 정확히 일치하는 의존성을 자동 설치한 뒤 현재 소스를 빌드해 실행합니다. PDF는 Git에 없어도 앱의 `논문 열기`에서 arXiv 논문을 다시 저장하면 내려받을 수 있습니다. 채팅을 사용하려면 각 컴퓨터에서 Codex 또는 Claude CLI 설치와 로그인을 별도로 해야 합니다.
 
 `index.html` 파일을 브라우저에서 직접 열면 동작하지 않습니다. `npm start`가 화면 코드를 빌드한 뒤 Electron 앱으로 실행합니다. 개발 중에는 `npm run dev`를 사용할 수 있습니다.
 
@@ -72,9 +83,11 @@ npm start
 
 `npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
 
+`release/`는 빌드 결과라 Git에 저장하지 않습니다. 따라서 예전에 만든 EXE가 폴더에 남아 있다면 최신 소스가 아닐 수 있습니다. 브랜치에 푸시할 때마다 GitHub Actions의 **Build desktop apps**가 Windows portable EXE와 macOS universal DMG를 새로 만들며, 해당 실행의 Artifacts에서 내려받을 수 있습니다.
+
 ### macOS
 
-Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 DMG를 만들 수 있습니다. Apple 외부 배포 시에는 별도로 코드 서명과 notarization 설정이 필요합니다.
+Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 Intel과 Apple Silicon을 모두 포함하는 universal DMG를 만들 수 있습니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
 
 현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 앵커별 노트 블록과 논문 간 연결 그래프입니다.
 
