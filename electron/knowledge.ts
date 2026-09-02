@@ -90,7 +90,7 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
 }
 
-function plainMarkdown(source: string) {
+export function knowledgePlainText(source: string) {
   return source.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').replace(/<!--[^>]*-->/g, '').replace(/^\^[a-zA-Z0-9_-]+\s*$/gm, '')
     .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, target, alias) => alias || target).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^\s*>\s?(?:\[![^\]]+\]\s*)?/gm, '').replace(/[*_`#$~-]+/g, ' ').replace(/\s+/g, ' ').trim()
@@ -104,7 +104,7 @@ export async function searchKnowledge(libraryPath: string, input: string): Promi
   const results: KnowledgeSearchResult[] = []
   for (const node of await listKnowledgeNodes(libraryPath)) {
     const snapshot = await readNoteSnapshot(path.join(libraryPath, ...node.relativePath.split('/')))
-    const plain = plainMarkdown(snapshot.content); const normalizedBody = plain.toLocaleLowerCase(); const title = node.title.toLocaleLowerCase(); const route = `${node.nodeType} ${node.relativePath}`.toLocaleLowerCase()
+    const plain = knowledgePlainText(snapshot.content); const normalizedBody = plain.toLocaleLowerCase(); const title = node.title.toLocaleLowerCase(); const route = `${node.nodeType} ${node.relativePath}`.toLocaleLowerCase()
     const bodyHits = occurrences(normalizedBody, normalizedQuery)
     let score = title === normalizedQuery ? 1000 : title.startsWith(normalizedQuery) ? 600 : title.includes(normalizedQuery) ? 350 : route.includes(normalizedQuery) ? 180 : 0
     score += Math.min(bodyHits, 10) * 20

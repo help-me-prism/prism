@@ -14,6 +14,7 @@ import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
+import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -734,6 +735,18 @@ ipcMain.handle('knowledge:list', async () => {
 ipcMain.handle('knowledge:search', async (_event, query: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return searchKnowledge(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:search', async (_event, query: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return searchResearchKnowledge(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:context', async (_event, query: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return retrieveResearchContext(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:index:rebuild', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return rebuildResearchIndex(settings.libraryPath)
 })
 ipcMain.handle('knowledge:views', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
