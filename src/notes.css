@@ -179,6 +179,30 @@
 .knowledge-backlinks > header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #68616f; font-size: 8px; font-weight: 700; }.knowledge-backlinks > header small { display: grid; min-width: 15px; height: 15px; place-items: center; border-radius: 8px; background: #ddd7ed; color: #6e5c9d; font-size: 7px; }
 .knowledge-backlinks > div { display: flex; gap: 7px; overflow-x: auto; }.knowledge-backlinks > div > button { min-width: 210px; max-width: 270px; display: flex; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid #d2ccdc; border-radius: 8px; background: #fff; color: #6a5b92; text-align: left; cursor: pointer; }.knowledge-backlinks > div > button:hover { background: #f1edf7; }.knowledge-backlinks button span { min-width: 0; flex: 1; }.knowledge-backlinks small, .knowledge-backlinks strong, .knowledge-backlinks p { display: block; overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }.knowledge-backlinks small { color: #8376a2; font-size: 7px; }.knowledge-backlinks strong { margin-top: 3px; color: #474249; font-size: 9px; }.knowledge-backlinks p { margin-top: 3px; color: #8a848c; font: 8px/1.35 Georgia, "Noto Serif KR Variable", serif; }
 .knowledge-relations { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid #e0dcd5; background: #f6f4ef; }.knowledge-relations > header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #65615b; font-size: 8px; font-weight: 700; }.knowledge-relations > header small { display: grid; min-width: 15px; height: 15px; place-items: center; border-radius: 8px; background: #e6e1d8; color: #716b61; font-size: 7px; }.knowledge-relations > div { display: flex; gap: 7px; overflow-x: auto; }.knowledge-relations article { position: relative; flex: 0 0 230px; border: 1px solid #d5d0c6; border-radius: 8px; background: #fff; }.knowledge-relations article > button:first-child { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 8px; padding: 8px 28px 8px 9px; border: 0; background: transparent; color: #675a8f; text-align: left; cursor: pointer; }.knowledge-relations article > button:first-child:hover { background: #f2eff7; }.knowledge-relations button span { min-width: 0; flex: 1; }.knowledge-relations small, .knowledge-relations strong, .knowledge-relations p { display: block; overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }.knowledge-relations small { color: #75639d; font-size: 7px; }.knowledge-relations strong { margin-top: 3px; color: #474249; font-size: 9px; }.knowledge-relations p { margin-top: 3px; color: #908a82; font-size: 7px; }.knowledge-relations .relation-delete { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #968f9a; cursor: pointer; }.knowledge-relations .relation-delete:hover { background: #f4e8e5; color: #a54e48; }
+.knowledge-relations > header > button { height: 22px; display: flex; align-items: center; gap: 4px; margin-left: auto; padding: 0 7px; border: 1px solid #cbc3dc; border-radius: 10px; background: #fff; color: #675a8f; font-size: 7px; cursor: pointer; }
+.knowledge-relations > header > button:hover { background: #eee9f6; }
+.knowledge-local-graph { position: absolute; z-index: 9; inset: 18px; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #c9c1d8; border-radius: 12px; background: #fbfaf7; box-shadow: 0 20px 60px rgba(42, 35, 55, .28); }
+.knowledge-local-graph > header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; padding: 13px 14px; border-bottom: 1px solid #ded8e6; background: #f3f0f7; }
+.knowledge-local-graph > header > div { display: flex; align-items: flex-start; gap: 8px; color: #6e5aa5; }
+.knowledge-local-graph > header h4 { margin: 0 0 3px; color: #3f3945; font: 600 12px Georgia, "Noto Serif KR Variable", serif; }
+.knowledge-local-graph > header p { margin: 0; color: #847d89; font-size: 8px; }
+.knowledge-local-graph > header > button { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #7e7783; cursor: pointer; }
+.knowledge-local-graph > header > button:hover { background: #e7e1ee; }
+.local-graph-canvas { position: relative; min-height: 320px; flex: 1; overflow: hidden; background: radial-gradient(circle at center, rgba(116, 93, 168, .09), transparent 42%), linear-gradient(rgba(94, 83, 110, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(94, 83, 110, .045) 1px, transparent 1px); background-size: auto, 24px 24px, 24px 24px; }
+.local-graph-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.local-graph-canvas line { stroke: #9c8abd; stroke-width: .35; vector-effect: non-scaling-stroke; }
+.local-graph-canvas line.status-pending { stroke: #c58b43; stroke-dasharray: 2 1.5; }
+.local-graph-canvas line.status-rejected { stroke: #aaa3ac; stroke-dasharray: 1 2; }
+.local-graph-canvas text { fill: #70627f; font: 600 2.2px Inter, Arial, sans-serif; paint-order: stroke; stroke: #fbfaf7; stroke-width: .6px; stroke-linejoin: round; text-anchor: middle; }
+.local-graph-center, .local-graph-node { position: absolute; left: 50%; top: 50%; width: min(170px, 28%); min-height: 64px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; padding: 9px; border-radius: 10px; transform: translate(-50%, -50%); text-align: center; }
+.local-graph-center { border: 2px solid #7662ad; background: #f4f0ff; box-shadow: 0 7px 22px rgba(72, 55, 111, .18); }
+.local-graph-node { border: 1px solid #bfb5d0; background: #fff; color: #4b4451; box-shadow: 0 5px 15px rgba(59, 51, 68, .12); cursor: pointer; }
+.local-graph-node:hover { border-color: #7965ad; background: #f3effa; }
+.local-graph-node.status-pending { border-color: #ce974f; border-style: dashed; background: #fff9ee; }
+.local-graph-node.status-rejected { opacity: .58; }
+.local-graph-center small, .local-graph-node small { color: #7764aa; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+.local-graph-center strong, .local-graph-node strong { width: 100%; overflow: hidden; color: #403a45; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.local-graph-node span { color: #89818e; font-size: 7px; }
 .evidence-open { width: 100%; min-height: 62px; display: flex; align-items: center; gap: 7px; padding: 8px 27px 5px 9px; border: 0; background: transparent; color: #5f5769; text-align: left; cursor: pointer; }
 .evidence-open > span { min-width: 0; flex: 1; }
 .evidence-open small, .evidence-open strong, .evidence-open p { display: block; overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
@@ -229,4 +253,6 @@
 @media (max-width: 850px) {
   .knowledge-manager-body { grid-template-columns: 190px minmax(0, 1fr); }
   .knowledge-heading { align-items: flex-start; flex-direction: column; }
+  .knowledge-local-graph { inset: 10px; }
+  .local-graph-center, .local-graph-node { width: min(130px, 31%); padding: 7px; }
 }
