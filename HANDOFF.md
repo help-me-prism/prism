@@ -330,6 +330,8 @@ npm run start:fast
 
 ## 9. 다음 대화에 전달할 시작 프롬프트 예시
 
+연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
+
 ```text
 Prism 저장소의 kys_enhanced 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md, docs/UX_REVIEW.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, UX_REVIEW의 미완료 항목과 HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys_enhanced에 로컬 커밋하고, push와 온라인 macOS 빌드는 내가 명시적으로 요청할 때만 해.
 ```
