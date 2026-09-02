@@ -44,6 +44,13 @@
 | P1 | 노트 저장 안정성 | 논문을 빠르게 전환하거나 Notes 창을 바로 닫으면 500ms debounce 중인 변경이 저장되지 않을 가능성이 있다. | 논문/라이브러리 전환, textarea blur, 창 unload에서 dirty note를 flush하고 debounce를 300ms로 줄였다. | 완료 |
 | P1 | 번역 제어 | 번역이 시작되면 UI 버튼이 비활성화되어 메인 프로세스에 이미 존재하는 취소 기능을 사용할 수 없었다. | 진행 중 버튼을 `번역 중지`로 바꾸고 완료된 batch cache를 유지한 채 CLI 작업을 종료한다. | 완료 |
 
+## 4차 관찰 — macOS 경로와 장기 세션
+
+| 우선순위 | 영역 | 관찰 | 조치 | 상태 |
+| --- | --- | --- | --- | --- |
+| P0 | macOS CLI 발견 | Finder에서 실행한 앱은 로그인 shell PATH를 상속하지 않아 `/opt/homebrew/bin` 또는 `~/.local/bin`의 CLI를 못 찾을 수 있다. | PATH 탐색 실패 시 Homebrew, npm global, Claude local 설치 경로를 확인하고 `PRISM_CODEX_PATH`/`PRISM_CLAUDE_PATH` override를 지원한다. | 정적 검증 완료, 실제 Mac 검증 필요 |
+| P1 | 장기 세션 저장 | 피겨 thumbnail data URL이 메시지마다 `sessions.json`에 중복되어 15MB 제한을 넘으면 이후 모든 대화 저장이 실패한다. | 실행 중 preview는 유지하되 세션 영속화 전 thumbnail만 제거하고, 저장 실패는 화면에 노출한다. 원본 피겨 파일과 구조화 문맥은 유지된다. | 완료 |
+
 ## 후속 집중 검토
 
 첫 실행 개선 후 실제 논문을 테스트 라이브러리에 저장해 다음을 별도 반복한다.
@@ -63,3 +70,4 @@
 | 1차 | 검색·설정·삭제 복구·태그 키보드·가독성 | `npm run test:ui` 성공 | 검색 modal, 설정 dialog, 삭제 undo toast를 1480×920에서 확인 | 통과 |
 | 2차 | PDF 선표시·분석 진행률·페이지 lazy rendering | `npm run build` 성공 | 같은 15페이지 논문을 재실행 후 2초 시점에 첫 페이지와 전체 리더 사용 가능 확인 | 통과 |
 | 3차 | Notes 저장 flush·번역 중지·CSP | `npm run test:ui` 성공 | Notes 독립 창 렌더 및 blur 직후 Markdown 파일 반영, renderer CSP 경고 없음 확인 | 통과 |
+| 4차 | macOS CLI 탐색·세션 저장 용량 보호 | `npm run test:ui` 성공 | Windows CLI 발견·세션 저장 회귀 없음, macOS 실제 기기 검증은 후속 | 통과 |

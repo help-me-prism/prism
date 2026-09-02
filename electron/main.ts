@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
-import { promises as fs, readFileSync } from 'node:fs'
+import { accessSync, constants as fsConstants, promises as fs, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -24,11 +24,31 @@ const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; 
 const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
 
 function findCli(name: string): string | null {
+  const override = process.env[`PRISM_${name.toUpperCase()}_PATH`]
+  if (override) {
+    try { accessSync(override, fsConstants.X_OK); return override } catch { /* continue with discovery */ }
+  }
   const command = process.platform === 'win32' ? 'where.exe' : 'which'
   const result = spawnSync(command, [name], { encoding: 'utf8', windowsHide: true })
-  if (result.status !== 0) return null
-  const candidates = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  return candidates.find((candidate) => process.platform !== 'win32' || candidate.toLowerCase().endsWith('.exe')) ?? candidates[0] ?? null
+  if (result.status === 0) {
+    const candidates = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    const discovered = candidates.find((candidate) => process.platform !== 'win32' || candidate.toLowerCase().endsWith('.exe')) ?? candidates[0]
+    if (discovered) return discovered
+  }
+  if (process.platform === 'win32') return null
+  const home = app.getPath('home')
+  const candidates = [
+    path.join(home, '.local', 'bin', name),
+    path.join(home, '.npm-global', 'bin', name),
+    path.join(home, '.claude', 'local', name),
+    path.join('/opt/homebrew/bin', name),
+    path.join('/usr/local/bin', name),
+    path.join('/usr/bin', name),
+  ]
+  for (const candidate of candidates) {
+    try { accessSync(candidate, fsConstants.X_OK); return candidate } catch { /* try the next standard CLI location */ }
+  }
+  return null
 }
 
 function spawnCli(executable: string, args: string[], options: SpawnOptionsWithoutStdio): ChildProcessWithoutNullStreams {

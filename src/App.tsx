@@ -159,10 +159,14 @@ function App() {
   useEffect(() => {
     if (!hydrated) return
     const timeout = window.setTimeout(() => {
-      window.prism.saveSessions(sessions).catch((reason) => console.error('Session save failed:', reason))
+      const compactSessions = sessions.map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
+      window.prism.saveSessions(compactSessions).catch((reason) => {
+        console.error('Session save failed:', reason)
+        if (activeSessionId) setErrors((current) => ({ ...current, [activeSessionId]: `대화를 자동 저장하지 못했습니다: ${String(reason)}` }))
+      })
     }, 350)
     return () => { window.clearTimeout(timeout) }
-  }, [sessions, hydrated])
+  }, [sessions, hydrated, activeSessionId])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
