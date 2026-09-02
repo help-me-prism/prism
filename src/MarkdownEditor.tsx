@@ -6,6 +6,7 @@ import { basicSetup } from 'codemirror'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; focus: () => void }
+export type WikiLinkOption = { id: string; label: string; target: string; description: string }
 
 type MarkdownEditorProps = {
   value: string
@@ -14,6 +15,7 @@ type MarkdownEditorProps = {
   label: string
   onChange: (value: string) => void
   onBlur: () => void
+  wikiLinks?: WikiLinkOption[]
 }
 
 type SlashState = { from: number; to: number; query: string; top: number; left: number }
@@ -165,7 +167,7 @@ function insertText(view: EditorView, text: string) {
   view.focus()
 }
 
-const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur }, ref) {
+const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [] }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editable = useRef(new Compartment())
@@ -178,6 +180,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const activeSlashIndexRef = useRef(0)
   const [slash, setSlash] = useState<SlashState | null>(null)
   const [activeSlashIndex, setActiveSlashIndex] = useState(0)
+  const wikiRef = useRef<SlashState | null>(null)
+  const filteredWikiRef = useRef<WikiLinkOption[]>([])
+  const activeWikiIndexRef = useRef(0)
+  const [wiki, setWiki] = useState<SlashState | null>(null)
+  const [activeWikiIndex, setActiveWikiIndex] = useState(0)
   const filteredCommands = useMemo(() => {
     const query = slash?.query.toLocaleLowerCase() ?? ''
     if (!slash) return []
@@ -190,18 +197,35 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     }
     return markdownBlockCommands.filter((option) => !query || `${option.label} ${option.keywords}`.toLocaleLowerCase().includes(query)).sort((a, b) => score(a) - score(b))
   }, [slash])
+  const filteredWikiLinks = useMemo(() => {
+    if (!wiki) return []
+    const query = wiki.query.toLocaleLowerCase()
+    return wikiLinks.filter((option) => !query || `${option.label} ${option.target} ${option.description}`.toLocaleLowerCase().includes(query)).slice(0, 40)
+  }, [wiki, wikiLinks])
 
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
   useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
   useEffect(() => { slashRef.current = slash }, [slash])
   useEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
   useEffect(() => { activeSlashIndexRef.current = activeSlashIndex }, [activeSlashIndex])
+  useEffect(() => { wikiRef.current = wiki }, [wiki])
+  useEffect(() => { filteredWikiRef.current = filteredWikiLinks }, [filteredWikiLinks])
+  useEffect(() => { activeWikiIndexRef.current = activeWikiIndex }, [activeWikiIndex])
 
   function closeSlashMenu() { slashRef.current = null; setSlash(null); setActiveSlashIndex(0) }
   function chooseSlashCommand(option: CommandOption) {
     const view = viewRef.current; const current = slashRef.current
     if (!view || !current) return
     closeSlashMenu(); insertBlock(view, option.command, { from: current.from, to: current.to })
+  }
+  function closeWikiMenu() { wikiRef.current = null; setWiki(null); setActiveWikiIndex(0) }
+  function chooseWikiLink(option: WikiLinkOption) {
+    const view = viewRef.current; const current = wikiRef.current
+    if (!view || !current) return
+    closeWikiMenu()
+    const insert = `[[${option.target}|${option.label}]]`
+    view.dispatch({ changes: { from: current.from, to: current.to, insert }, selection: { anchor: current.from + insert.length }, scrollIntoView: true })
+    view.focus()
   }
 
   useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, focus: () => viewRef.current?.focus() }), [])
@@ -210,11 +234,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     if (!hostRef.current) return
     const liveExtensions = liveEdit ? [liveEditDecorations, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
+      if (wikiRef.current && filteredWikiRef.current.length) {
+        const next = (activeWikiIndexRef.current + delta + filteredWikiRef.current.length) % filteredWikiRef.current.length
+        activeWikiIndexRef.current = next; setActiveWikiIndex(next); return true
+      }
       if (!slashRef.current || !filteredRef.current.length) return false
       const next = (activeSlashIndexRef.current + delta + filteredRef.current.length) % filteredRef.current.length
       activeSlashIndexRef.current = next; setActiveSlashIndex(next); return true
     }
     const applySlashSelection = () => {
+      if (wikiRef.current && filteredWikiRef.current.length) { chooseWikiLink(filteredWikiRef.current[activeWikiIndexRef.current] ?? filteredWikiRef.current[0]); return true }
       if (!slashRef.current || !filteredRef.current.length) return false
       chooseSlashCommand(filteredRef.current[activeSlashIndexRef.current] ?? filteredRef.current[0]); return true
     }
@@ -223,7 +252,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       { key: 'ArrowUp', run: () => moveSlashSelection(-1) },
       { key: 'Enter', run: applySlashSelection },
       { key: 'Tab', run: applySlashSelection },
-      { key: 'Escape', run: () => { if (!slashRef.current) return false; closeSlashMenu(); return true } },
+      { key: 'Escape', run: () => { if (wikiRef.current) { closeWikiMenu(); return true } if (!slashRef.current) return false; closeSlashMenu(); return true } },
     ]))
     const frontmatter = value.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
     const view = new EditorView({
@@ -239,9 +268,18 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           if (update.docChanged && !syncingRef.current) onChangeRef.current(update.state.doc.toString())
           if (!update.docChanged && !update.selectionSet) return
           const selection = update.state.selection.main
-          if (!selection.empty) { closeSlashMenu(); return }
+          if (!selection.empty) { closeSlashMenu(); closeWikiMenu(); return }
           const line = update.state.doc.lineAt(selection.head)
           const prefix = update.state.doc.sliceString(line.from, selection.head)
+          const wikiMatch = prefix.match(/\[\[([^\]\n]*)$/u)
+          if (wikiMatch) {
+            closeSlashMenu()
+            const from = selection.head - wikiMatch[1].length - 2
+            const coords = update.view.coordsAtPos(selection.head); const bounds = hostRef.current?.getBoundingClientRect()
+            const next = { from, to: selection.head, query: wikiMatch[1], top: coords && bounds ? coords.bottom - bounds.top + 5 : 42, left: coords && bounds ? Math.min(coords.left - bounds.left, Math.max(12, bounds.width - 300)) : 24 }
+            wikiRef.current = next; setWiki(next); activeWikiIndexRef.current = 0; setActiveWikiIndex(0); return
+          }
+          closeWikiMenu()
           const match = prefix.match(/(?:^|\s)\/([^\s/]*)$/u)
           if (!match) { closeSlashMenu(); return }
           const from = selection.head - match[1].length - 1
@@ -269,6 +307,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   return <div className="markdown-editor" ref={hostRef}>
     {slash && <div className="slash-command-menu" role="listbox" aria-label="블록 삽입 명령" style={{ top: slash.top, left: slash.left }}>
       {filteredCommands.length ? filteredCommands.map((option, index) => <button key={option.command} className={index === activeSlashIndex ? 'active' : ''} role="option" aria-selected={index === activeSlashIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSlashCommand(option)}><strong>{option.label}</strong><small>{option.description}</small></button>) : <p>일치하는 블록이 없습니다</p>}
+    </div>}
+    {wiki && <div className="wiki-link-menu" role="listbox" aria-label="지식 링크 자동완성" style={{ top: wiki.top, left: wiki.left }}>
+      {filteredWikiLinks.length ? filteredWikiLinks.map((option, index) => <button key={option.id} className={index === activeWikiIndex ? 'active' : ''} role="option" aria-selected={index === activeWikiIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseWikiLink(option)}><strong>{option.label}</strong><small>{option.description} · {option.target}</small></button>) : <p>일치하는 지식 노트가 없습니다</p>}
     </div>}
   </div>
 })
