@@ -465,6 +465,7 @@ function App() {
       <div className="workspace">
         {sidebarOpen && (
           <aside className="sidebar">
+            <button className="repository-card sidebar-repository" onClick={() => runWorkspaceCommand('choose-folder')} title={workspaceState.libraryPath ?? '라이브러리 폴더를 선택하세요'}><FolderOpen size={16} /><span><small>CURRENT LIBRARY</small><strong>{workspaceState.libraryPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? '폴더 선택'}</strong></span></button>
             <div className="sidebar-actions">
               <button className="new-paper" onClick={() => runWorkspaceCommand('search')}><Plus size={16} /> 논문 열기</button>
             </div>
@@ -472,7 +473,6 @@ function App() {
               <p className="nav-label">WORKSPACE</p>
               <button className="nav-item active"><BookOpen size={17} /> Reader <span>{workspaceState.openPaperIds.length}</span></button>
               <button className="nav-item" aria-label="Notes 열기" onClick={() => void window.prism.openNotes()}><StickyNote size={17} /> Notes <span>{workspaceState.library.length}</span></button>
-              <button className="repository-card" onClick={() => runWorkspaceCommand('choose-folder')} title={workspaceState.libraryPath ?? '라이브러리 폴더를 선택하세요'}><FolderOpen size={16} /><span><small>CURRENT LIBRARY</small><strong>{workspaceState.libraryPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? '폴더 선택'}</strong></span></button>
               <div className="paper-tree-heading"><p className="nav-label">PAPERS</p><button onClick={() => runWorkspaceCommand('search')} title="arXiv 검색"><Plus size={13} /></button></div>
               <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === workspaceState.activePaperId ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={13} /><span><strong>{paper.title}</strong><small>{paper.arxivId}</small></span></button>) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
               <div className="session-heading"><p className="nav-label">CHATS</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>

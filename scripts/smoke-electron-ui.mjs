@@ -101,6 +101,8 @@ try {
 
   await press('Escape', 27)
   assert(await evaluate(`!document.querySelector('.paper-finder')`), 'Escape did not close the paper finder.')
+  assert(await evaluate(`document.querySelector('.repository-card').compareDocumentPosition(document.querySelector('.sidebar-actions')) & Node.DOCUMENT_POSITION_FOLLOWING`), 'The current library card was not placed above the open-paper button.')
+  assert(await evaluate(`document.querySelector('.repository-card strong')?.textContent`) === 'library', 'The current library card did not show the configured repository name.')
 
   await evaluate(`document.querySelector('button[aria-label="설정"]').click()`)
   await sleep(100)
