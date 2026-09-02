@@ -55,10 +55,15 @@ function normalizeMathDelimiters(value: string) {
 function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?: ContextAnchor[]; onNavigate?: (anchor: ContextAnchor) => void }) {
   if (!text) return null
   const anchorList = anchors ?? []; const byLabel = new Map(anchorList.map((anchor, index) => [anchor.label, { anchor, index }]))
-  const markdown = normalizeMathDelimiters(text.replace(referencePattern, (token, label: string) => {
+  const placed = anchorList.map((anchor, index) => ({ anchor, index })).filter(({ anchor }) => typeof anchor.textOffset === 'number').sort((a, b) => (b.anchor.textOffset ?? 0) - (a.anchor.textOffset ?? 0) || b.index - a.index)
+  const withPlacementMarkers = placed.reduce((value, { anchor, index }) => {
+    const offset = Math.max(0, Math.min(value.length, anchor.textOffset ?? 0))
+    return `${value.slice(0, offset)}\uE000${index}\uE001${value.slice(offset)}`
+  }, text)
+  const markdown = normalizeMathDelimiters(withPlacementMarkers.replace(referencePattern, (token, label: string) => {
     const match = byLabel.get(label)
     return match ? `[@${label}](#prism-anchor-${match.index})` : token
-  }))
+  }).replace(/\uE000(\d+)\uE001/g, (_token, index: string) => `[@${anchorList[Number(index)]?.label}](#prism-anchor-${index})`))
   return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{
     a: ({ href, children }) => {
       const index = href?.match(/^#prism-anchor-(\d+)$/)?.[1]
@@ -77,6 +82,74 @@ function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; o
 }
 
 function withoutReferences(text: string) { return text.replace(referencePattern, ' ').replace(/\s{2,}/g, ' ').trim() }
+
+function placementKey(anchor: ContextAnchor) { return anchor.placementId ?? `${anchor.paperId}-${anchor.anchorId}` }
+
+function textWithPlacedReferences(text: string, anchors: ContextAnchor[]) {
+  return anchors.map((anchor, index) => ({ anchor, index })).filter(({ anchor }) => typeof anchor.textOffset === 'number').sort((a, b) => (b.anchor.textOffset ?? 0) - (a.anchor.textOffset ?? 0) || b.index - a.index).reduce((value, { anchor }) => {
+    const offset = Math.max(0, Math.min(text.length, anchor.textOffset ?? 0))
+    return `${value.slice(0, offset)}[@${anchor.label}]${value.slice(offset)}`
+  }, text)
+}
+
+function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown, onRemove }: {
+  text: string; anchors: ContextAnchor[]; disabled: boolean; focusPlacementId?: string
+  onChange: (text: string, anchors: ContextAnchor[]) => void; onCaretChange: (offset: number) => void
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void; onRemove: (placementId: string) => void
+}) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
+  function editorSnapshot() {
+    const root = editorRef.current; if (!root) return { text: '', anchors: [] as ContextAnchor[] }
+    const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor])); let value = ''; const placed: ContextAnchor[] = []
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) { value += node.textContent ?? ''; return }
+      if (!(node instanceof HTMLElement)) return
+      const placementId = node.dataset.placementId
+      if (placementId) { const anchor = byPlacement.get(placementId); if (anchor) placed.push({ ...anchor, placementId, textOffset: value.length }); return }
+      if (node.tagName === 'BR') { value += '\n'; return }
+      const startsBlock = node !== root && node.tagName === 'DIV' && value.length > 0 && !value.endsWith('\n')
+      if (startsBlock) value += '\n'
+      node.childNodes.forEach(walk)
+    }
+    root.childNodes.forEach(walk)
+    return { text: value.replace(/\n{3,}/g, '\n\n'), anchors: placed }
+  }
+
+  function readEditor() { const snapshot = editorSnapshot(); onChange(snapshot.text, snapshot.anchors) }
+
+  function caretOffset() {
+    const root = editorRef.current; const selection = window.getSelection()
+    if (!root || !selection?.rangeCount || !selection.focusNode || !root.contains(selection.focusNode)) return
+    const range = document.createRange(); range.selectNodeContents(root); range.setEnd(selection.focusNode, selection.focusOffset)
+    const wrapper = document.createElement('div'); wrapper.append(range.cloneContents()); wrapper.querySelectorAll('[data-placement-id]').forEach((node) => node.remove()); wrapper.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
+    onCaretChange((wrapper.textContent ?? '').length)
+  }
+
+  useEffect(() => {
+    const root = editorRef.current; if (!root) return
+    const snapshot = editorSnapshot(); const sameAnchors = snapshot.anchors.length === anchors.length && snapshot.anchors.every((anchor, index) => placementKey(anchor) === placementKey(anchors[index]) && anchor.textOffset === anchors[index].textOffset)
+    if (snapshot.text !== text || !sameAnchors) {
+      root.replaceChildren(); const ordered = anchors.map((anchor, index) => ({ anchor, index })).sort((a, b) => (a.anchor.textOffset ?? 0) - (b.anchor.textOffset ?? 0) || a.index - b.index); let cursor = 0
+      for (const { anchor } of ordered) {
+        const offset = Math.max(cursor, Math.min(text.length, anchor.textOffset ?? 0)); if (offset > cursor) root.append(document.createTextNode(text.slice(cursor, offset)))
+        const wrapper = document.createElement('span'); wrapper.className = 'composer-anchor'; wrapper.dataset.placementId = placementKey(anchor); wrapper.contentEditable = 'false'
+        const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'anchor-token'; chip.title = anchor.source
+        const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
+        const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId; const close = document.createElement('span'); close.className = 'composer-anchor-close'; close.textContent = '×'
+        chip.append(symbol, label, paper, close); chip.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); onRemove(placementKey(anchor)) }); wrapper.append(chip); root.append(wrapper); cursor = offset
+      }
+      if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
+    }
+    if (focusPlacementId && lastFocusedPlacementRef.current !== focusPlacementId) {
+      const token = root.querySelector(`[data-placement-id="${CSS.escape(focusPlacementId)}"]`); if (!token) return
+      const range = document.createRange(); range.setStartAfter(token); range.collapse(true); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); root.focus()
+      const anchor = anchors.find((item) => placementKey(item) === focusPlacementId); lastFocusedPlacementRef.current = focusPlacementId; onCaretChange(anchor?.textOffset ?? text.length)
+    }
+  }, [text, anchors, focusPlacementId, onRemove, onCaretChange])
+
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={() => { readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
+}
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
@@ -97,6 +170,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
+  const [composerCaret, setComposerCaret] = useState(0)
+  const [focusPlacementId, setFocusPlacementId] = useState<string>()
   const [deletedSession, setDeletedSession] = useState<{ session: ChatSession; index: number }>()
   const [followChat, setFollowChat] = useState(true)
   const messagesRef = useRef<HTMLDivElement>(null)
@@ -106,7 +181,8 @@ function App() {
   const activeProvider = providers.find((provider) => provider.id === activeSession?.provider)
   const isRunning = activeSession ? runningIds.includes(activeSession.id) : false
   const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId))
-  const tagQuery = input.match(/(?:^|\s)@([^\s@]*)$/)?.[1]
+  const tagMatch = input.slice(0, composerCaret).match(/(?:^|\s)@([^\s@]*)$/)
+  const tagQuery = tagMatch?.[1]
   const tagSuggestions = tagQuery !== undefined ? anchorCatalog.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
 
   useEffect(() => { setTagSuggestionIndex(0) }, [tagQuery, anchorCatalog])
@@ -218,6 +294,7 @@ function App() {
     setActiveSessionId(session.id)
     setInput('')
     setContextAnchors([])
+    setComposerCaret(0); setFocusPlacementId(undefined)
   }
 
   function deleteSession(sessionId: string) {
@@ -272,19 +349,23 @@ function App() {
   }
 
   async function send(text = input) {
+    const leadingWhitespace = text.length - text.trimStart().length
     const rawPrompt = text.trim()
     const typedAnchors = referencedAnchors(rawPrompt, anchorCatalog)
-    const selectedAnchors = [...contextAnchors, ...typedAnchors].filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index)
-    const prompt = withoutReferences(rawPrompt)
+    const selectedAnchors = [...contextAnchors.map((anchor) => ({ ...anchor, textOffset: typeof anchor.textOffset === 'number' ? Math.max(0, anchor.textOffset - leadingWhitespace) : undefined })), ...typedAnchors]
+    const prompt = rawPrompt
     if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
     const sessionId = activeSession.id
     const assistantId = uniqueId('assistant')
     const paperContext = selectedPapers.length ? `<paper_context>\n${selectedPapers.map((paper) => `<paper id="${paper.arxivId}" title=${JSON.stringify(paper.title)} />`).join('\n')}\n</paper_context>` : ''
-    const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.` : ''
-    const promptWithContext = [prompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
+    const inlinePrompt = textWithPlacedReferences(prompt, selectedAnchors)
+    const assistantAnchors = selectedAnchors.map(({ placementId: _placementId, textOffset: _textOffset, ...anchor }) => anchor).filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index)
+    const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor, occurrence) => { const offset = anchor.textOffset ?? 0; return `<anchor ref="@${anchor.label}" occurrence="${occurrence + 1}" text_offset="${offset}" before=${JSON.stringify(prompt.slice(Math.max(0, offset - 40), offset))} after=${JSON.stringify(prompt.slice(offset, offset + 40))} type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>` }).join('\n')}\n</prism_context>\nThe [@...] references occur at the exact positions shown in the user request. Preserve their order and interpret each reference using its surrounding sentence.` : ''
+    const promptWithContext = [inlinePrompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
     const now = Date.now()
     setFollowChat(true)
     setInput('')
+    setComposerCaret(0); setFocusPlacementId(undefined)
     setErrors((current) => { const next = { ...current }; delete next[sessionId]; return next })
     updateSession(sessionId, (session) => ({
       ...session,
@@ -293,7 +374,7 @@ function App() {
       messages: [
         ...session.messages,
         { id: uniqueId('user'), role: 'user', text: prompt, createdAt: now, anchors: selectedAnchors },
-        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: selectedAnchors },
+        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors },
       ],
     }))
     setContextAnchors([])
@@ -305,6 +386,7 @@ function App() {
       })
     } catch (reason) {
       setContextAnchors(selectedAnchors)
+      setInput(prompt); setComposerCaret(prompt.length)
       setRunningIds((current) => current.filter((id) => id !== sessionId))
       setErrors((current) => ({ ...current, [sessionId]: reason instanceof Error ? reason.message : String(reason) }))
       updateSession(sessionId, (session) => ({ ...session, messages: session.messages.filter((message) => message.id !== assistantId) }))
@@ -312,29 +394,54 @@ function App() {
   }
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
-  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (tagSuggestions.length) {
       if (event.key === 'ArrowDown') { event.preventDefault(); setTagSuggestionIndex((index) => (index + 1) % tagSuggestions.length); return }
       if (event.key === 'ArrowUp') { event.preventDefault(); setTagSuggestionIndex((index) => (index - 1 + tagSuggestions.length) % tagSuggestions.length); return }
       if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') { event.preventDefault(); chooseTag(tagSuggestions[tagSuggestionIndex] ?? tagSuggestions[0]); return }
-      if (event.key === 'Escape') { event.preventDefault(); setInput((current) => current.replace(/(?:^|\s)@[^\s@]*$/, '')); return }
+      if (event.key === 'Escape') { event.preventDefault(); removeTagQuery(); return }
     }
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
+    if (event.key === 'Enter' && event.shiftKey) { event.preventDefault(); document.execCommand('insertText', false, '\n') }
   }
 
   function consumeReferences(value: string, includeTrailingToken = false) {
-    const found = referencedAnchors(value, anchorCatalog).filter((anchor) => {
-      const match = value.match(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?`))
-      return Boolean(match && (includeTrailingToken || (match.index ?? 0) + match[0].length < value.length))
-    })
-    if (found.length) setContextAnchors((current) => [...current, ...found].filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index))
-    const cleaned = found.reduce((current, anchor) => current.replace(new RegExp(`\\[?@${anchor.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]?\\s*`, 'g'), ' '), value).replace(/\s{2,}/g, ' ').trimStart()
-    setInput(cleaned)
+    const byLabel = new Map(anchorCatalog.map((anchor) => [anchor.label, anchor])); const matches = [...value.matchAll(referencePattern)].filter((match) => byLabel.has(match[1]) && (includeTrailingToken || (match.index ?? 0) + match[0].length < value.length))
+    if (!matches.length) { setInput(value); return }
+    let cleaned = ''; let sourceCursor = 0; let removed = 0; const additions: ContextAnchor[] = []
+    for (const match of matches) {
+      const start = match.index ?? 0; const end = start + match[0].length; cleaned += value.slice(sourceCursor, start)
+      const anchor = byLabel.get(match[1]); if (anchor) additions.push({ ...anchor, placementId: uniqueId('placement'), textOffset: start - removed })
+      removed += end - start; sourceCursor = end
+    }
+    cleaned += value.slice(sourceCursor)
+    setContextAnchors((current) => [
+      ...current.map((anchor) => ({ ...anchor, textOffset: Math.max(0, (anchor.textOffset ?? 0) - matches.filter((match) => (match.index ?? 0) < (anchor.textOffset ?? 0)).reduce((sum, match) => sum + match[0].length, 0)) })),
+      ...additions,
+    ])
+    setInput(cleaned); setComposerCaret(Math.max(0, composerCaret - removed)); setFocusPlacementId(additions.at(-1)?.placementId)
   }
 
   function chooseTag(anchor: ContextAnchor) {
-    setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
-    setInput((current) => current.replace(/(?:^|\s)@[^\s@]*$/, (match) => match.startsWith(' ') ? ' ' : ''))
+    const before = input.slice(0, composerCaret); const match = before.match(/(?:^|\s)@[^\s@]*$/); const tokenStart = match ? composerCaret - match[0].length + (match[0].startsWith(' ') ? 1 : 0) : composerCaret
+    const tokenLength = composerCaret - tokenStart; const placementId = uniqueId('placement')
+    setInput(`${input.slice(0, tokenStart)}${input.slice(composerCaret)}`)
+    setContextAnchors((current) => [...current.map((item) => ({ ...item, textOffset: (item.textOffset ?? 0) > tokenStart ? Math.max(tokenStart, (item.textOffset ?? 0) - tokenLength) : item.textOffset })), { ...anchor, placementId, textOffset: tokenStart }])
+    setComposerCaret(tokenStart); setFocusPlacementId(placementId)
+  }
+
+  function removeTagQuery() {
+    const before = input.slice(0, composerCaret); const match = before.match(/(?:^|\s)@[^\s@]*$/); if (!match) return
+    const start = composerCaret - match[0].length + (match[0].startsWith(' ') ? 1 : 0); setInput(`${input.slice(0, start)}${input.slice(composerCaret)}`); setComposerCaret(start)
+  }
+
+  function insertAnchor(anchor: ContextAnchor) {
+    const placementId = uniqueId('placement'); const offset = Math.max(0, Math.min(input.length, composerCaret))
+    setContextAnchors((current) => [...current, { ...anchor, placementId, textOffset: offset }]); setFocusPlacementId(placementId)
+  }
+
+  function removePlacedAnchor(placementId: string) {
+    const removed = contextAnchors.find((anchor) => placementKey(anchor) === placementId); setContextAnchors((current) => current.filter((anchor) => placementKey(anchor) !== placementId)); setComposerCaret(removed?.textOffset ?? composerCaret); setFocusPlacementId(undefined)
   }
 
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
@@ -390,9 +497,7 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={(anchor) => {
-          setContextAnchors((current) => current.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) ? current : [...current, anchor])
-        }} />
+        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
 
         <aside className="chat-pane">
           <div className="chat-header">
@@ -416,8 +521,8 @@ function App() {
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
                 <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>
-                  {message.role === 'user' && message.anchors?.length ? <span className="inline-message-anchors">{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onNavigate={navigateAnchor} />)}</span> : null}
-                  {message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
+                  {message.role === 'user' && message.anchors?.length && !message.anchors.some((anchor) => typeof anchor.textOffset === 'number') ? <span className="inline-message-anchors">{message.anchors.map((anchor) => <AnchorChip key={placementKey(anchor)} anchor={anchor} onNavigate={navigateAnchor} />)}</span> : null}
+                  {message.text ? <MessageContent text={message.role === 'user' && !message.anchors?.some((anchor) => typeof anchor.textOffset === 'number') ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
                 </div>
               </article>
             ))}
@@ -430,10 +535,7 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <div className="composer-input-line">
-                {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
-                <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} aria-label="AI에게 질문" aria-autocomplete="list" />
-              </div>
+              <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onRemove={removePlacedAnchor} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}

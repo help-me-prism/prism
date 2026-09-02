@@ -129,7 +129,7 @@ try {
     id: 'visual-chat', title: '확산 모델 수식 설명', provider: 'codex', model: 'gpt-5.6-sol', createdAt: Date.now(), updatedAt: Date.now(),
     messages: [
       ...Array.from({ length: 7 }, (_, index) => ({ id: `history-${index}`, role: index % 2 ? 'assistant' : 'user', text: index % 2 ? `이전 답변 ${index}: 문맥을 확인했습니다.` : `이전 질문 ${index}`, createdAt: Date.now() - 20_000 + index })),
-      { id: 'sample-user', role: 'user', text: '이 수식과 표의 의미를 함께 설명해줘', createdAt: Date.now() - 2, anchors: [{ paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p2-eq1', type: 'equation', page: 2, label: '수식2', source: 'p_theta(x_{t-1} | x_t)' }, { paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p3-table1', type: 'table', page: 3, label: '표1', source: '\\begin{tabular}{lc} model & score \\\\ DDPM & 0.91 \\end{tabular}' }] },
+      { id: 'sample-user', role: 'user', text: '이 수식과 표의 의미를 함께 설명해줘', createdAt: Date.now() - 2, anchors: [{ paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p2-eq1', type: 'equation', page: 2, label: '수식2', source: 'p_theta(x_{t-1} | x_t)', placementId: 'sample-placement-equation', textOffset: 2 }, { paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p3-table1', type: 'table', page: 3, label: '표1', source: '\\begin{tabular}{lc} model & score \\\\ DDPM & 0.91 \\end{tabular}', placementId: 'sample-placement-table', textOffset: 6 }] },
       { id: 'sample-assistant', role: 'assistant', createdAt: Date.now() - 1, anchors: [{ paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p2-eq1', type: 'equation', page: 2, label: '수식2', source: 'p_theta(x_{t-1} | x_t)' }, { paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p3-table1', type: 'table', page: 3, label: '표1', source: '\\begin{tabular}{lc} model & score \\\\ DDPM & 0.91 \\end{tabular}' }], text: '## 역확산 과정\n\n[@수식2]는 잡음이 섞인 샘플에서 한 단계 더 깨끗한 샘플을 예측하는 **역확산 전이**입니다. [@표1]은 비교 결과를 원본 표 구조로 제공합니다.\n\n\\[p_\\theta(x_{t-1}\\mid x_t)=\\mathcal{N}(x_{t-1};\\mu_\\theta(x_t,t),\\Sigma_\\theta(x_t,t))\\]\n\n인라인 수식 \\(x_t\\)도 렌더링합니다.\n\n- 평균은 신경망이 예측합니다.\n- 분산은 복원 과정의 불확실성을 나타냅니다.\n\n| 항목 | 의미 |\n|---|---|\n| $x_t$ | 현재 잡음 샘플 |\n| $x_{t-1}$ | 복원된 샘플 |' },
     ],
   }]
@@ -141,8 +141,10 @@ try {
   assert(await evaluate(`Boolean(document.querySelector('.message-body .katex'))`), 'Math was not rendered with KaTeX.')
   assert(await evaluate(`document.querySelectorAll('.message-body .katex').length >= 3`), 'Bracket-delimited display and inline math were not rendered with KaTeX.')
   assert(await evaluate(`Boolean(document.querySelector('.message-body table'))`), 'Markdown table was not rendered.')
-  assert(await evaluate(`Boolean(document.querySelector('.message.user .inline-message-anchors .type-equation'))`), 'The user reference was not rendered inline with a type icon.')
-  assert(await evaluate(`Boolean(document.querySelector('.message.user .inline-message-anchors .type-table'))`), 'The table reference was not rendered inline with a type icon.')
+  assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-equation'))`), 'The user reference was not rendered inline with a type icon.')
+  assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-table'))`), 'The table reference was not rendered inline with a type icon.')
+  const placedUserText = await evaluate(`[...document.querySelectorAll('.message.user .message-body')].find((body) => body.querySelector('.type-equation'))?.textContent`)
+  assert(placedUserText.indexOf('수식2') < placedUserText.indexOf('수식과') && placedUserText.indexOf('표1') < placedUserText.indexOf('표의'), `Placed references did not remain at their sentence offsets: ${placedUserText}`)
   await evaluate(`(() => { const pane = document.querySelector('.messages'); pane.scrollTop = 0; pane.dispatchEvent(new Event('scroll', { bubbles: true })); return true })()`)
   await sleep(100)
   assert(await evaluate(`Boolean(document.querySelector('.jump-latest'))`), 'Scrolling up did not pause chat follow mode.')
