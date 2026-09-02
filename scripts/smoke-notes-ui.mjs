@@ -121,13 +121,51 @@ async function replaceEditor(connection, content, selector = '.cm-content') {
   await connection.send('Input.insertText', { text: content })
 }
 
+async function pressKey(connection, key, code, modifiers = 0) {
+  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'End' ? 35 : 0
+  const eventKey = key.length === 1 && (modifiers & 8) ? key.toUpperCase() : key
+  await connection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
+  await connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
+}
+
+function runClipboardProcess(command, args, input = '', environment = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { env: { ...process.env, ...environment }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    let stdout = ''; let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', reject)
+    child.on('exit', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || `Clipboard process exited with ${code}`)))
+    child.stdin.end(input)
+  })
+}
+
+async function readSystemClipboard() {
+  if (process.platform === 'win32') return runClipboardProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '[Console]::Out.Write((Get-Clipboard -Raw))'])
+  if (process.platform === 'darwin') return runClipboardProcess('pbpaste', [])
+  return undefined
+}
+
+async function writeSystemClipboard(value) {
+  if (process.platform === 'win32') {
+    const clipboardPath = path.join(temporaryRoot, 'clipboard-fixture.txt')
+    await fs.writeFile(clipboardPath, value, 'utf8')
+    await runClipboardProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -Value (Get-Content -Raw -LiteralPath $env:PRISM_TEST_CLIPBOARD_FILE)'], '', { PRISM_TEST_CLIPBOARD_FILE: clipboardPath })
+    return
+  }
+  if (process.platform === 'darwin') { await runClipboardProcess('pbcopy', [], value); return }
+  throw new Error('Clipboard smoke is supported on Windows and macOS.')
+}
+
 let mainConnection
 let notesConnection
+let previousClipboard
 try {
   mainConnection = await connect(await waitForPage('Prism'))
   await mainConnection.evaluate('window.prism.openNotes()')
   notesConnection = await connect(await waitForPage('Prism Notes'))
   await sleep(400)
+  previousClipboard = await readSystemClipboard()
 
   assert(await notesConnection.evaluate(`document.querySelector('.notes-modebar button.active')?.textContent.includes('Live Edit')`), 'Live Edit was not the default mode.')
   assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.getAttribute('aria-label')`) === 'Editor fixture Markdown 노트', 'CodeMirror editor was not accessible.')
@@ -168,6 +206,24 @@ try {
   await fs.writeFile(blockDragScreenshotPath, Buffer.from(blockDragScreenshot.data, 'base64'))
   await replaceEditor(notesConnection, initialNote)
   await waitFor(async () => await fs.readFile(notePath, 'utf8') === initialNote, 'Restoring the block drag fixture did not round-trip the exact Markdown.')
+  await notesConnection.send('Input.insertText', { text: '\n\nShortcut history fixture.' })
+  await pressKey(notesConnection, 'z', 'KeyZ', 2)
+  assert(!await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Shortcut history fixture.')`), 'Windows Ctrl+Z did not undo the editor change.')
+  await pressKey(notesConnection, 'z', 'KeyZ', 10)
+  assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Shortcut history fixture.')`), 'Windows Ctrl+Shift+Z did not redo the editor change.')
+  await pressKey(notesConnection, 'z', 'KeyZ', 4)
+  assert(!await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Shortcut history fixture.')`), 'macOS Cmd+Z did not undo the editor change.')
+  await pressKey(notesConnection, 'z', 'KeyZ', 12)
+  assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Shortcut history fixture.')`), 'macOS Cmd+Shift+Z did not redo the editor change.')
+  await pressKey(notesConnection, 'z', 'KeyZ', 2)
+  await writeSystemClipboard('\n\n## Clipboard fixture\n\n- pasted Markdown')
+  await pressKey(notesConnection, 'v', 'KeyV', process.platform === 'darwin' ? 4 : 2)
+  if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('## Clipboard fixture\n\n- pasted Markdown'), 'The platform paste shortcut did not paste and save multiline Markdown.')
+  await pressKey(notesConnection, 'z', 'KeyZ', 2)
+  await waitFor(async () => !(await fs.readFile(notePath, 'utf8')).includes('Clipboard fixture'), 'Undoing the pasted Markdown did not remove the pasted block.')
+  await replaceEditor(notesConnection, initialNote)
+  await waitFor(async () => await fs.readFile(notePath, 'utf8') === initialNote, 'Restoring the shortcut fixture did not save the exact note.')
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="개인 템플릿 관리"]').click()`)
   await sleep(350)
@@ -741,8 +797,9 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, exact Markdown block dragging, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${foldedSectionScreenshotPath}, ${blockDragScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, exact Markdown block dragging, Windows Ctrl and macOS Cmd history shortcuts, native multiline Markdown paste, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${foldedSectionScreenshotPath}, ${blockDragScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
+  if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)
   notesConnection?.socket.close()
   mainConnection?.socket.close()
   if (electron.exitCode === null) {

@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
+import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
@@ -55,6 +56,14 @@ const prismEditorTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: '#f4f1e9' },
   '.cm-gutters': { display: 'none' },
 })
+
+const crossPlatformHistoryKeys = Prec.high(keymap.of([
+  { key: 'Ctrl-z', run: undo },
+  { key: 'Cmd-z', run: undo },
+  { key: 'Ctrl-Shift-z', run: redo },
+  { key: 'Cmd-Shift-z', run: redo },
+  { key: 'Ctrl-y', run: redo },
+]))
 
 type DecorationRange = { from: number; to: number; decoration: Decoration }
 
@@ -487,7 +496,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const view = new EditorView({
       parent: hostRef.current,
       state: EditorState.create({ doc: value, selection: { anchor: frontmatter?.[0].length ?? 0 }, extensions: [
-        slashKeymap, basicSetup, markdown(), EditorView.lineWrapping, prismEditorTheme,
+        slashKeymap, crossPlatformHistoryKeys, basicSetup, markdown(), EditorView.lineWrapping, prismEditorTheme,
         editable.current.of(EditorView.editable.of(!disabled)), visualMode.current.of(liveExtensions),
         EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
         EditorView.domEventHandlers({

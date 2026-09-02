@@ -50,11 +50,13 @@
 
 검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-evidence-copy.png`, `notes-evidence-claim.png`, `notes-section-evidence.png`.
 
-### D. 블록 상호작용
+### D. 블록 상호작용 — 완료
 
 - 시각 편집기에서 Markdown 블록 순서를 드래그로 바꾼다.
 - 제목 아래 섹션을 접고 펼치되 접힘 상태는 파생 UI 상태로만 저장한다.
 - Windows Ctrl / macOS Cmd 실행 취소·다시 실행과 붙여넣기 회귀를 명시적으로 검증한다.
+
+검증: `npm run test:notes-ui`, `notes-section-fold.png`, `notes-block-drag.png`, 실제 Electron Ctrl/Cmd 입력 이벤트, OS 클립보드의 다중 행 Markdown 붙여넣기.
 
 ### E. 연구 현황 확장과 완료 감사
 
