@@ -82,7 +82,7 @@ codex login
 - 15페이지 테스트 논문에서 약 24초 걸리던 초기 리더 진입을 약 2초로 줄였다. PDF를 피겨 preview보다 먼저 열고 인접 페이지만 canvas/operator를 lazy render하며 전체 앵커 분석 진행률을 표시한다.
 - 병기 스크롤은 전체 문서 비율 대신 같은 페이지 내부 위치를 동기화한다. 확대 전 페이지 위치도 확대 후 복원하며, 좁은 원문 box에서 한국어가 세로로 쌓이지 않도록 번역 block 최소 폭을 보정한다.
 - 사이드바의 중복 검색 아이콘을 제거하고 현재 라이브러리 폴더 이름을 표시한다.
-- 채팅 답변은 GFM Markdown과 KaTeX로 제목·목록·표·코드·수식을 렌더링한다. 문장·수식·피겨·페이지 참조는 질문과 답변 본문 안의 타입별 아이콘 태그로 표시한다.
+- 채팅 답변은 GFM Markdown과 KaTeX로 제목·목록·표·코드·수식을 렌더링한다. CLI가 자주 반환하는 `\\[...\\]`와 `\\(...\\)`도 표시 전에 KaTeX 구분자로 정규화한다. 문장·수식·피겨·표·페이지 참조는 작성 중 textarea와 같은 흐름 및 전송된 질문·답변 본문 안에 타입별 아이콘 태그로 표시한다.
 - 스트리밍 자동 스크롤은 사용자가 하단을 보고 있을 때만 유지한다. 위로 스크롤하면 읽던 위치를 보존하고 `최신 답변으로` 버튼을 제공한다.
 - 삭제한 대화는 `deletedAt`과 함께 `sessions.json`에 보존되며 사이드바 휴지통 또는 즉시 실행 취소 toast에서 복원할 수 있다.
 - UI smoke는 휴지통 복원, Markdown 제목·표, KaTeX, 인라인 수식 태그, 자동 스크롤 일시정지를 추가 검증한다. 시각 샘플은 로컬 `tmp/ui/chat-markdown.png`에 생성된다.
@@ -91,7 +91,7 @@ codex login
 - renderer CSP를 명시하고 Electron 보안 경고를 smoke 회귀 조건으로 추가했다.
 - macOS Finder 실행의 제한된 PATH를 고려해 Homebrew, `~/.local/bin`, npm global, Claude local 경로를 탐색한다. `PRISM_CODEX_PATH`, `PRISM_CLAUDE_PATH` override도 지원한다.
 - 세션 저장 전 피겨 thumbnail data URL만 제거해 15MB 초과로 전체 채팅 자동 저장이 중단되는 문제를 예방한다. 원본 피겨 파일과 anchor 문맥은 유지한다.
-- LaTeX 수식은 PDF 수식 segment와 토큰 유사도로 연결하고, 표는 `table`/`tabular` 원본 블록을 PDF 표 캡션에 연결해 별도 구조 태그로 노출한다. AI 문맥에는 축약하지 않은 원본 LaTeX가 전달된다.
+- LaTeX 수식은 PDF 수식 segment와 토큰 유사도로 연결하고, 표는 `table`/`tabular` 및 중첩된 `algorithm` 원본 블록을 PDF `Table N`/`Algorithm N` 캡션에 연결해 별도 구조 태그로 노출한다. AI 문맥에는 축약하지 않은 원본 LaTeX가 전달된다. 구조 캐시는 version 3이며 이전 캐시는 자동 재생성된다.
 - 한국어 번역층이 수식·표·피겨를 덮지 않도록 겹침이 적은 방향으로 텍스트 block을 확장하고, 보호 구조 영역은 원본 PDF canvas에서 다시 그려 글자·선 누락을 막는다.
 - 채팅 인라인 태그에 표 타입과 아이콘을 추가했으며 UI smoke가 수식과 표 태그를 함께 검증한다.
 - `.nvmrc`, OS별 원클릭 실행 스크립트와 Windows/macOS GitHub Actions 패키징을 추가했다. macOS는 교차 패키징을 피하고 Intel/Apple Silicon 네이티브 runner에서 DMG를 각각 만든다. `release/`는 계속 Git에서 제외하고 Actions artifact로 공유한다.
@@ -150,7 +150,7 @@ codex login
 3. `Intl.Segmenter('en', {granularity: 'sentence'})`로 문장을 나눈다.
 4. 각 문장이 차지하는 PDF item의 부분 범위를 0~1 비율인 `itemSlices`로 저장한다.
 5. 문장 ID는 페이지, 순서, 문장 hash로 만든다. 예: `p4-s12-...`.
-6. 원본 LaTeX가 있으면 `\input`/`\include`를 전개하고 제목, 문단, 캡션, 수식, 피겨, 표 환경을 분리한다.
+6. 원본 LaTeX가 있으면 `\input`/`\include`를 전개하고 제목, 문단, 캡션, 수식, 피겨, 표와 algorithm 환경을 분리한다. figure 안에 중첩된 algorithm도 먼저 보호해 일반 문장 번역에서 제외한다.
 7. PDF 문장 토큰과 LaTeX 문단 토큰의 겹침 점수를 계산해 일치하는 LaTeX 문단을 `paragraphContext`와 section 문맥으로 붙인다.
 
 중요: 현재 LaTeX는 번역 문맥과 구조 보강에 사용된다. LaTeX 문서 자체의 영문을 교체하고 XeLaTeX/LuaLaTeX로 한국어 PDF를 다시 컴파일하는 단계는 아직 아니다.
@@ -160,7 +160,7 @@ codex login
 - PDF text item transform에 viewport transform과 폰트 ascent/descent를 적용해 하이라이트 사각형의 baseline 오차를 보정했다.
 - `itemSlices`의 시작/끝 비율만큼 item 폭을 잘라 문장 일부만 정확히 강조한다.
 - 같은 segment ID를 원문과 번역 레이어가 공유하므로 한쪽에 마우스를 올리면 양쪽 문장이 함께 강조된다.
-- 문장, 수식, 페이지를 클릭하면 채팅 입력창 위에 제거 가능한 참조 칩이 생긴다.
+- 문장, 수식, 피겨, 표, 페이지를 클릭하면 채팅 textarea와 같은 줄바꿈 흐름 안에 제거 가능한 참조 칩이 생긴다.
 - 사용자가 `@문장36` 또는 `[@문장36]`을 직접 입력해도 450ms 후 원시 텍스트를 제거하고 같은 칩으로 변환한다.
 - 칩을 호버하면 문장/수식 원문을 보여준다.
 - 전송 시 화면에 보이는 질문 텍스트와 `ContextAnchor[]`를 함께 메시지에 저장한다.

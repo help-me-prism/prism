@@ -90,7 +90,7 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
     const digits = (part.text.match(/\d/g) ?? []).length
     const numberedHeading = /^\d+(?:\.\d+)+\s+/.test(part.text) || (/^\d+\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
     const sectionHeading = numberedHeading || /^(?:abstract$|references$|acknowledg(?:e)?ments?$|appendix\b)/i.test(part.text)
-    const caption = /^(?:figure|fig\.|table)\s*\d+/i.test(part.text)
+    const caption = /^(?:figure|fig\.|table|algorithm)\s*\d+/i.test(part.text)
     const shortFragments = matchedItems.filter((item) => item.str.trim().length < 32).length
     const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
     const digitRatio = digits / Math.max(1, part.text.length)
@@ -108,7 +108,7 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
   const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)).length
   const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
   const classified = preliminary.map((segment, index) => {
-    if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
+    if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     if (denseLayoutPage && segment.kind === 'text' && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     return segment
   })
@@ -145,7 +145,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
   const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
   let matched = 0
-  let enriched: TranslationSegment[] = segments.map((segment): TranslationSegment => {
+  const enriched: TranslationSegment[] = segments.map((segment): TranslationSegment => {
     if (!['text', 'heading', 'caption'].includes(segment.kind)) return { ...segment, sourceMode: 'pdf' as const }
     const tokens = matchTokens(segment.source)
     if (tokens.length < 2) return { ...segment, sourceMode: 'pdf' as const }
@@ -172,8 +172,8 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
-  const captionIndexes = enriched.map((segment, index) => segment.kind === 'caption' && /^(?:table)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
-  const usedCaptions = new Set<number>(); const tableSegments: TranslationSegment[] = []
+  const captionIndexes = enriched.map((segment, index) => segment.kind === 'caption' && /^(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
+  const usedCaptions = new Set<number>()
   for (let tableIndex = 0; tableIndex < tableBlocks.length; tableIndex += 1) {
     const { block, index: blockIndex } = tableBlocks[tableIndex]
     const nextBlock = structure.blocks[blockIndex + 1]; const latexCaption = nextBlock?.kind === 'caption' ? nextBlock : undefined
@@ -182,9 +182,8 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const selected = ranked[0]?.score >= .12 ? ranked[0].index : available[0]
     if (selected === undefined) continue
     usedCaptions.add(selected); const caption = enriched[selected]
-    tableSegments.push({ ...caption, id: `${caption.id}-${block.id}`, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source })
+    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source }
   }
-  enriched = [...enriched, ...tableSegments]
   return { segments: enriched, matched }
 }
 

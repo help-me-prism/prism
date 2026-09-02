@@ -43,13 +43,22 @@ function referencedAnchors(text: string, anchors: ContextAnchor[]) {
   return result
 }
 
+function normalizeMathDelimiters(value: string) {
+  return value.split(/(```[\s\S]*?```)/g).map((part, index) => {
+    if (index % 2) return part
+    return part
+      .replace(/\\\[([\s\S]*?)\\\]/g, (_token, math: string) => `\n\n$$\n${math.trim()}\n$$\n\n`)
+      .replace(/\\\(([^\n]*?)\\\)/g, (_token, math: string) => `$${math.trim()}$`)
+  }).join('')
+}
+
 function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?: ContextAnchor[]; onNavigate?: (anchor: ContextAnchor) => void }) {
   if (!text) return null
   const anchorList = anchors ?? []; const byLabel = new Map(anchorList.map((anchor, index) => [anchor.label, { anchor, index }]))
-  const markdown = text.replace(referencePattern, (token, label: string) => {
+  const markdown = normalizeMathDelimiters(text.replace(referencePattern, (token, label: string) => {
     const match = byLabel.get(label)
     return match ? `[@${label}](#prism-anchor-${match.index})` : token
-  })
+  }))
   return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{
     a: ({ href, children }) => {
       const index = href?.match(/^#prism-anchor-(\d+)$/)?.[1]
@@ -420,9 +429,11 @@ function App() {
           <div className="composer-wrap">
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
-              {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} aria-label="AI에게 질문" aria-autocomplete="list" />
+              <div className="composer-input-line">
+                {contextAnchors.length > 0 && <div className="context-chips">{contextAnchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onRemove={() => setContextAnchors((current) => current.filter((item) => item.paperId !== anchor.paperId || item.anchorId !== anchor.anchorId))} />)}</div>}
+                <textarea value={input} onChange={(event) => consumeReferences(event.target.value)} onBlur={() => consumeReferences(input, true)} onKeyDown={onKeyDown} placeholder="논문에 대해 질문하세요…" rows={1} disabled={!activeProvider?.available} aria-label="AI에게 질문" aria-autocomplete="list" />
+              </div>
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}

@@ -9,7 +9,7 @@ export type LatexBlock = {
 }
 
 export type LatexStructure = {
-  version: 2
+  version: 3
   rootFile: string
   generatedAt: string
   blocks: LatexBlock[]
@@ -95,9 +95,15 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     protectedBlocks.push({ id, kind, source: source.trim() })
     return `\n\n@@${id}@@\n\n`
   }
+  content = content.replace(/\\begin\s*\{(algorithm\*?)\}([\s\S]*?)\\end\s*\{\1\}/g, (_whole, _name: string, body: string) => {
+    const caption = commandArgument(body, 'caption')
+    const main = protect('table', body)
+    return caption ? `${main}\n\n${protect('caption', `Algorithm ${latexToPlain(caption)}`)}` : main
+  })
   const environment = /\\begin\s*\{(equation\*?|align\*?|gather\*?|multline\*?|displaymath|eqnarray\*?|figure\*?|table\*?|tabular\*?|longtable)\}([\s\S]*?)\\end\s*\{\1\}/g
   content = content.replace(environment, (_whole, name: string, body: string) => {
     const kind = environmentKind(name)
+    if (kind === 'figure' && /@@latex-\d+@@/.test(body)) return body
     if (kind === 'figure' || kind === 'table') {
       const caption = commandArgument(body, 'caption')
       const main = protect(kind, body)
@@ -124,5 +130,5 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     blocks.push({ id: `latex-${protectedBlocks.length + blocks.length + 1}`, kind: 'paragraph', source, section: currentSection })
   }
   if (!blocks.some((block) => block.kind === 'paragraph')) return null
-  return { version: 2, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+  return { version: 3, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
 }
