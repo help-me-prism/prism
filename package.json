@@ -15,6 +15,7 @@
     "start:fast": "electron .",
     "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
+    "test:notes-ui": "npm run build && node scripts/smoke-notes-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable --publish never",
     "package:mac": "npm run build && electron-builder --mac dmg --publish never",
     "package:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",
@@ -49,15 +50,19 @@
       "package.json"
     ],
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns"
     }
   },
   "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.2",
     "@fontsource-variable/noto-serif-kr": "^5.3.0",
+    "codemirror": "^6.0.2",
     "katex": "^0.18.5",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",

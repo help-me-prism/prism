@@ -250,6 +250,9 @@ library/
 - Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
 - Notes blur 직후 실제 Markdown 파일 저장 확인
 - Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 약 107MB)
+- macOS 한글 IME 조합 이벤트를 모사한 UI 회귀 테스트에서 `한글` 두 음절이 중간 렌더링 없이 유지되는 것 확인
+- Codex CLI 존재 여부와 별개로 `codex login status`가 성공해야만 채팅·번역을 사용 가능하게 표시하도록 변경
+- 제공된 PRISM 이미지를 앱 UI PNG, Windows ICO, macOS ICNS로 변환하고 각 형식을 다시 열어 크기와 포맷 확인
 
 테스트용으로 실제 사용자 설정을 바꾸지 않으려면 다음 환경 변수를 사용할 수 있다.
 
@@ -302,10 +305,11 @@ npm run start:fast
 ### P2 — 배포와 유지보수
 
 8. **macOS 실제 검증과 배포**
-   - Intel/Apple Silicon 테스트, DMG 빌드, 앱 아이콘, code signing, notarization이 필요하다.
+   - 앱 아이콘과 macOS 한글 IME·Codex 로그인 판별 핫픽스는 반영됐다.
+   - Intel/Apple Silicon에서 새 DMG 재테스트, 아이콘 표시 확인, code signing, notarization이 필요하다.
 
 9. **Windows 설치 경험**
-   - 현재 portable EXE만 있다. installer, 바로가기, 자동 업데이트, 앱 아이콘을 추가해야 한다.
+   - portable EXE 아이콘은 추가됐다. installer, 바로가기, 자동 업데이트가 필요하다.
 
 10. **자동화 테스트와 보안**
     - 문장 분할/LaTeX parser/검색 ranking/번역 JSON parser 단위 테스트가 없다.
@@ -325,6 +329,8 @@ npm run start:fast
 - 사용자가 만든 파일이나 unrelated working-tree 변경은 덮어쓰지 않는다.
 
 ## 9. 다음 대화에 전달할 시작 프롬프트 예시
+
+연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
 
 ```text
 Prism 저장소의 kys_enhanced 브랜치에서 계속 작업해 줘. 먼저 HANDOFF.md, docs/UX_REVIEW.md와 README.md를 읽고 git status를 확인해. 현재 한국어판은 실제 재컴파일 PDF가 아니라 PDF canvas 위 번역 overlay라는 점을 전제로, UX_REVIEW의 미완료 항목과 HANDOFF.md의 P0부터 진행해. 의미 있는 단위마다 kys_enhanced에 로컬 커밋하고, push와 온라인 macOS 빌드는 내가 명시적으로 요청할 때만 해.
