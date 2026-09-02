@@ -124,6 +124,7 @@
 .knowledge-manager-body > aside button { width: 100%; min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: #625e57; text-align: left; cursor: pointer; }
 .knowledge-manager-body > aside button:hover, .knowledge-manager-body > aside button.active { background: #e4e0d8; color: #403d38; }
 .knowledge-manager-body > aside button.knowledge-new { min-height: 34px; justify-content: center; margin-bottom: 8px; border: 1px dashed #bfb6d8; background: #f9f7fd; color: #6759a8; }
+.knowledge-search { min-height: 32px; display: flex; align-items: center; gap: 6px; margin: 0 2px 8px; padding: 0 8px; border: 1px solid #d8d2c8; border-radius: 7px; background: #fff; color: #8b857d; }.knowledge-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: #4d4943; font-size: 8px; }.knowledge-search > span { color: #897caf; font-size: 6px; white-space: nowrap; }.knowledge-search-empty { margin: 18px 8px; color: #918b83; font-size: 8px; line-height: 1.5; text-align: center; }
 .knowledge-manager-body > aside button span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .knowledge-manager-body > aside button small { color: #8173b8; font-size: 7px; font-weight: 700; text-transform: uppercase; }
 .knowledge-manager-body > aside button strong, .knowledge-manager-body > aside button i { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

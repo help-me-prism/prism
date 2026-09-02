@@ -21,6 +21,7 @@ export type KnowledgeNodeRecord = {
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
+export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
@@ -87,6 +88,32 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
     if (parsed) nodes.push({ ...parsed, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+function plainMarkdown(source: string) {
+  return source.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').replace(/<!--[^>]*-->/g, '').replace(/^\^[a-zA-Z0-9_-]+\s*$/gm, '')
+    .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, target, alias) => alias || target).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s*>\s?(?:\[![^\]]+\]\s*)?/gm, '').replace(/[*_`#$~-]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+function occurrences(source: string, query: string) { let count = 0; let index = 0; while ((index = source.indexOf(query, index)) >= 0) { count += 1; index += query.length } return count }
+
+export async function searchKnowledge(libraryPath: string, input: string): Promise<KnowledgeSearchResult[]> {
+  const query = input.trim()
+  if (!query || query.length > 200) throw new Error('검색어는 1자 이상 200자 이하로 입력해 주세요.')
+  const normalizedQuery = query.toLocaleLowerCase()
+  const results: KnowledgeSearchResult[] = []
+  for (const node of await listKnowledgeNodes(libraryPath)) {
+    const snapshot = await readNoteSnapshot(path.join(libraryPath, ...node.relativePath.split('/')))
+    const plain = plainMarkdown(snapshot.content); const normalizedBody = plain.toLocaleLowerCase(); const title = node.title.toLocaleLowerCase(); const route = `${node.nodeType} ${node.relativePath}`.toLocaleLowerCase()
+    const bodyHits = occurrences(normalizedBody, normalizedQuery)
+    let score = title === normalizedQuery ? 1000 : title.startsWith(normalizedQuery) ? 600 : title.includes(normalizedQuery) ? 350 : route.includes(normalizedQuery) ? 180 : 0
+    score += Math.min(bodyHits, 10) * 20
+    if (!score) continue
+    const match = normalizedBody.indexOf(normalizedQuery); const start = match < 0 ? 0 : Math.max(0, match - 70); const end = match < 0 ? 180 : Math.min(plain.length, match + query.length + 110)
+    const excerpt = `${start > 0 ? '…' : ''}${plain.slice(start, end)}${end < plain.length ? '…' : ''}`
+    results.push({ node, excerpt, score })
+  }
+  return results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt).slice(0, 100)
 }
 
 function linkTargets(source: string) {
