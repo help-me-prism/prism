@@ -24,9 +24,22 @@ function shortHash(value: string) {
 function isEquation(text: string) {
   const compact = text.replace(/\s/g, '')
   if (!compact) return false
-  const symbols = (compact.match(/[=+\-×÷∑∫√∞≈≠≤≥<>^_{}()[\]\\|]/g) ?? []).length
+  const proseWords = text.match(/[A-Za-z]{3,}/g)?.length ?? 0
+  if (proseWords >= 4) return false
+  const symbols = (compact.match(/[=+\-×÷∑∫√∞≈≠≤≥<>^_{}()[\]\\|\u2200-\u22ff︷︸]/g) ?? []).length
   const letters = (compact.match(/[A-Za-z가-힣]/g) ?? []).length
   return (symbols >= 2 && symbols / compact.length > .12) || (letters === 0 && symbols > 0)
+}
+
+function isPdfMetadataArtifact(text: string) {
+  if (!text) return false
+  if (text.includes('\u0000') || /<\/?latexit\b|sha1_base64\s*=|<\?xml\b/i.test(text)) return true
+  const compact = text.replace(/\s/g, '')
+  return compact.length > 120 && /^[A-Za-z0-9+/=]+$/.test(compact) && /[+/=]/.test(compact)
+}
+
+function displayTranslation(text: string) {
+  return text.replace(/\u000f/g, 'ε').replace(/[\u0000-\u0008\u000b\u000c\u000e\u0010-\u001f\u007f]/g, '')
 }
 
 function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegment[] {
@@ -37,7 +50,7 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
   let previous: PdfTextItem | undefined
   for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
     const item = items[itemIndex]; const value = item.str.trim()
-    if (!value) continue
+    if (!value || isPdfMetadataArtifact(value)) continue
     if (previous && combined) {
       const previousY = previous.transform[5]; const nextY = item.transform[5]
       const height = Math.max(5, Math.abs(previous.height || previous.transform[3]))
@@ -109,7 +122,8 @@ function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegme
   const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
   const classified = preliminary.map((segment, index) => {
     if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
-    if (denseLayoutPage && segment.kind === 'text' && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
+    const semanticHeading = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix\b|\d+(?:\.\d+)*\s+)/i.test(segment.source)
+    if (denseLayoutPage && ['text', 'heading'].includes(segment.kind) && !semanticHeading && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     return segment
   })
   const merged: TranslationSegment[] = []
@@ -138,7 +152,7 @@ function tokenSimilarity(left: string, right: string) {
   const a = structureTokens(left); const b = structureTokens(right)
   if (!a.size || !b.size) return 0
   let shared = 0; for (const token of a) if (b.has(token)) shared += 1
-  return shared / Math.max(1, Math.min(a.size, b.size))
+  return shared / Math.max(1, Math.max(a.size, b.size))
 }
 
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
@@ -159,14 +173,14 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const threshold = tokens.length < 5 ? .78 : .58
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
     matched += 1
-    return { ...segment, sourceMode: 'latex' as const, blockId: best.block.id, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    return { ...segment, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
   })
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
   const usedEquations = new Set<number>()
   for (const block of structure.blocks.filter((candidate) => candidate.kind === 'equation')) {
     const ranked = equationIndexes.filter((index) => !usedEquations.has(index)).map((index) => ({ index, score: tokenSimilarity(block.source, enriched[index].source) })).sort((a, b) => b.score - a.score)
     const selected = ranked[0]
-    if (!selected || selected.score < .18) continue
+    if (!selected || selected.score < .22) continue
     usedEquations.add(selected.index)
     enriched[selected.index] = { ...enriched[selected.index], source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
   }
@@ -391,7 +405,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
     : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
   return <div className={`continuous-page ${mode} ${rendered ? 'rendered' : 'pending'}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
     {!rendered && <div className="page-loading"><LoaderCircle className="spin" size={16} /><span>페이지 {pageNumber} 준비 중</span></div>}
-    {mode === 'translated' && <div className="translated-text-layer">{translatedBlocks.map((block) => <div key={block.key} className={`translated-block ${block.segments[0].kind}`} style={{ ...block.box, fontSize: block.fontSize }}>{block.segments.map((segment) => <span key={segment.id} className={`translated-sentence ${segment.id === highlighted ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)}>{segment.translation}{' '}</span>)}</div>)}</div>}
+    {mode === 'translated' && <div className="translated-text-layer">{translatedBlocks.map((block) => <div key={block.key} className={`translated-block ${block.segments[0].kind}`} style={{ ...block.box, fontSize: block.fontSize }}>{block.segments.map((segment) => <span key={segment.id} className={`translated-sentence ${segment.id === highlighted ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)}>{displayTranslation(segment.translation ?? '')}{' '}</span>)}</div>)}</div>}
     {mode === 'translated' && <canvas ref={preservedCanvasRef} className="preserved-structure-canvas" aria-hidden="true" />}
     {mode === 'original' && <div className="source-figure-layer">{automaticFigures.map(({ key, figure, rect }, index) => <button key={key} style={rect} title={`${figure?.caption || `PDF 피겨 ${index + 1}`} · 클릭하여 채팅에 태그`} onClick={() => captureFigure(rect.left, rect.top, rect.width, rect.height, figure)}><Image size={15} /><span>피겨 {figure ? figure.order + 1 : index + 1}</span></button>)}</div>}
     <div className="anchor-layer">{segments.filter((segment) => !['artifact', 'equation', 'table'].includes(segment.kind)).flatMap((segment) => segmentRects(segment, itemRects).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭하여 채팅에 태그" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} />))}</div>
@@ -526,6 +540,12 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const span = Math.max(1, (next?.offsetTop ?? (current.offsetTop + current.offsetHeight + 18)) - current.offsetTop)
     pane.scrollTop = Math.max(0, current.offsetTop + span * anchor.progress - pane.clientHeight * .28)
   }
+  function scrollToPage(targetPage: number) {
+    for (const pane of [sourceScrollRef.current, translatedScrollRef.current]) {
+      const target = pane?.querySelector<HTMLElement>(`.continuous-page[data-page$="-${targetPage}"]`)
+      if (pane && target) pane.scrollTo({ top: Math.max(0, target.offsetTop - 18), behavior: 'smooth' })
+    }
+  }
   function setPaneZoom(mode: 'original' | 'translated', value: number) {
     const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
     zoomAnchorRef.current = scrollAnchor(activePane)
@@ -557,7 +577,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   return <section className="reader-pane paper-workspace">
     <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <button key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`} onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span><i onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i></button> : null })}<button className="add-tab" onClick={() => setFinderOpen(true)}><Plus size={15} /></button></div></div>
-    {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => window.document.querySelector(`[data-page$="-${pageNumber - 1}"]`)?.scrollIntoView()}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => window.document.querySelector(`[data-page$="-${pageNumber + 1}"]`)?.scrollIntoView()}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId} · {sourceStatus.mode === 'latex' ? `LaTeX 우선 ${sourceStatus.matched}/${sourceStatus.total}` : 'PDF fallback'} · 소스 피겨 {figureAssets.length}</small></div><div className="reader-actions"><div className="document-mode"><button className={viewMode === 'original' ? 'active' : ''} onClick={() => setViewMode('original')}>원문</button><button className={viewMode === 'translated' ? 'active' : ''} onClick={() => setViewMode('translated')}>한국어</button><button className={viewMode === 'dual' ? 'active' : ''} onClick={() => setViewMode('dual')}><Columns2 size={13} /> 병기</button></div>{viewMode === 'dual' && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button></div></div>
+    {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId} · {sourceStatus.mode === 'latex' ? `LaTeX 우선 ${sourceStatus.matched}/${sourceStatus.total}` : 'PDF fallback'} · 소스 피겨 {figureAssets.length}</small></div><div className="reader-actions"><div className="document-mode"><button className={viewMode === 'original' ? 'active' : ''} onClick={() => setViewMode('original')}>원문</button><button className={viewMode === 'translated' ? 'active' : ''} onClick={() => setViewMode('translated')}>한국어</button><button className={viewMode === 'dual' ? 'active' : ''} onClick={() => setViewMode('dual')}><Columns2 size={13} /> 병기</button></div>{viewMode === 'dual' && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button></div></div>
       <div className="translation-control"><Languages size={14} /><label><span>번역 CLI</span><select value={settings.translationProvider} disabled={translating} onChange={(event) => { const provider = event.target.value as ProviderId; void updateSettings({ translationProvider: provider, translationModel: providers.find((item) => item.id === provider)?.models[0]?.id }) }}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label><label><span>모델</span><select value={settings.translationModel} disabled={translating} onChange={(event) => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label><label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => void updateSettings({ autoTranslate: event.target.checked })} /> 자동 번역</label>{(translating || hasCachedTranslation) && <div className="translation-meter" title={`${translationProgress.completed || translatedCount} / ${translationProgress.total || translatableSegments.length}문장`}><span><i style={{ width: `${translationPercent}%` }} /></span><strong>{translating ? `${translationProgress.completed}/${translationProgress.total}문장 · ${translationPercent}%` : `${translatedCount}문장 번역됨`}</strong></div>}<button className={translating ? 'cancel-translation' : ''} onClick={() => translating ? void cancelTranslation() : void startTranslation()} disabled={!translating && (!translationProvider?.available || !allSegments.length)}>{translating ? <><Square size={11} fill="currentColor" /> 번역 중지</> : hasCachedTranslation ? '재번역' : '번역 시작'}</button>{figureSelect && <strong className="capture-hint">피겨를 클릭하거나 영역을 드래그하세요</strong>}</div>
       {loadStatus?.phase === 'analyzing' && <div className="paper-analysis-status" role="status"><LoaderCircle className="spin" size={13} /><span>논문 구조와 참조 위치를 분석하고 있어요</span><div><i style={{ width: `${loadStatus.total ? loadStatus.completed / loadStatus.total * 100 : 0}%` }} /></div><strong>{loadStatus.completed} / {loadStatus.total}페이지</strong></div>}
       {error && <div className="paper-error">{error}<button onClick={() => setError('')}><X size={13} /></button></div>}

@@ -60,6 +60,11 @@ if (action === 'click-label') {
   const result = await send('Runtime.evaluate', { expression: value, returnByValue: true, awaitPromise: true })
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.text)
   if (result.result?.value !== undefined) process.stdout.write(`${JSON.stringify(result.result.value)}\n`)
+} else if (action === 'scroll-page') {
+  const target = Number(value)
+  if (!Number.isInteger(target) || target < 1) throw new Error('scroll-page expects a positive page number')
+  const result = await send('Runtime.evaluate', { expression: `(() => { let found = 0; for (const pane of document.querySelectorAll('.document-scroll')) { pane.style.scrollBehavior = 'auto'; const page = pane.querySelector('.continuous-page[data-page$="-${target}"]'); if (page) { pane.scrollTop = Math.max(0, page.offsetTop - 18); found += 1 } } return found })()`, returnByValue: true })
+  process.stdout.write(`${result.result?.value ?? 0}\n`)
 } else {
   throw new Error(`Unknown action: ${action}`)
 }

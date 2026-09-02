@@ -48,6 +48,8 @@ function send(method, params = {}) {
 
 await send('Page.enable')
 await send('Runtime.enable')
+await send('Runtime.evaluate', { expression: 'window.moveTo(0, 0); window.resizeTo(screen.availWidth, screen.availHeight)' })
+await new Promise((resolve) => setTimeout(resolve, 250))
 const evaluation = await send('Runtime.evaluate', {
   expression: `JSON.stringify({
     title: document.title,

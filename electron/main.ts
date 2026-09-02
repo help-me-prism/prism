@@ -19,6 +19,10 @@ type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: 
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
+function normalizePdfControls(value: string) {
+  return value.replace(/\u000f/g, 'ε').replace(/[\u0000-\u0008\u000b\u000c\u000e\u0010-\u001f\u007f]/g, '')
+}
+
 const activeChats = new Map<string, ActiveChat>()
 const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; messageId: string }>()
 const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
@@ -722,7 +726,7 @@ ipcMain.handle('translation:start', async (event, arxivId: string, segments: Tra
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   const safeSegments = segments.filter((segment) => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && segment.source.length < 10_000)
-    .map((segment) => ({ ...segment, source: segment.source.trim(), paragraphContext: typeof segment.paragraphContext === 'string' ? segment.paragraphContext.slice(0, 12_000) : undefined, sectionTitle: typeof segment.sectionTitle === 'string' ? segment.sectionTitle.slice(0, 500) : undefined, blockId: typeof segment.blockId === 'string' ? segment.blockId.slice(0, 120) : undefined, sourceMode: segment.sourceMode === 'latex' ? 'latex' as const : 'pdf' as const, itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [], itemSlices: Array.isArray(segment.itemSlices) ? segment.itemSlices.filter((slice) => Number.isInteger(slice?.itemIndex) && Number.isFinite(slice?.start) && Number.isFinite(slice?.end)).map((slice) => ({ itemIndex: slice.itemIndex, start: Math.max(0, Math.min(1, slice.start)), end: Math.max(0, Math.min(1, slice.end)) })) : [] }))
+    .map((segment) => ({ ...segment, source: normalizePdfControls(segment.source).trim(), paragraphContext: typeof segment.paragraphContext === 'string' ? normalizePdfControls(segment.paragraphContext).slice(0, 12_000) : undefined, sectionTitle: typeof segment.sectionTitle === 'string' ? segment.sectionTitle.slice(0, 500) : undefined, blockId: typeof segment.blockId === 'string' ? segment.blockId.slice(0, 120) : undefined, sourceMode: segment.sourceMode === 'latex' ? 'latex' as const : 'pdf' as const, itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [], itemSlices: Array.isArray(segment.itemSlices) ? segment.itemSlices.filter((slice) => Number.isInteger(slice?.itemIndex) && Number.isFinite(slice?.start) && Number.isFinite(slice?.end)).map((slice) => ({ itemIndex: slice.itemIndex, start: Math.max(0, Math.min(1, slice.start)), end: Math.max(0, Math.min(1, slice.end)) })) : [] }))
   void translatePaper(event.sender, record, safeSegments, options?.force === true).catch((error) => safeSend(event.sender, 'translation:error', { arxivId, message: error instanceof Error ? error.message : String(error) }))
   return { started: true }
 })
