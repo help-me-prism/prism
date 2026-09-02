@@ -50,7 +50,7 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
   const [searching, setSearching] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
   const [dataViewOpen, setDataViewOpen] = useState(false)
-  const [dataViews, setDataViews] = useState<KnowledgeDataViews>({ projects: [], unansweredQuestions: [], unsupportedClaims: [] })
+  const [dataViews, setDataViews] = useState<KnowledgeDataViews>({ projects: [], unansweredQuestions: [], unsupportedClaims: [], projectContexts: [], conflictingPapers: [] })
   const [viewsLoading, setViewsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<KnowledgeSuggestion[]>([])
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)

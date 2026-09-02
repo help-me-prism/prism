@@ -5,6 +5,8 @@ export type KnowledgeDataViews = {
   projects: KnowledgeNodeRecord[]
   unansweredQuestions: KnowledgeNodeRecord[]
   unsupportedClaims: KnowledgeNodeRecord[]
+  projectContexts: { project: KnowledgeNodeRecord; concepts: KnowledgeNodeRecord[]; insights: KnowledgeNodeRecord[] }[]
+  conflictingPapers: { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord }[]
 }
 
 export async function listKnowledgeDataViews(libraryPath: string): Promise<KnowledgeDataViews> {
@@ -23,5 +25,5 @@ export async function listKnowledgeDataViews(libraryPath: string): Promise<Knowl
     if (!approvedEvidenceTargets.has(claim.id)) unsupportedClaims.push(claim)
   }
 
-  return { projects, unansweredQuestions, unsupportedClaims }
+  return { projects, unansweredQuestions, unsupportedClaims, projectContexts: [], conflictingPapers: [] }
 }
