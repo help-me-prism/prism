@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { atomicWriteFile } from './atomicFile.js'
 import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
@@ -21,9 +22,7 @@ function portableRelative(root: string, candidate: string) { return path.relativ
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
 async function exists(filePath: string) { try { await fs.access(filePath); return true } catch { return false } }
 async function atomicJson(filePath: string, value: unknown) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true }); const temporary = `${filePath}.${randomUUID()}.tmp`
-  try { await fs.writeFile(temporary, JSON.stringify(value, null, 2), 'utf8'); await fs.rename(temporary, filePath) }
-  catch (reason) { await fs.rm(temporary, { force: true }).catch(() => undefined); throw reason }
+  await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
 }
 
 export async function assertKnowledgeVault(input: string) {

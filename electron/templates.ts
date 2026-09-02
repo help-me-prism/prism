@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { atomicWriteFile } from './atomicFile.js'
 import { readNoteSnapshot, saveNoteSnapshot } from './notes.js'
 
 export type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
@@ -51,10 +52,7 @@ async function preferences(libraryPath: string): Promise<TemplatePreferences> {
   } catch { return { version: 1, favorites: [], recent: {} } }
 }
 async function atomicJson(filePath: string, value: unknown) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const temporaryPath = `${filePath}.${randomUUID()}.tmp`
-  try { await fs.writeFile(temporaryPath, JSON.stringify(value, null, 2), 'utf8'); await fs.rename(temporaryPath, filePath) }
-  catch (error) { await fs.rm(temporaryPath, { force: true }).catch(() => undefined); throw error }
+  await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
 }
 async function ensureVault(libraryPath: string) {
   const directories = ['00 Inbox', 'Papers', 'Concepts', 'Claims', 'Insights', 'Questions', 'Projects', 'Templates', path.join('Assets', 'PDFs'), path.join('Assets', 'Figures'), path.join('.prism', 'anchors'), path.join('.prism', 'relations'), path.join('.prism', 'index'), path.join('.prism', 'cache'), path.join('.prism', 'trash', 'templates')]

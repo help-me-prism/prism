@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { atomicWriteFile } from './atomicFile.js'
 import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 
 export type KnowledgeRelationType = 'discusses' | 'supports' | 'contradicts' | 'extends' | 'uses' | 'explains' | 'evidence_for' | 'derived_from' | 'raises' | 'related'
@@ -20,9 +21,7 @@ const relationIdPattern = /^relation-[a-f0-9-]{20,80}$/
 
 function directory(libraryPath: string) { return path.join(libraryPath, '.prism', 'relations') }
 async function atomicRecord(libraryPath: string, relation: KnowledgeRelationRecord) {
-  const target = path.join(directory(libraryPath), `${relation.id}.json`); const temporary = `${target}.${randomUUID()}.tmp`
-  try { await fs.writeFile(temporary, JSON.stringify(relation, null, 2), 'utf8'); await fs.rename(temporary, target) }
-  catch (reason) { await fs.rm(temporary, { force: true }).catch(() => undefined); throw reason }
+  await atomicWriteFile(path.join(directory(libraryPath), `${relation.id}.json`), JSON.stringify(relation, null, 2))
 }
 function validRecord(value: unknown): value is KnowledgeRelationRecord {
   if (!value || typeof value !== 'object') return false

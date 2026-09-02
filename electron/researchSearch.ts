@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { atomicWriteFile } from './atomicFile.js'
 import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
 
@@ -48,9 +49,7 @@ function vector(terms: Record<string, number>, idf: Record<string, number>) {
   return magnitude ? result.map((value) => value / magnitude) : result
 }
 async function atomicJson(filePath: string, value: unknown) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true }); const temporary = `${filePath}.${randomUUID()}.tmp`
-  try { await fs.writeFile(temporary, JSON.stringify(value), 'utf8'); await fs.rename(temporary, filePath) }
-  catch (reason) { await fs.rm(temporary, { force: true }).catch(() => undefined); throw reason }
+  await atomicWriteFile(filePath, JSON.stringify(value))
 }
 function validIndex(value: unknown, expectedSignature: string): value is ResearchIndex {
   if (!value || typeof value !== 'object') return false
