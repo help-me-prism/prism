@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import {
-  BookOpen, Bot, Check, ChevronDown, Circle, FileText, FolderOpen, MessageSquareText,
-  Plus, RefreshCw, SendHorizontal, Settings2, Sparkles, Square, StickyNote,
-  Trash2, Undo2, X,
+  BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, FileText, FolderOpen, Image,
+  MessageSquareText, Plus, RefreshCw, RotateCcw, SendHorizontal, Settings2, Sigma,
+  Sparkles, Square, StickyNote, TextQuote, Trash2, Undo2, X,
 } from 'lucide-react'
 import PaperWorkspace from './PaperWorkspace'
 
@@ -40,22 +45,23 @@ function referencedAnchors(text: string, anchors: ContextAnchor[]) {
 
 function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?: ContextAnchor[]; onNavigate?: (anchor: ContextAnchor) => void }) {
   if (!text) return null
-  const byLabel = new Map((anchors ?? []).map((anchor) => [anchor.label, anchor]))
-  const nodes: ReactNode[] = []; let cursor = 0
-  for (const match of text.matchAll(referencePattern)) {
-    if (match.index > cursor) nodes.push(text.slice(cursor, match.index))
-    const anchor = byLabel.get(match[1])
-    nodes.push(anchor
-      ? <AnchorChip key={`${match.index}-${anchor.anchorId}`} anchor={anchor} onNavigate={onNavigate} />
-      : match[0])
-    cursor = match.index + match[0].length
-  }
-  if (cursor < text.length) nodes.push(text.slice(cursor))
-  return <>{nodes}</>
+  const anchorList = anchors ?? []; const byLabel = new Map(anchorList.map((anchor, index) => [anchor.label, { anchor, index }]))
+  const markdown = text.replace(referencePattern, (token, label: string) => {
+    const match = byLabel.get(label)
+    return match ? `[@${label}](#prism-anchor-${match.index})` : token
+  })
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{
+    a: ({ href, children }) => {
+      const index = href?.match(/^#prism-anchor-(\d+)$/)?.[1]
+      const anchor = index === undefined ? undefined : anchorList[Number(index)]
+      return anchor ? <AnchorChip anchor={anchor} onNavigate={onNavigate} /> : <a href={href} target="_blank" rel="noreferrer">{children}</a>
+    },
+  }}>{markdown}</ReactMarkdown>
 }
 
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
-  const content = <><span className="anchor-symbol">@</span><span>{anchor.label}</span><small>{anchor.paperId}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>{anchor.paperId}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
     : <button type="button" className="anchor-token" title="논문의 해당 위치로 이동" onClick={() => onNavigate?.(anchor)}>{content}</button>
@@ -65,6 +71,7 @@ function withoutReferences(text: string) { return text.replace(referencePattern,
 
 function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [trashedSessions, setTrashedSessions] = useState<ChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [runningIds, setRunningIds] = useState<string[]>([])
@@ -79,8 +86,11 @@ function App() {
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
   const [paperContextOpen, setPaperContextOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
   const [deletedSession, setDeletedSession] = useState<{ session: ChatSession; index: number }>()
+  const [followChat, setFollowChat] = useState(true)
+  const messagesRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0]
@@ -107,8 +117,11 @@ function App() {
     Promise.all([window.prism.listProviders(), window.prism.loadSessions()]).then(([providerList, savedSessions]) => {
       setProviders(providerList)
       const usable = savedSessions.filter((session) => session?.id && Array.isArray(session.messages))
-      const initial = usable.length ? usable : [makeSession('codex', providerList.find((item) => item.id === 'codex')?.models[0]?.id)]
+      const restoredTrash = usable.filter((session) => session.deletedAt).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
+      const active = usable.filter((session) => !session.deletedAt)
+      const initial = active.length ? active : [makeSession('codex', providerList.find((item) => item.id === 'codex')?.models[0]?.id)]
       setSessions(initial)
+      setTrashedSessions(restoredTrash)
       setActiveSessionId(initial[0].id)
       setHydrated(true)
     }).catch((reason) => {
@@ -159,18 +172,22 @@ function App() {
   useEffect(() => {
     if (!hydrated) return
     const timeout = window.setTimeout(() => {
-      const compactSessions = sessions.map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
+      const compactSessions = [...sessions, ...trashedSessions].map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
       window.prism.saveSessions(compactSessions).catch((reason) => {
         console.error('Session save failed:', reason)
         if (activeSessionId) setErrors((current) => ({ ...current, [activeSessionId]: `대화를 자동 저장하지 못했습니다: ${String(reason)}` }))
       })
     }, 350)
     return () => { window.clearTimeout(timeout) }
-  }, [sessions, hydrated, activeSessionId])
+  }, [sessions, trashedSessions, hydrated, activeSessionId])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeSession?.messages, isRunning])
+    if (followChat) endRef.current?.scrollIntoView({ behavior: 'auto' })
+  }, [activeSession?.messages, isRunning, followChat])
+  useEffect(() => {
+    setFollowChat(true)
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'auto' }))
+  }, [activeSessionId])
 
   useEffect(() => {
     const id = workspaceState.activePaperId
@@ -201,7 +218,9 @@ function App() {
       const removed = current[index]
       if (!removed) return current
       const remaining = current.filter((session) => session.id !== sessionId)
-      setDeletedSession({ session: removed, index })
+      const trashed = { ...removed, deletedAt: Date.now() }
+      setTrashedSessions((items) => [trashed, ...items.filter((item) => item.id !== sessionId)].slice(0, 100))
+      setDeletedSession({ session: trashed, index })
       if (activeSessionId === sessionId) setActiveSessionId(remaining[Math.min(index, remaining.length - 1)].id)
       return remaining
     })
@@ -212,11 +231,20 @@ function App() {
     setSessions((current) => {
       if (current.some((session) => session.id === deletedSession.session.id)) return current
       const next = [...current]
-      next.splice(Math.min(deletedSession.index, next.length), 0, deletedSession.session)
+      next.splice(Math.min(deletedSession.index, next.length), 0, { ...deletedSession.session, deletedAt: undefined })
       return next
     })
+    setTrashedSessions((current) => current.filter((session) => session.id !== deletedSession.session.id))
     setActiveSessionId(deletedSession.session.id)
     setDeletedSession(undefined)
+  }
+
+  function restoreSession(sessionId: string) {
+    const restored = trashedSessions.find((session) => session.id === sessionId)
+    if (!restored) return
+    setTrashedSessions((current) => current.filter((session) => session.id !== sessionId))
+    setSessions((current) => [{ ...restored, deletedAt: undefined, updatedAt: Date.now() }, ...current])
+    setActiveSessionId(sessionId); setTrashOpen(false); setDeletedSession(undefined)
   }
 
   async function refreshProviders() {
@@ -246,6 +274,7 @@ function App() {
     const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor) => `<anchor ref="@${anchor.label}" type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>`).join('\n')}\n</prism_context>\nKeep every [@...] reference distinct and answer by explicitly relating the referenced anchors.` : ''
     const promptWithContext = [prompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
     const now = Date.now()
+    setFollowChat(true)
     setInput('')
     setErrors((current) => { const next = { ...current }; delete next[sessionId]; return next })
     updateSession(sessionId, (session) => ({
@@ -342,6 +371,8 @@ function App() {
                   </div>
                 ))}
               </div>
+              <div className="trash-heading"><button onClick={() => setTrashOpen((value) => !value)} aria-expanded={trashOpen}><Trash2 size={13} /><span>휴지통</span><small>{trashedSessions.length}</small>{trashOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</button></div>
+              {trashOpen && <div className="trash-list">{trashedSessions.length ? trashedSessions.map((session) => <div key={session.id} className="trash-item"><span><strong>{session.title}</strong><small>{new Date(session.deletedAt ?? session.updatedAt).toLocaleDateString()}</small></span><button onClick={() => restoreSession(session.id)} title="대화 복원" aria-label={`${session.title} 대화 복원`}><RotateCcw size={12} /></button></div>) : <small>삭제된 대화가 없습니다.</small>}</div>}
             </nav>
             <div className="sidebar-footer">
               <div className="provider-badge"><span className={`status-dot ${activeProvider?.available ? 'online' : ''}`} /><div><strong>{activeProvider?.name ?? activeSession.provider}</strong><small>{activeProvider?.status ?? '확인 중…'}</small></div></div>
@@ -365,7 +396,7 @@ function App() {
           </div>
           <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.arxivId).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>AI가 보고 있는 논문</header>{workspaceState.library.map((paper) => { const selected = contextPaperIds.includes(paper.arxivId); return <button key={paper.arxivId} onClick={() => setContextPaperIds((current) => selected ? current.filter((id) => id !== paper.arxivId) : [...current, paper.arxivId])}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId}</small></div></button> })}</div>}</div>
 
-          <div className="messages">
+          <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>
             {activeSession.messages.length === 0 ? (
               <div className="chat-welcome">
                 <div className="welcome-orbit"><Bot size={27} /></div><h2>무엇이 궁금한가요?</h2>
@@ -375,12 +406,15 @@ function App() {
             ) : activeSession.messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
-                {message.anchors?.length ? <div className={`message-anchors ${message.role}`}>{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onNavigate={navigateAnchor} />)}</div> : null}
-                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>{message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}</div>
+                <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>
+                  {message.role === 'user' && message.anchors?.length ? <span className="inline-message-anchors">{message.anchors.map((anchor) => <AnchorChip key={`${anchor.paperId}-${anchor.anchorId}`} anchor={anchor} onNavigate={navigateAnchor} />)}</span> : null}
+                  {message.text ? <MessageContent text={message.role === 'user' ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
+                </div>
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}
             <div ref={endRef} />
+            {!followChat && <button className="jump-latest" onClick={() => { setFollowChat(true); endRef.current?.scrollIntoView({ behavior: 'smooth' }) }}><ChevronDown size={13} /> 최신 답변으로</button>}
           </div>
 
           <div className="composer-wrap">
@@ -406,7 +440,7 @@ function App() {
         <div className="settings-section"><strong>라이브러리</strong><p>논문 PDF, 번역, 피겨와 Markdown 노트는 선택한 로컬 폴더에 저장됩니다.</p><button className="settings-action" onClick={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }}><FolderOpen size={15} /> 라이브러리 폴더 변경</button></div>
         <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
       </section></div>}
-      {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 삭제했습니다.</strong><small>6초 동안 되돌릴 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
+      {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 휴지통으로 옮겼습니다.</strong><small>휴지통에서도 언제든 복원할 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
     </main>
   )
 }

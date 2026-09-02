@@ -118,13 +118,42 @@ try {
   await evaluate(`document.querySelector('.delete-session:not(:disabled)').click()`)
   await sleep(100)
   assert(await evaluate(`Boolean(document.querySelector('.undo-toast'))`), 'Deleting a chat did not offer undo.')
+  await evaluate(`document.querySelector('.trash-heading button').click()`)
+  assert(await evaluate(`document.querySelectorAll('.trash-item').length`) === 1, 'Deleted chat was not kept in the trash.')
   await evaluate(`document.querySelector('.undo-toast button').click()`)
   await sleep(100)
   assert(await evaluate(`document.querySelectorAll('.session-item').length`) === 2, 'Undo did not restore the deleted chat.')
+  assert(await evaluate(`document.querySelectorAll('.trash-item').length`) === 0, 'Undo left a duplicate chat in the trash.')
+
+  const sampleSessions = [{
+    id: 'visual-chat', title: '확산 모델 수식 설명', provider: 'codex', model: 'gpt-5.6-sol', createdAt: Date.now(), updatedAt: Date.now(),
+    messages: [
+      ...Array.from({ length: 7 }, (_, index) => ({ id: `history-${index}`, role: index % 2 ? 'assistant' : 'user', text: index % 2 ? `이전 답변 ${index}: 문맥을 확인했습니다.` : `이전 질문 ${index}`, createdAt: Date.now() - 20_000 + index })),
+      { id: 'sample-user', role: 'user', text: '이 수식의 의미와 학습 과정을 설명해줘', createdAt: Date.now() - 2, anchors: [{ paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p2-eq1', type: 'equation', page: 2, label: '수식2', source: 'p_theta(x_{t-1} | x_t)' }] },
+      { id: 'sample-assistant', role: 'assistant', createdAt: Date.now() - 1, anchors: [{ paperId: '2006.11239', paperTitle: 'Denoising Diffusion Probabilistic Models', anchorId: 'p2-eq1', type: 'equation', page: 2, label: '수식2', source: 'p_theta(x_{t-1} | x_t)' }], text: '## 역확산 과정\n\n[@수식2]는 잡음이 섞인 샘플에서 한 단계 더 깨끗한 샘플을 예측하는 **역확산 전이**입니다.\n\n$$p_\\theta(x_{t-1}\\mid x_t)=\\mathcal{N}(x_{t-1};\\mu_\\theta(x_t,t),\\Sigma_\\theta(x_t,t))$$\n\n- 평균은 신경망이 예측합니다.\n- 분산은 복원 과정의 불확실성을 나타냅니다.\n\n| 항목 | 의미 |\n|---|---|\n| $x_t$ | 현재 잡음 샘플 |\n| $x_{t-1}$ | 복원된 샘플 |' },
+    ],
+  }]
+  await evaluate(`window.prism.saveSessions(${JSON.stringify(sampleSessions)})`)
+  await send('Page.reload', { ignoreCache: true })
+  await sleep(600)
+  await press('Escape', 27)
+  assert(await evaluate(`document.querySelector('.message-body h2')?.textContent`) === '역확산 과정', 'Markdown heading was not rendered.')
+  assert(await evaluate(`Boolean(document.querySelector('.message-body .katex'))`), 'Math was not rendered with KaTeX.')
+  assert(await evaluate(`Boolean(document.querySelector('.message-body table'))`), 'Markdown table was not rendered.')
+  assert(await evaluate(`Boolean(document.querySelector('.message.user .inline-message-anchors .type-equation'))`), 'The user reference was not rendered inline with a type icon.')
+  await evaluate(`(() => { const pane = document.querySelector('.messages'); pane.scrollTop = 0; pane.dispatchEvent(new Event('scroll', { bubbles: true })); return true })()`)
+  await sleep(100)
+  assert(await evaluate(`Boolean(document.querySelector('.jump-latest'))`), 'Scrolling up did not pause chat follow mode.')
+  await evaluate(`document.querySelector('.jump-latest').click()`)
+  await sleep(350)
+  await send('Page.enable')
+  const visual = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const visualPath = path.join(process.cwd(), 'tmp', 'ui', 'chat-markdown.png')
+  await fs.mkdir(path.dirname(visualPath), { recursive: true }); await fs.writeFile(visualPath, Buffer.from(visual.data, 'base64'))
 
   assert(exceptions.length === 0, `Renderer exceptions were reported: ${exceptions.join('; ')}`)
   assert(securityWarnings.length === 0, 'Electron reported an insecure Content Security Policy.')
-  process.stdout.write('Electron UI smoke passed: onboarding, keyboard close, settings, and undo.\n')
+  process.stdout.write('Electron UI smoke passed: onboarding, settings, trash, Markdown, inline references, and paused follow mode.\n')
 } finally {
   socket?.close()
   electron.kill()
