@@ -4,6 +4,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type Decoration
 import { markdown } from '@codemirror/lang-markdown'
 import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
+import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
@@ -121,21 +122,19 @@ function moveMarkdownBlock(view: EditorView, sourcePosition: number, targetPosit
   return true
 }
 
-class MarkdownBlockHandle extends WidgetType {
-  constructor(readonly position: number, readonly label: string) { super() }
-  eq(other: MarkdownBlockHandle) { return this.position === other.position && this.label === other.label }
-  toDOM() {
+function markdownBlockHandleDOM(position: number, label: string) {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'cm-block-drag-handle'
     button.textContent = '⣿'
     button.draggable = true
-    button.dataset.blockPosition = String(this.position)
-    button.title = `"${this.label}" 블록 드래그해 이동`
+    button.dataset.blockPosition = String(position)
+    button.title = `"${label}" 블록 드래그해 이동`
     button.setAttribute('aria-label', button.title)
-    button.addEventListener('mousedown', (event) => event.preventDefault())
+    button.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation() })
     button.addEventListener('dragstart', (event) => {
-      event.dataTransfer?.setData('application/x-prism-markdown-block', String(this.position))
+      event.stopPropagation()
+      event.dataTransfer?.setData('application/x-prism-markdown-block', String(position))
       if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
       button.classList.add('dragging')
     })
@@ -144,6 +143,13 @@ class MarkdownBlockHandle extends WidgetType {
       document.querySelectorAll('.cm-block-drop-before, .cm-block-drop-after').forEach((element) => element.classList.remove('cm-block-drop-before', 'cm-block-drop-after'))
     })
     return button
+}
+
+class MarkdownBlockHandle extends WidgetType {
+  constructor(readonly position: number, readonly label: string) { super() }
+  eq(other: MarkdownBlockHandle) { return this.position === other.position && this.label === other.label }
+  toDOM() {
+    return markdownBlockHandleDOM(this.position, this.label)
   }
   ignoreEvent() { return false }
 }
@@ -244,10 +250,194 @@ const sectionFoldState = StateField.define<{ folded: ReadonlySet<number>; decora
   provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
 })
 
+type RenderedBlock =
+  | { type: 'table'; from: number; to: number; rows: string[][] }
+  | { type: 'math'; from: number; to: number; source: string }
+  | { type: 'image'; from: number; to: number; alt: string; source: string }
+  | { type: 'code'; from: number; to: number; language: string; source: string }
+  | { type: 'divider'; from: number; to: number }
+
+function tableCells(line: string) {
+  const cells = line.trim().split('|').map((cell) => cell.trim())
+  if (!cells[0]) cells.shift()
+  if (!cells.at(-1)) cells.pop()
+  return cells
+}
+
+function renderedBlocks(state: EditorState) {
+  const blocks: RenderedBlock[] = []
+  const frontmatter = state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
+  const frontmatterEnd = frontmatter?.[0].length ?? 0
+  for (let number = 1; number <= state.doc.lines; number += 1) {
+    const line = state.doc.line(number)
+    const trimmed = line.text.trim()
+    if (line.from < frontmatterEnd) continue
+    if (/^```/.test(trimmed)) {
+      let closing = number + 1
+      while (closing <= state.doc.lines && !/^```\s*$/.test(state.doc.line(closing).text.trim())) closing += 1
+      if (closing <= state.doc.lines) {
+        const closingLine = state.doc.line(closing)
+        blocks.push({ type: 'code', from: line.from, to: closingLine.to, language: trimmed.slice(3).trim(), source: state.doc.sliceString(line.to + 1, closingLine.from).replace(/\r?\n$/, '') })
+        number = closing
+        continue
+      }
+    }
+    if (trimmed === '$$') {
+      let closing = number + 1
+      while (closing <= state.doc.lines && state.doc.line(closing).text.trim() !== '$$') closing += 1
+      if (closing <= state.doc.lines) {
+        const closingLine = state.doc.line(closing)
+        blocks.push({ type: 'math', from: line.from, to: closingLine.to, source: state.doc.sliceString(line.to + 1, closingLine.from).trim() })
+        number = closing
+        continue
+      }
+    }
+    const image = line.text.match(/^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)\s*$/)
+    if (image) {
+      blocks.push({ type: 'image', from: line.from, to: line.to, alt: image[1], source: image[2] })
+      continue
+    }
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push({ type: 'divider', from: line.from, to: line.to })
+      continue
+    }
+    if (number >= state.doc.lines || !line.text.includes('|')) continue
+    const delimiter = tableCells(state.doc.line(number + 1).text)
+    if (!delimiter.length || !delimiter.every((cell) => /^:?-{3,}:?$/.test(cell))) continue
+    const rows = [tableCells(line.text)]
+    let ending = number + 1
+    while (ending + 1 <= state.doc.lines && state.doc.line(ending + 1).text.includes('|') && state.doc.line(ending + 1).text.trim()) {
+      ending += 1
+      rows.push(tableCells(state.doc.line(ending).text))
+    }
+    blocks.push({ type: 'table', from: line.from, to: state.doc.line(ending).to, rows })
+    number = ending
+  }
+  return blocks
+}
+
+abstract class InteractiveRenderedBlock extends WidgetType {
+  constructor(readonly position: number) { super() }
+  openSource(view: EditorView, element: HTMLElement, label: string) {
+    element.tabIndex = 0
+    element.setAttribute('role', 'button')
+    element.setAttribute('aria-label', `${label} Markdown 편집`)
+    const open = (event: Event) => { event.preventDefault(); view.dispatch({ selection: { anchor: this.position }, scrollIntoView: true }); view.focus() }
+    element.addEventListener('mousedown', open)
+    element.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(event) })
+  }
+  ignoreEvent() { return false }
+}
+
+class RenderedTable extends InteractiveRenderedBlock {
+  constructor(position: number, readonly rows: string[][]) { super(position) }
+  eq(other: RenderedTable) { return this.position === other.position && JSON.stringify(this.rows) === JSON.stringify(other.rows) }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div'); wrapper.className = 'cm-rendered-block cm-rendered-table'
+    wrapper.append(markdownBlockHandleDOM(this.position, this.rows[0]?.join(' | ') || '표'))
+    const table = document.createElement('table')
+    this.rows.forEach((row, rowIndex) => {
+      const tr = document.createElement('tr')
+      row.forEach((cell) => { const item = document.createElement(rowIndex === 0 ? 'th' : 'td'); item.textContent = cell; tr.append(item) })
+      table.append(tr)
+    })
+    wrapper.append(table); this.openSource(view, wrapper, '표'); return wrapper
+  }
+}
+
+class RenderedMath extends InteractiveRenderedBlock {
+  constructor(position: number, readonly source: string) { super(position) }
+  eq(other: RenderedMath) { return this.position === other.position && this.source === other.source }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div'); wrapper.className = 'cm-rendered-block cm-rendered-math'
+    wrapper.innerHTML = katex.renderToString(this.source, { displayMode: true, throwOnError: false, strict: false })
+    wrapper.prepend(markdownBlockHandleDOM(this.position, '$$'))
+    this.openSource(view, wrapper, '수식'); return wrapper
+  }
+}
+
+class RenderedImage extends InteractiveRenderedBlock {
+  constructor(position: number, readonly alt: string, readonly source: string) { super(position) }
+  eq(other: RenderedImage) { return this.position === other.position && this.alt === other.alt && this.source === other.source }
+  toDOM(view: EditorView) {
+    const figure = document.createElement('figure'); figure.className = 'cm-rendered-block cm-rendered-image'
+    figure.append(markdownBlockHandleDOM(this.position, `![${this.alt}](${this.source})`))
+    if (/^(?:data:|blob:|https?:\/\/)/i.test(this.source)) {
+      const image = document.createElement('img'); image.src = this.source; image.alt = this.alt; figure.append(image)
+    } else {
+      const placeholder = document.createElement('div'); placeholder.textContent = '▧'; placeholder.setAttribute('aria-hidden', 'true'); figure.append(placeholder)
+    }
+    const caption = document.createElement('figcaption'); caption.textContent = this.alt || this.source; const pathLabel = document.createElement('small'); pathLabel.textContent = this.source
+    caption.append(pathLabel); figure.append(caption); this.openSource(view, figure, '이미지'); return figure
+  }
+}
+
+class RenderedCode extends InteractiveRenderedBlock {
+  constructor(position: number, readonly language: string, readonly source: string) { super(position) }
+  eq(other: RenderedCode) { return this.position === other.position && this.language === other.language && this.source === other.source }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div'); wrapper.className = 'cm-rendered-block cm-rendered-code'
+    wrapper.append(markdownBlockHandleDOM(this.position, this.language ? `\`\`\`${this.language}` : '```'))
+    if (this.language) { const label = document.createElement('small'); label.textContent = this.language; wrapper.append(label) }
+    const pre = document.createElement('pre'); const code = document.createElement('code'); code.textContent = this.source; pre.append(code); wrapper.append(pre)
+    this.openSource(view, wrapper, '코드 블록'); return wrapper
+  }
+}
+
+class RenderedDivider extends InteractiveRenderedBlock {
+  eq(other: RenderedDivider) { return this.position === other.position }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div'); wrapper.className = 'cm-rendered-block cm-rendered-divider'
+    wrapper.append(markdownBlockHandleDOM(this.position, '---')); wrapper.append(document.createElement('hr'))
+    this.openSource(view, wrapper, '구분선'); return wrapper
+  }
+}
+
+class RenderedTaskCheckbox extends WidgetType {
+  constructor(readonly position: number, readonly checked: boolean) { super() }
+  eq(other: RenderedTaskCheckbox) { return this.position === other.position && this.checked === other.checked }
+  toDOM(view: EditorView) {
+    const input = document.createElement('input'); input.type = 'checkbox'; input.className = 'cm-rendered-task-checkbox'; input.checked = this.checked
+    input.setAttribute('aria-label', this.checked ? '완료된 할 일' : '미완료 할 일')
+    input.addEventListener('change', () => { view.dispatch({ changes: { from: this.position, to: this.position + 3, insert: input.checked ? '[x]' : '[ ]' } }); view.focus() })
+    return input
+  }
+  ignoreEvent() { return false }
+}
+
+function renderedBlockDecorationSet(state: EditorState) {
+  const ranges: DecorationRange[] = []
+  const activeLine = state.doc.lineAt(state.selection.main.head)
+  const isActive = (from: number, to: number) => from <= activeLine.to && to >= activeLine.from
+  for (const block of renderedBlocks(state)) {
+    if (isActive(block.from, block.to)) continue
+    const widget = block.type === 'table'
+      ? new RenderedTable(block.from, block.rows)
+      : block.type === 'math'
+        ? new RenderedMath(block.from, block.source)
+        : block.type === 'image'
+          ? new RenderedImage(block.from, block.alt, block.source)
+          : block.type === 'code'
+            ? new RenderedCode(block.from, block.language, block.source)
+            : new RenderedDivider(block.from)
+    ranges.push({ from: block.from, to: block.to, decoration: Decoration.replace({ widget, block: true }) })
+  }
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const range of ranges) builder.add(range.from, range.to, range.decoration)
+  return builder.finish()
+}
+
+const renderedBlockState = StateField.define<DecorationSet>({
+  create: renderedBlockDecorationSet,
+  update(value, transaction) { return transaction.docChanged || transaction.selection ? renderedBlockDecorationSet(transaction.state) : value },
+  provide: (field) => EditorView.decorations.from(field),
+})
+
 function liveEditDecorationSet(view: EditorView) {
   const ranges: DecorationRange[] = []
   const activeLine = view.state.doc.lineAt(view.state.selection.main.head)
   const isActive = (from: number, to: number) => from <= activeLine.to && to >= activeLine.from
+  const rendered = renderedBlocks(view.state).filter((block) => !isActive(block.from, block.to))
   const frontmatter = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
   const frontmatterEnd = frontmatter?.[0].length ?? 0
   const editingFrontmatter = frontmatterEnd > 0 && activeLine.from < frontmatterEnd
@@ -268,6 +458,12 @@ function liveEditDecorationSet(view: EditorView) {
     let line = view.state.doc.lineAt(visible.from)
     while (line.from <= visible.to) {
       const text = line.text
+      const renderedBlock = rendered.find((block) => line.from >= block.from && line.from <= block.to)
+      if (renderedBlock) {
+        if (line.number === view.state.doc.lines) break
+        line = view.state.doc.line(line.number + 1)
+        continue
+      }
       if (frontmatterEnd > 0 && line.from < frontmatterEnd && !editingFrontmatter) {
         ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-frontmatter' }) })
         if (line.number === view.state.doc.lines) break
@@ -285,7 +481,14 @@ function liveEditDecorationSet(view: EditorView) {
         ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: evidenceLink ? 'cm-md-evidence-link' : callout ? 'cm-md-callout' : 'cm-md-quote' }) })
         if (!isActive(line.from, line.to) && (callout || quote)) ranges.push({ from: line.from, to: line.from + (callout ?? quote)![0].length, decoration: Decoration.replace({}) })
       }
-      else if (/^\s*- \[[ xX]\]\s/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-task' }) })
+      else if (/^\s*- \[[ xX]\]\s/.test(text)) {
+        ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-task' }) })
+        const marker = text.match(/^\s*- (\[[ xX]\])\s/)
+        if (marker && !isActive(line.from, line.to)) {
+          const from = line.from + marker[0].indexOf(marker[1])
+          ranges.push({ from, to: from + 3, decoration: Decoration.replace({ widget: new RenderedTaskCheckbox(from, /[xX]/.test(marker[1])) }) })
+        }
+      }
       else if (/^\s*(?:[-*+] |\d+\. )/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-list' }) })
       else if (/^\s*```/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-code-fence' }) })
       else if (/^\s*\$\$/.test(text)) ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-math-fence' }) })
@@ -465,7 +668,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -584,7 +787,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 

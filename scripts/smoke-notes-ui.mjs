@@ -167,7 +167,8 @@ try {
   await sleep(400)
   previousClipboard = await readSystemClipboard()
 
-  assert(await notesConnection.evaluate(`document.querySelector('.notes-modebar button.active')?.textContent.includes('Live Edit')`), 'Live Edit was not the default mode.')
+  const initialNotesState = await notesConnection.evaluate(`({ activeMode: document.querySelector('.notes-modebar button.active')?.textContent, fatal: document.querySelector('.fatal-error')?.textContent, body: document.body.innerText.slice(0, 500) })`)
+  assert(initialNotesState.activeMode?.includes('Live Edit'), `Live Edit was not the default mode: ${JSON.stringify(initialNotesState)}`)
   assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.getAttribute('aria-label')`) === 'Editor fixture Markdown 노트', 'CodeMirror editor was not accessible.')
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.cm-live-edit .cm-md-h1'))`), 'Live Edit did not present Markdown as a styled document.')
   assert(await notesConnection.evaluate(`[...document.querySelectorAll('.cm-md-frontmatter')].every((line) => getComputedStyle(line).display === 'none')`), 'Live Edit exposed frontmatter immediately after loading the note.')
@@ -189,18 +190,23 @@ try {
     const handles = [...document.querySelectorAll('.cm-block-drag-handle')]
     const source = handles.find((handle) => handle.title.includes('Item | Value'))
     const target = handles.find((handle) => handle.title.includes('[!note] Evidence'))
-    if (!source || !target) return false
+    if (!source || !target) return { found: false, titles: handles.map((handle) => handle.title) }
     const dataTransfer = new DataTransfer()
     source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }))
     const line = target.closest('.cm-line'); const bounds = line.getBoundingClientRect()
     line.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer, clientX: bounds.left + 20, clientY: bounds.top + 1 }))
     line.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer, clientX: bounds.left + 20, clientY: bounds.top + 1 }))
     source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }))
-    return true
+    return { found: true, source: source.dataset.blockPosition, transfer: dataTransfer.getData('application/x-prism-markdown-block'), targetText: line.textContent, bounds: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height } }
   })()`)
-  assert(dragged, 'The table and callout block drag fixture was not found.')
+  assert(dragged.found, `The table and callout block drag fixture was not found: ${JSON.stringify(dragged)}`)
   const reorderedNote = initialNote.replace(`> [!note] Evidence\n> Preserve this Obsidian callout.\n\n| Item | Value |\n| --- | --- |\n| Loss | $L_2$ |`, `| Item | Value |\n| --- | --- |\n| Loss | $L_2$ |\n\n> [!note] Evidence\n> Preserve this Obsidian callout.`)
-  await waitFor(async () => await fs.readFile(notePath, 'utf8') === reorderedNote, 'Dragging the table before the callout did not save the exact reordered Markdown.')
+  try {
+    await waitFor(async () => await fs.readFile(notePath, 'utf8') === reorderedNote, 'Dragging the table before the callout did not save the exact reordered Markdown.')
+  } catch (error) {
+    const actual = await fs.readFile(notePath, 'utf8')
+    throw new Error(`${error.message} Drag state: ${JSON.stringify(dragged)} Actual Markdown: ${JSON.stringify(actual)}`)
+  }
   const blockDragScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const blockDragScreenshotPath = path.resolve('tmp/ui/notes-block-drag.png')
   await fs.writeFile(blockDragScreenshotPath, Buffer.from(blockDragScreenshot.data, 'base64'))
@@ -561,7 +567,12 @@ try {
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('button[aria-label="목적함수 연결 아이디어 AI 관계 거절"]'))`), 'The second pending relation did not appear for rejection.')
   const markdownBeforeReject = await fs.readFile(paperSuggestionPath, 'utf8')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="목적함수 연결 아이디어 AI 관계 거절"]').click()`)
-  await waitFor(async () => (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).some((item) => item.id === rejectedFixture.relation.id && item.reviewStatus === 'rejected'), 'Rejecting an AI relation did not persist its reviewed status.')
+  try {
+    await waitFor(async () => (await notesConnection.evaluate(`window.prism.listKnowledgeRelations(${JSON.stringify(createdTypes[0])})`)).some((item) => item.id === rejectedFixture.relation.id && item.reviewStatus === 'rejected'), 'Rejecting an AI relation did not persist its reviewed status.')
+  } catch (reason) {
+    const reviewDebug = await notesConnection.evaluate(`({ footer: document.querySelector('.knowledge-manager > footer')?.textContent, title: document.querySelector('.knowledge-heading h3')?.textContent, relations: document.querySelector('.knowledge-relations')?.textContent })`)
+    throw new Error(`${reason.message} Debug: ${JSON.stringify(reviewDebug)}`)
+  }
   assert(await fs.readFile(paperSuggestionPath, 'utf8') === markdownBeforeReject, 'Rejecting an AI relation changed user Markdown.')
   assert(!(await notesConnection.evaluate(`window.prism.retrieveResearchContext('수동 Paper 노트')`)).relations.some((item) => item.id === rejectedFixture.relation.id), 'Graph-grounded retrieval followed a rejected AI relation.')
   assert(duplicateConceptId.startsWith('concept-'), 'The duplicate Concept fixture did not retain a stable ID.')
@@ -796,12 +807,65 @@ try {
   await waitFor(async () => await fs.readFile(notePath, 'utf8') === localOverwrite, 'Explicit overwrite did not atomically save the local version.')
   assert(await fs.readFile(notePath, 'utf8') === localOverwrite, 'Explicit overwrite did not atomically save the local version.')
 
-  await notesConnection.evaluate(`document.querySelector('button[aria-label="제목 블록 삽입"]').click()`)
+  const toolbarCases = [
+    ['글머리표 목록 삽입', '- 목록 항목'],
+    ['번호 목록 삽입', '1. 목록 항목'],
+    ['체크박스 삽입', '- [ ] 할 일'],
+    ['인용 블록 삽입', '> 인용문'],
+    ['Callout 삽입', '> [!note] 메모'],
+    ['표 삽입', '| 항목 | 내용 |'],
+    ['코드 블록 삽입', '```\n코드를 입력하세요\n```'],
+    ['수식 블록 삽입', '$$\n수식을 입력하세요\n$$'],
+    ['이미지 삽입', '![이미지 설명](Assets/image.png)'],
+    ['구분선 삽입', '\n---'],
+    ['제목 블록 삽입', '## 제목'],
+  ]
+  await replaceEditor(notesConnection, localOverwrite)
+  await waitFor(async () => await fs.readFile(notePath, 'utf8') === localOverwrite, 'The editor did not reset before testing the toolbar commands.')
+  await pressKey(notesConnection, 'End', 'End', process.platform === 'darwin' ? 4 : 2)
+  for (const [label, expected] of toolbarCases) {
+    await notesConnection.evaluate(`document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`)
+    await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes(expected), `The ${label} toolbar command did not insert and save its Markdown block.`)
+    await pressKey(notesConnection, 'End', 'End', process.platform === 'darwin' ? 4 : 2)
+  }
+  await waitFor(async () => { const saved = await fs.readFile(notePath, 'utf8'); return toolbarCases.every(([, expected]) => saved.includes(expected)) }, 'The toolbar blocks were not saved together as Markdown.')
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('제목')`), 'The toolbar did not update the editor document.')
   const toolbarState = await notesConnection.evaluate(`({ updated: document.querySelector('.cm-content')?.textContent.includes('제목'), conflict: Boolean(document.querySelector('.notes-conflict')), disabled: document.querySelector('button[aria-label="제목 블록 삽입"]')?.disabled, mode: document.querySelector('.notes-modebar button.active')?.textContent })`)
   assert(toolbarState.updated, `The toolbar did not update the editor document: ${JSON.stringify(toolbarState)}`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('## 제목'), 'The toolbar did not insert a heading block.')
   assert((await fs.readFile(notePath, 'utf8')).includes('## 제목'), 'The toolbar did not insert a heading block.')
+
+  const documentBlockState = await notesConnection.evaluate(`(() => ({
+    tables: document.querySelectorAll('.cm-rendered-table').length,
+    math: document.querySelectorAll('.cm-rendered-math .katex').length,
+    images: [...document.querySelectorAll('.cm-rendered-image')].map((element) => element.textContent),
+    code: [...document.querySelectorAll('.cm-rendered-code code')].map((element) => element.textContent),
+    dividers: document.querySelectorAll('.cm-rendered-divider hr').length,
+    tasks: document.querySelectorAll('.cm-rendered-task-checkbox').length,
+  }))()`)
+  assert(documentBlockState.tables >= 1, `Live Edit did not render an inactive Markdown table: ${JSON.stringify(documentBlockState)}`)
+  assert(documentBlockState.math >= 1, `Live Edit did not typeset an inactive math block: ${JSON.stringify(documentBlockState)}`)
+  assert(documentBlockState.images.some((text) => text.includes('이미지 설명') && text.includes('Assets/image.png')), `Live Edit did not render the image block metadata: ${JSON.stringify(documentBlockState)}`)
+  assert(documentBlockState.code.some((text) => text.includes('코드를 입력하세요')), `Live Edit did not render an inactive fenced code block: ${JSON.stringify(documentBlockState)}`)
+  assert(documentBlockState.dividers >= 1, `Live Edit did not render an inactive Markdown divider: ${JSON.stringify(documentBlockState)}`)
+  assert(documentBlockState.tasks >= 1, `Live Edit did not expose an interactive task checkbox: ${JSON.stringify(documentBlockState)}`)
+
+  const documentBlocksScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const documentBlocksScreenshotPath = path.resolve('tmp/ui/notes-document-blocks.png')
+  await fs.mkdir(path.dirname(documentBlocksScreenshotPath), { recursive: true })
+  await fs.writeFile(documentBlocksScreenshotPath, Buffer.from(documentBlocksScreenshot.data, 'base64'))
+
+  const visibleTableCount = documentBlockState.tables
+  await notesConnection.evaluate(`document.querySelector('.cm-rendered-table').dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.cm-rendered-table').length < ${visibleTableCount}`), 'Clicking a rendered table did not reveal its source Markdown for editing.')
+  assert(await notesConnection.evaluate(`[...document.querySelectorAll('.cm-line')].some((line) => line.textContent.includes('| Item | Value |') || line.textContent.includes('| 항목 | 내용 |'))`), 'The rendered table did not reveal its Markdown rows after activation.')
+  await pressKey(notesConnection, 'End', 'End', process.platform === 'darwin' ? 4 : 2)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.cm-rendered-table').length >= ${visibleTableCount}`), 'Leaving the table source did not restore its document rendering.')
+
+  await notesConnection.evaluate(`document.querySelector('.cm-rendered-task-checkbox').click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('- [x] 할 일'), 'Toggling the document checkbox did not save checked Markdown.')
+  await notesConnection.evaluate(`document.querySelector('.cm-rendered-task-checkbox').click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('- [ ] 할 일'), 'Toggling the document checkbox back did not save unchecked Markdown.')
 
   await notesConnection.evaluate(`document.querySelector('.cm-content').focus()`)
   for (const key of ['ArrowRight', 'Enter', 'Enter']) {
@@ -826,7 +890,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Paper reading status, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, exact Markdown block dragging, Windows Ctrl and macOS Cmd history shortcuts, native multiline Markdown paste, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${foldedSectionScreenshotPath}, ${blockDragScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${readingStatusScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Paper reading status, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, exact Markdown block dragging, Windows Ctrl and macOS Cmd history shortcuts, native multiline Markdown paste, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, interactive document blocks, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${documentBlocksScreenshotPath}, ${foldedSectionScreenshotPath}, ${blockDragScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${readingStatusScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)
   notesConnection?.socket.close()

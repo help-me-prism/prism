@@ -13,6 +13,37 @@
 .notes-notice span { flex: 1; }
 .notes-notice button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; }
 
+.cm-rendered-block {
+  width: min(100%, 760px);
+  box-sizing: border-box;
+  margin: 8px 0;
+  border: 1px solid #ded9cf;
+  border-radius: 7px;
+  background: #fff;
+  cursor: text;
+}
+
+.cm-rendered-block:focus { outline: 2px solid #aa9de6; outline-offset: 2px; }
+.cm-rendered-table { overflow-x: auto; }
+.cm-rendered-table table { width: 100%; border-collapse: collapse; font: 11px/1.5 Inter, Arial, sans-serif; }
+.cm-rendered-table th, .cm-rendered-table td { min-width: 72px; padding: 7px 9px; border-right: 1px solid #e2ddd4; border-bottom: 1px solid #e2ddd4; text-align: left; }
+.cm-rendered-table th { background: #f3f0e9; color: #4b4741; font-weight: 650; }
+.cm-rendered-table tr:last-child td { border-bottom: 0; }
+.cm-rendered-table th:last-child, .cm-rendered-table td:last-child { border-right: 0; }
+.cm-rendered-math { overflow-x: auto; padding: 9px 12px; background: #f8f6fc; color: #403873; text-align: center; }
+.cm-rendered-math .katex-display { margin: 0; }
+.cm-rendered-image { min-height: 76px; display: flex; align-items: center; gap: 12px; padding: 10px; }
+.cm-rendered-image > div { width: 54px; height: 54px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 6px; background: #efecf6; color: #7462b3; font-size: 24px; }
+.cm-rendered-image img { max-width: min(100%, 480px); max-height: 280px; border-radius: 5px; object-fit: contain; }
+.cm-rendered-image figcaption { min-width: 0; color: #4d4943; font: 11px/1.45 Inter, Arial, sans-serif; }
+.cm-rendered-image figcaption small { display: block; overflow: hidden; margin-top: 4px; color: #908a81; text-overflow: ellipsis; white-space: nowrap; }
+.cm-rendered-code { position: relative; overflow: hidden; border-color: #393731; background: #302e29; color: #eeeae2; }
+.cm-rendered-code > small { position: absolute; top: 7px; right: 10px; color: #9f9a90; font: 8px/1.3 Inter, Arial, sans-serif; text-transform: uppercase; }
+.cm-rendered-code pre { overflow-x: auto; margin: 0; padding: 12px 14px; font: 10px/1.6 "Cascadia Code", Consolas, monospace; white-space: pre; }
+.cm-rendered-divider { position: relative; min-height: 22px; border: 0; background: transparent; }
+.cm-rendered-divider hr { margin: 10px 0; border: 0; border-top: 1px solid #d8d2c8; }
+.cm-rendered-task-checkbox { width: 14px; height: 14px; margin: 0 5px 0 0; vertical-align: -2px; accent-color: #7562c7; cursor: pointer; }
+
 .notes-conflict-backdrop {
   position: absolute;
   inset: 0;
