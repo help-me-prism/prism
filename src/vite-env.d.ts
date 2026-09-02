@@ -29,6 +29,8 @@ type KnowledgeLevel = 'low' | 'medium' | 'high'
 type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; relativePath: string; revision: string; modifiedAt: number }
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
+type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 
 interface Window {
   prism: {
@@ -59,6 +61,9 @@ interface Window {
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<KnowledgeNodeRecord[]>
+    listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
+    openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
+    onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>

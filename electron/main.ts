@@ -755,6 +755,18 @@ ipcMain.handle('knowledge:delete', async (_event, id: string) => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return deleteKnowledgeNode(settings.libraryPath, String(id))
 })
+ipcMain.handle('evidence:list', async () => [])
+ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anchorId?: unknown; type?: unknown; page?: unknown; label?: unknown }) => {
+  const validTypes = new Set(['sentence', 'equation', 'table', 'figure', 'page'])
+  if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId)
+    || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300
+    || typeof anchor.type !== 'string' || !validTypes.has(anchor.type)
+    || !Number.isInteger(anchor.page) || Number(anchor.page) < 1 || Number(anchor.page) > 100_000
+    || typeof anchor.label !== 'string' || anchor.label.length < 1 || anchor.label.length > 300) throw new Error('PDF 근거 위치가 올바르지 않습니다.')
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('evidence:open-requested', anchor)
+  return true
+})
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
   if (typeof dataUrl !== 'string' || dataUrl.length > 30_000_000) throw new Error('피겨 이미지가 너무 큽니다.')
