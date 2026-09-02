@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
-import { listTemplates, type KnowledgeNodeType } from './templates.js'
+import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
 export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
@@ -18,7 +18,8 @@ export type KnowledgeNodeRecord = {
   revision: string
   modifiedAt: number
 }
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
+export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
@@ -27,6 +28,7 @@ const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', conce
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
+const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
 
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
 function field(source: string, key: string) {
@@ -50,8 +52,8 @@ function parseNode(source: string) {
     templateId: field(frontmatter[1], 'template_id'),
   }
 }
-function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; body: string }) {
-  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\nimportance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
+function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
+  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\nimportance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
 }
 function updateFrontmatter(source: string, patch: KnowledgePropertyPatch) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -158,10 +160,47 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
   const directory = path.join(libraryPath, folderByType[request.nodeType])
   let filePath = path.join(directory, `${title}.md`); let suffix = 2
   while (true) { try { await fs.access(filePath); filePath = path.join(directory, `${title} ${suffix}.md`); suffix += 1 } catch { break } }
-  const body = (template?.content ?? '# {{title}}\n\n').replaceAll('{{title}}', title)
-  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, body })
+  const values: Record<string, string> = { title, date: new Date().toISOString().slice(0, 10) }
+  for (const [key, value] of Object.entries(request.variables ?? {})) {
+    if (!templateVariables.has(key) || typeof value !== 'string' || value.length > 2_000) throw new Error('지원하지 않는 템플릿 변수이거나 값이 너무 깁니다.')
+    values[key] = value
+  }
+  const body = (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
+  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })
+  if (template) await markTemplateUsed(libraryPath, template.id).catch(() => undefined)
   return { nodes: await listKnowledgeNodes(libraryPath), id }
+}
+
+function headingName(line: string) { return line.replace(/^#{2,6}\s+/, '').replace(/\s+#+\s*$/, '').trim() }
+function normalizedHeading(line: string) { return headingName(line).replace(/[*_`]/g, '').replace(/\s+/g, ' ').toLocaleLowerCase() }
+function missingTemplateSections(template: string, source: string, title: string) {
+  const expanded = template.replace(/\{\{title\}\}/g, title).replace(/\{\{date\}\}/g, new Date().toISOString().slice(0, 10))
+  const lines = expanded.split(/\r?\n/); const headings: Array<{ index: number; level: number; line: string }> = []
+  lines.forEach((line, index) => { const match = line.match(/^(#{2,6})\s+\S/); if (match) headings.push({ index, level: match[1].length, line }) })
+  const existing = new Set([...source.matchAll(/^#{2,6}\s+.+$/gm)].map((match) => normalizedHeading(match[0])))
+  const additions: string[] = []; const addedHeadings: string[] = []
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index]; const key = normalizedHeading(heading.line)
+    if (existing.has(key)) continue
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level)
+    const block = lines.slice(heading.index, next?.index ?? lines.length).join('\n').trimEnd()
+    additions.push(block); addedHeadings.push(headingName(heading.line))
+    for (const nested of headings.filter((candidate) => candidate.index >= heading.index && candidate.index < (next?.index ?? lines.length))) existing.add(normalizedHeading(nested.line))
+  }
+  return { additions, addedHeadings }
+}
+
+export async function applyTemplateSections(libraryPath: string, request: ApplyTemplateSectionsRequest) {
+  const node = await findNode(libraryPath, request.nodeId)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  const template = (await listTemplates(libraryPath)).find((item) => item.id === request.templateId && item.nodeType === node.parsed.nodeType)
+  if (!template) throw new Error('이 노트 유형에 맞는 템플릿을 찾을 수 없습니다.')
+  if (node.snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: node.snapshot }
+  const missing = missingTemplateSections(template.content, node.snapshot.content, node.parsed.title)
+  if (!missing.additions.length) return { saved: true as const, snapshot: node.snapshot, addedHeadings: [] }
+  const result = await saveNoteSnapshot(node.filePath, { content: `${node.snapshot.content.trimEnd()}\n\n${missing.additions.join('\n\n')}\n`, expectedRevision: request.expectedRevision })
+  return result.saved ? { saved: true as const, snapshot: result.snapshot, addedHeadings: missing.addedHeadings } : result
 }
 
 export async function readKnowledgeNode(libraryPath: string, id: string) {

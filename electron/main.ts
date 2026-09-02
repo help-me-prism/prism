@@ -8,8 +8,8 @@ import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
-import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
+import { applyTemplateSections, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
@@ -742,6 +742,12 @@ ipcMain.handle('templates:set-default', async (_event, nodeType: KnowledgeNodeTy
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return setDefaultTemplate(settings.libraryPath, nodeType, String(id))
 })
+ipcMain.handle('templates:set-favorite', async (_event, id: string, favorite: boolean) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(id) || typeof favorite !== 'boolean') throw new Error('템플릿 즐겨찾기 정보가 올바르지 않습니다.')
+  return setFavoriteTemplate(settings.libraryPath, id, favorite)
+})
 ipcMain.handle('knowledge:list', async () => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -785,8 +791,14 @@ ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpe
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string')) throw new Error('지식 노트 정보가 올바르지 않습니다.')
+  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables)))) throw new Error('지식 노트 정보가 올바르지 않습니다.')
   return createKnowledgeNode(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:apply-template-sections', async (_event, request: ApplyTemplateSectionsRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId) || typeof request.templateId !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.templateId) || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('템플릿 섹션 추가 정보가 올바르지 않습니다.')
+  return applyTemplateSections(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:read', async (_event, id: string) => {
   const settings = await readSettings()

@@ -84,10 +84,16 @@
 .template-manager-body > aside button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: #65615a; text-align: left; cursor: pointer; }
 .template-manager-body > aside button:hover, .template-manager-body > aside button.active { background: #e5e1d9; color: #423f3a; }
 .template-manager-body > aside button.template-new { min-height: 32px; justify-content: center; margin-bottom: 8px; border: 1px dashed #c8c1b6; background: #faf8f4; }
+.template-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; margin-bottom: 7px; }
+.template-manager-body > aside .template-filters button { min-height: 25px; justify-content: center; gap: 3px; padding: 0 3px; border: 1px solid transparent; border-radius: 6px; font-size: 7px; }
+.template-manager-body > aside .template-filters button.active { border-color: #c9c1d5; background: #e7e2ec; color: #66577f; }
+.template-manager-body > aside .template-filters svg { width: 9px; }
 .template-manager-body > aside button span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .template-manager-body > aside button small { color: #918b82; font-size: 7px; text-transform: uppercase; }
 .template-manager-body > aside button strong { overflow: hidden; font-size: 9px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .template-manager-body > aside svg { flex: 0 0 auto; color: #9a7b34; }
+.template-manager-body > aside button > i { display: flex; align-items: center; gap: 3px; font-style: normal; }
+.template-empty { margin: 22px 8px; color: #948e86; font-size: 8px; line-height: 1.5; text-align: center; }
 .template-manager-body > main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .template-fields { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #e2ded6; background: #f8f6f2; }
 .template-fields label { display: flex; flex-direction: column; gap: 5px; color: #817b72; font-size: 8px; font-weight: 700; }
@@ -99,7 +105,7 @@
 .template-loading { display: grid; flex: 1; place-items: center; color: #8d887f; font-size: 10px; }
 .template-manager > footer { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-top: 1px solid #dfdbd3; background: #f8f6f2; }
 .template-manager > footer > span { min-width: 0; overflow: hidden; color: #9a6335; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.template-manager > footer > div { display: flex; gap: 6px; }
+.template-manager > footer > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .template-manager > footer button { height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid #d4cec4; border-radius: 7px; background: #fff; color: #5e5952; font-size: 8px; cursor: pointer; }
 .template-manager > footer button:disabled { opacity: .4; cursor: default; }
 .template-manager > footer button.primary { border-color: #7868bc; background: #7868bc; color: #fff; }
@@ -150,6 +156,15 @@
 .knowledge-heading { min-height: 88px; display: flex; align-items: stretch; flex-direction: column; justify-content: center; gap: 7px; padding: 9px 14px; border-bottom: 1px solid #e1ddd5; background: #f8f6f2; }
 .knowledge-heading > div:first-child { min-width: 0; }
 .knowledge-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }.knowledge-title-row > div:first-child { min-width: 0; }.knowledge-title-actions { flex: 0 0 auto; display: flex; gap: 5px; }.knowledge-title-actions > button { height: 24px; display: flex; align-items: center; gap: 4px; padding: 0 7px; border: 1px solid #c9c5bc; border-radius: 11px; background: #fff; color: #655d70; font-size: 7px; cursor: pointer; }.knowledge-title-actions > button:hover { border-color: #a99bc5; background: #f2eef8; color: #6553a0; }
+.template-section-picker { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-bottom: 1px solid #dcd5e5; background: #f3eff8; }
+.template-section-picker > div { min-width: 0; flex: 1; }
+.template-section-picker strong, .template-section-picker small { display: block; }
+.template-section-picker strong { color: #4b4355; font-size: 8px; }
+.template-section-picker small { margin-top: 2px; color: #847a8e; font-size: 7px; }
+.template-section-picker select { min-width: 150px; max-width: 240px; height: 28px; padding: 0 24px 0 8px; border: 1px solid #cfc5dc; border-radius: 7px; background: #fff; color: #554d60; font-size: 8px; }
+.template-section-picker > button { height: 28px; padding: 0 9px; border: 1px solid #c4b6d4; border-radius: 7px; background: #fff; color: #67548e; font-size: 8px; cursor: pointer; }
+.template-section-picker > button:last-child { width: 28px; display: grid; place-items: center; padding: 0; border-color: transparent; background: transparent; }
+.template-section-picker > button:disabled { opacity: .45; cursor: default; }
 .knowledge-heading small { display: block; overflow: hidden; margin-bottom: 4px; color: #918b83; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-heading h3 { overflow: hidden; margin: 0; color: #393631; font: 600 15px Georgia, "Noto Serif KR Variable", serif; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-properties { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px; }
@@ -260,6 +275,12 @@
 .knowledge-create input, .knowledge-create select { height: 34px; padding: 0 10px; border: 1px solid #d4cec4; border-radius: 7px; outline: 0; background: #fff; color: #46423d; font-size: 10px; }
 .knowledge-create input:focus, .knowledge-create select:focus { border-color: #8171c1; box-shadow: 0 0 0 2px rgba(120, 103, 190, .12); }
 .knowledge-create button.primary { height: 34px; float: right; padding: 0 13px; border: 0; border-radius: 7px; background: #7767b9; color: #fff; font-size: 9px; cursor: pointer; }
+.knowledge-template-variables { margin: 0 0 12px; border: 1px solid #ddd6ca; border-radius: 8px; background: #fff; }
+.knowledge-template-variables summary { padding: 9px 10px; color: #665f56; font-size: 8px; font-weight: 700; cursor: pointer; }
+.knowledge-template-variables summary small { margin-left: 5px; color: #999188; font-size: 7px; font-weight: 400; }
+.knowledge-template-variables > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; padding: 2px 10px 9px; }
+.knowledge-template-variables label { margin-bottom: 7px; }
+.knowledge-template-variables input { height: 29px; font-size: 8px; }
 .knowledge-loading { display: grid; flex: 1; place-items: center; color: #8d887f; font-size: 10px; }
 .knowledge-manager > footer { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-top: 1px solid #dfdbd3; background: #f8f6f2; }
 .knowledge-manager > footer > span { min-width: 0; overflow: hidden; color: #9a6335; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }

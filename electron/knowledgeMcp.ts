@@ -6,7 +6,7 @@ import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
 import { listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
 import { searchResearchKnowledge } from './researchSearch.js'
-import { listTemplates } from './templates.js'
+import { listTemplates, markTemplateUsed } from './templates.js'
 
 type EmbeddedEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
 type OpenAnchorRequest = { version: 1; requestId: string; requestedAt: string; paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }
@@ -140,8 +140,9 @@ export async function mcpCreateNoteDraft(libraryPath: string, templateId: string
   if (names.some((name) => name.toLocaleLowerCase() === `${title}.md`.toLocaleLowerCase())) throw new Error('같은 제목의 지식 노트가 이미 있습니다.')
   const id = `${template.nodeType}-${randomUUID().slice(0, 12)}`
   const body = template.content.replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token).replace(/^\s+/, '')
-  const content = `---\ntype: ${template.nodeType}\nprism_id: ${JSON.stringify(id)}\ntitle: ${JSON.stringify(title)}\nstatus: inbox\nimportance: medium\nconfidence: low\ncreated_by: ai\ndraft: true\ntemplate_id: ${JSON.stringify(template.id)}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${body}`
+  const content = `---\ntype: ${template.nodeType}\nprism_id: ${JSON.stringify(id)}\ntitle: ${JSON.stringify(title)}\nstatus: inbox\nimportance: medium\nconfidence: low\ncreated_by: ai\ndraft: true\ntemplate_id: ${JSON.stringify(template.id)}\ntemplate_version: ${JSON.stringify(template.revision)}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${body}`
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })
+  await markTemplateUsed(libraryPath, template.id).catch(() => undefined)
   const node = (await listKnowledgeNodes(libraryPath)).find((item) => item.id === id)
   if (!node) throw new Error('생성한 초안 노트를 다시 읽을 수 없습니다.')
   return { node, created: true as const }

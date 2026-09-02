@@ -4,7 +4,7 @@ import path from 'node:path'
 import { readNoteSnapshot, saveNoteSnapshot } from './notes.js'
 
 export type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
-export type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean }
+export type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
 export type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
 
 const nodeTypes = new Set<KnowledgeNodeType>(['paper', 'concept', 'claim', 'insight', 'question', 'project'])
@@ -20,6 +20,7 @@ const initialTemplates: Array<{ id: string; name: string; nodeType: KnowledgeNod
 
 function templatesPath(libraryPath: string) { return path.join(libraryPath, 'Templates') }
 function defaultsPath(libraryPath: string) { return path.join(libraryPath, '.prism', 'template-defaults.json') }
+function preferencesPath(libraryPath: string) { return path.join(libraryPath, '.prism', 'template-preferences.json') }
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Untitled template' }
 function serializeTemplate(template: { id: string; name: string; nodeType: KnowledgeNodeType; content: string }) {
   return `---\ntype: template\ntemplate_id: ${JSON.stringify(template.id)}\nnode_type: ${template.nodeType}\nname: ${JSON.stringify(template.name)}\n---\n\n${template.content.replace(/^\s+/, '')}`
@@ -38,6 +39,16 @@ function parseTemplate(source: string) {
 }
 async function defaults(libraryPath: string): Promise<Partial<Record<KnowledgeNodeType, string>>> {
   try { return JSON.parse(await fs.readFile(defaultsPath(libraryPath), 'utf8')) as Partial<Record<KnowledgeNodeType, string>> } catch { return {} }
+}
+type TemplatePreferences = { version: 1; favorites: string[]; recent: Record<string, number> }
+async function preferences(libraryPath: string): Promise<TemplatePreferences> {
+  try {
+    const value = JSON.parse(await fs.readFile(preferencesPath(libraryPath), 'utf8')) as Partial<TemplatePreferences>
+    const favorites = Array.isArray(value.favorites) ? value.favorites.filter((id): id is string => typeof id === 'string') : []
+    const recent = value.recent && typeof value.recent === 'object' && !Array.isArray(value.recent)
+      ? Object.fromEntries(Object.entries(value.recent).filter(([id, usedAt]) => typeof id === 'string' && typeof usedAt === 'number' && Number.isFinite(usedAt))) : {}
+    return { version: 1, favorites: [...new Set(favorites)], recent }
+  } catch { return { version: 1, favorites: [], recent: {} } }
 }
 async function atomicJson(filePath: string, value: unknown) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -89,10 +100,10 @@ async function findTemplate(libraryPath: string, id: string) {
 }
 
 export async function listTemplates(libraryPath: string): Promise<TemplateRecord[]> {
-  const selectedDefaults = await defaults(libraryPath)
-  const records = await Promise.all((await templateFiles(libraryPath)).map(async (filePath) => {
+  const [selectedDefaults, selectedPreferences] = await Promise.all([defaults(libraryPath), preferences(libraryPath)])
+  const records: Array<TemplateRecord | undefined> = await Promise.all((await templateFiles(libraryPath)).map(async (filePath): Promise<TemplateRecord | undefined> => {
     const snapshot = await readNoteSnapshot(filePath); const parsed = parseTemplate(snapshot.content)
-    return parsed ? { ...parsed, revision: snapshot.revision, modifiedAt: snapshot.modifiedAt, isDefault: selectedDefaults[parsed.nodeType] === parsed.id } : undefined
+    return parsed ? { ...parsed, revision: snapshot.revision, modifiedAt: snapshot.modifiedAt, isDefault: selectedDefaults[parsed.nodeType] === parsed.id, isFavorite: selectedPreferences.favorites.includes(parsed.id), lastUsedAt: selectedPreferences.recent[parsed.id] } : undefined
   }))
   return records.filter((record): record is TemplateRecord => Boolean(record)).sort((left, right) => nodeTypeOrder[left.nodeType] - nodeTypeOrder[right.nodeType] || left.name.localeCompare(right.name))
 }
@@ -124,6 +135,9 @@ export async function deleteTemplate(libraryPath: string, id: string) {
   await fs.mkdir(path.dirname(trashPath), { recursive: true }); await fs.rename(current.filePath, trashPath)
   const selectedDefaults = await defaults(libraryPath)
   if (selectedDefaults[current.parsed.nodeType] === id) { delete selectedDefaults[current.parsed.nodeType]; await atomicJson(defaultsPath(libraryPath), selectedDefaults) }
+  const selectedPreferences = await preferences(libraryPath)
+  selectedPreferences.favorites = selectedPreferences.favorites.filter((templateId) => templateId !== id); delete selectedPreferences.recent[id]
+  await atomicJson(preferencesPath(libraryPath), selectedPreferences)
   return listTemplates(libraryPath)
 }
 
@@ -134,4 +148,19 @@ export async function setDefaultTemplate(libraryPath: string, nodeType: Knowledg
   const selectedDefaults = await defaults(libraryPath); selectedDefaults[nodeType] = id
   await atomicJson(defaultsPath(libraryPath), selectedDefaults)
   return listTemplates(libraryPath)
+}
+
+export async function setFavoriteTemplate(libraryPath: string, id: string, favorite: boolean) {
+  if (!await findTemplate(libraryPath, id)) throw new Error('템플릿을 찾을 수 없습니다.')
+  const selected = await preferences(libraryPath); const favorites = new Set(selected.favorites)
+  if (favorite) favorites.add(id); else favorites.delete(id)
+  selected.favorites = [...favorites]; await atomicJson(preferencesPath(libraryPath), selected)
+  return listTemplates(libraryPath)
+}
+
+export async function markTemplateUsed(libraryPath: string, id: string) {
+  if (!await findTemplate(libraryPath, id)) return
+  const selected = await preferences(libraryPath); selected.recent[id] = Date.now()
+  const bounded = Object.entries(selected.recent).sort((left, right) => right[1] - left[1]).slice(0, 20)
+  selected.recent = Object.fromEntries(bounded); await atomicJson(preferencesPath(libraryPath), selected)
 }

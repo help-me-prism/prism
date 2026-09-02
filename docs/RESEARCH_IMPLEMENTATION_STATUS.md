@@ -23,12 +23,14 @@
 
 ## 남은 구현 묶음
 
-### A. 템플릿 수명주기
+### A. 템플릿 수명주기 — 완료
 
 - 즐겨찾기와 최근 사용 템플릿을 화면에 제공한다.
 - 생성 노트에 재현 가능한 `template_version`을 기록한다.
 - 기존 노트에 사용자가 고른 템플릿의 누락된 섹션만 추가하고 기존 본문은 바꾸지 않는다.
 - `title` 외 기본 변수도 노트 생성 화면에서 필요한 값만 선택적으로 채울 수 있게 한다.
+
+검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-template-lifecycle.png`, `notes-template-missing-sections.png`.
 
 ### B. 편집기 안의 연결 작성
 

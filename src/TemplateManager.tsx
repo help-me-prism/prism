@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, FilePlus2, Save, Star, Trash2, X } from 'lucide-react'
+import { Bookmark, Clock3, Copy, FilePlus2, Save, Star, Trash2, X } from 'lucide-react'
 import MarkdownEditor from './MarkdownEditor'
 
 const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question', project: 'Project' }
@@ -16,7 +16,9 @@ export default function TemplateManager({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteReady, setDeleteReady] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'favorite' | 'recent'>('all')
   const selected = useMemo(() => templates.find((template) => template.id === draft.id), [templates, draft.id])
+  const visibleTemplates = useMemo(() => templates.filter((template) => filter === 'all' || (filter === 'favorite' ? template.isFavorite : template.lastUsedAt)).sort((left, right) => Number(right.isFavorite) - Number(left.isFavorite) || (right.lastUsedAt ?? 0) - (left.lastUsedAt ?? 0) || left.name.localeCompare(right.name)), [templates, filter])
 
   useEffect(() => {
     window.prism.listTemplates().then((items) => { setTemplates(items); if (items[0]) setDraft(fromTemplate(items[0])); setLoading(false) }).catch((reason) => { setError(String(reason)); setLoading(false) })
@@ -70,6 +72,10 @@ export default function TemplateManager({ onClose }: { onClose: () => void }) {
     if (!draft.id || dirty) { setError('템플릿을 먼저 저장하세요.'); return }
     try { setTemplates(await window.prism.setDefaultTemplate(draft.nodeType, draft.id)); setError('') } catch (reason) { setError(String(reason)) }
   }
+  async function toggleFavorite() {
+    if (!draft.id || dirty) { setError('템플릿을 먼저 저장하세요.'); return }
+    try { setTemplates(await window.prism.setFavoriteTemplate(draft.id, !selected?.isFavorite)); setError('') } catch (reason) { setError(String(reason)) }
+  }
   function discardChanges() {
     if (selected) setDraft(fromTemplate(selected))
     else setDraft({ name: '새 Paper 템플릿', nodeType: 'paper', content: '# {{title}}\n\n' })
@@ -80,7 +86,7 @@ export default function TemplateManager({ onClose }: { onClose: () => void }) {
     <section className="template-manager" role="dialog" aria-modal="true" aria-labelledby="template-manager-title">
       <header><div><h2 id="template-manager-title">개인 템플릿</h2><p>Markdown 파일로 보관되어 Obsidian에서도 그대로 편집할 수 있습니다.</p></div><button aria-label="템플릿 닫기" onClick={() => dirty ? setError('변경 내용을 저장하거나 취소한 뒤 닫으세요.') : onClose()}><X size={16} /></button></header>
       <div className="template-manager-body">
-        <aside><button className="template-new" onClick={createNew}><FilePlus2 size={13} /> 새 템플릿</button><div>{templates.map((template) => <button key={template.id} className={template.id === draft.id ? 'active' : ''} onClick={() => choose(template)}><span><small>{typeLabels[template.nodeType]}</small><strong>{template.name}</strong></span>{template.isDefault && <Star size={12} fill="currentColor" aria-label="기본 템플릿" />}</button>)}</div></aside>
+        <aside><button className="template-new" onClick={createNew}><FilePlus2 size={13} /> 새 템플릿</button><nav className="template-filters" aria-label="템플릿 목록 필터"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>전체</button><button className={filter === 'favorite' ? 'active' : ''} onClick={() => setFilter('favorite')}><Bookmark size={10} /> 즐겨찾기</button><button className={filter === 'recent' ? 'active' : ''} onClick={() => setFilter('recent')}><Clock3 size={10} /> 최근</button></nav><div>{visibleTemplates.map((template) => <button key={template.id} className={template.id === draft.id ? 'active' : ''} onClick={() => choose(template)}><span><small>{typeLabels[template.nodeType]}{template.lastUsedAt ? ` · 최근 ${new Date(template.lastUsedAt).toLocaleDateString()}` : ''}</small><strong>{template.name}</strong></span><i>{template.isFavorite && <Bookmark size={11} fill="currentColor" aria-label="즐겨찾기 템플릿" />}{template.isDefault && <Star size={12} fill="currentColor" aria-label="기본 템플릿" />}</i></button>)}{!visibleTemplates.length && <p className="template-empty">표시할 템플릿이 없습니다.</p>}</div></aside>
         <main>
           {loading ? <div className="template-loading">템플릿을 불러오는 중…</div> : <>
             <div className="template-fields"><label><span>이름</span><input aria-label="템플릿 이름" value={draft.name} onChange={(event) => change({ name: event.target.value })} /></label><label><span>노트 유형</span><select aria-label="템플릿 노트 유형" value={draft.nodeType} onChange={(event) => change({ nodeType: event.target.value as KnowledgeNodeType })}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
@@ -88,7 +94,7 @@ export default function TemplateManager({ onClose }: { onClose: () => void }) {
           </>}
         </main>
       </div>
-      <footer><span>{error || (dirty ? '저장되지 않은 변경 사항이 있습니다.' : selected?.isDefault ? `${typeLabels[selected.nodeType]} 기본 템플릿` : '')}</span><div>{draft.id && <button className={deleteReady ? 'danger' : ''} onClick={() => void remove()}><Trash2 size={13} /> {deleteReady ? '삭제 확인' : '삭제'}</button>}<button disabled={dirty || !draft.id || selected?.isDefault} onClick={() => void makeDefault()}><Star size={13} /> 기본값</button><button onClick={() => void duplicate()}><Copy size={13} /> 복제</button>{dirty && <button onClick={discardChanges}>변경 취소</button>}<button className="primary" disabled={!dirty && Boolean(draft.id)} onClick={() => void save()}><Save size={13} /> 저장</button></div></footer>
+      <footer><span>{error || (dirty ? '저장되지 않은 변경 사항이 있습니다.' : selected?.isDefault ? `${typeLabels[selected.nodeType]} 기본 템플릿` : '')}</span><div>{draft.id && <button className={deleteReady ? 'danger' : ''} onClick={() => void remove()}><Trash2 size={13} /> {deleteReady ? '삭제 확인' : '삭제'}</button>}<button disabled={dirty || !draft.id} onClick={() => void toggleFavorite()}><Bookmark size={13} fill={selected?.isFavorite ? 'currentColor' : 'none'} /> {selected?.isFavorite ? '즐겨찾기 해제' : '즐겨찾기'}</button><button disabled={dirty || !draft.id || selected?.isDefault} onClick={() => void makeDefault()}><Star size={13} /> 기본값</button><button onClick={() => void duplicate()}><Copy size={13} /> 복제</button>{dirty && <button onClick={discardChanges}>변경 취소</button>}<button className="primary" disabled={!dirty && Boolean(draft.id)} onClick={() => void save()}><Save size={13} /> 저장</button></div></footer>
     </section>
   </div>
 }
