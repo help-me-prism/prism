@@ -173,6 +173,47 @@ try {
   assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.template-manager'))`), 'The template manager did not close.')
   assert(await notesConnection.evaluate(`document.querySelectorAll('.cm-content').length`) === 1, 'The template editor remained mounted after closing.')
 
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 관리"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-create'))`), 'The empty knowledge workspace did not show its creation form.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('select[aria-label="새 지식 노트 유형"] option').length`) === 5, 'The knowledge creator did not expose every supported node type.')
+  await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label="새 지식 노트 유형"]'); const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; selectSetter.call(select, 'claim'); select.dispatchEvent(new Event('change', { bubbles: true })); const input = document.querySelector('input[aria-label="새 지식 노트 제목"]'); const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; inputSetter.call(input, '노이즈 예측은 score matching이다'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
+  await sleep(150)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-create button')].find((button) => button.textContent.includes('노트 만들기')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측')`), 'A Claim knowledge note was not opened after creation.')
+  const claimPath = path.join(libraryPath, 'Claims', '노이즈 예측은 score matching이다.md')
+  await waitFor(async () => { try { return (await fs.readFile(claimPath, 'utf8')).includes('type: claim') } catch { return false } }, 'The Claim was not stored as Markdown in the Claims folder.')
+  let claimMarkdown = await fs.readFile(claimPath, 'utf8')
+  assert(claimMarkdown.includes('prism_id: "claim-') && claimMarkdown.includes('template_id:') && claimMarkdown.includes('# 노이즈 예측은 score matching이다'), 'The generated Claim did not retain identity, template, and rendered title metadata.')
+  const createdTypes = await notesConnection.evaluate(`(async () => {
+    const inputs = [['paper', '수동 Paper 노트'], ['concept', 'Reverse diffusion'], ['insight', '목적함수 연결 아이디어'], ['question', '가중치는 품질에 어떤 영향을 주는가']];
+    const results = [];
+    for (const [nodeType, title] of inputs) results.push(await window.prism.createKnowledgeNode({ nodeType, title }));
+    return results.map((result) => result.id);
+  })()`)
+  assert(createdTypes.length === 4, 'The remaining knowledge node types were not created through the public IPC contract.')
+  for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
+
+  async function chooseKnowledgeProperty(label, value, expectedLine) {
+    await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label=${JSON.stringify(label)}]'); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, ${JSON.stringify(value)}); select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+    await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes(expectedLine), `The ${label} property was not saved.`)
+  }
+  await chooseKnowledgeProperty('지식 노트 상태', 'established', 'status: established')
+  await chooseKnowledgeProperty('지식 노트 중요도', 'high', 'importance: high')
+  await chooseKnowledgeProperty('지식 노트 확신도', 'low', 'confidence: low')
+
+  claimMarkdown = await fs.readFile(claimPath, 'utf8')
+  await replaceEditor(notesConnection, `${claimMarkdown}\n사용자가 문서형 화면에서 추가한 판단.\n`, '.knowledge-editor .cm-content')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('사용자가 문서형 화면에서 추가한 판단.'), 'The knowledge note body was not saved from Live Edit.')
+
+  const knowledgeScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const knowledgeScreenshotPath = path.resolve('tmp/ui/notes-knowledge.png')
+  await fs.mkdir(path.dirname(knowledgeScreenshotPath), { recursive: true })
+  await fs.writeFile(knowledgeScreenshotPath, Buffer.from(knowledgeScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 닫기"]').click()`)
+  await sleep(200)
+  assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-manager'))`), 'The knowledge manager did not close.')
+
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-modebar button')].find((button) => button.textContent.includes('읽기')).click()`)
   await sleep(100)
   const readState = await notesConnection.evaluate(`(() => ({
@@ -269,7 +310,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

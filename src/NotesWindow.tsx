@@ -5,9 +5,10 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, LayoutTemplate, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Sigma, StickyNote, Table2 } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, LayoutTemplate, Lightbulb, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Sigma, StickyNote, Table2 } from 'lucide-react'
 import MarkdownEditor, { type MarkdownBlockCommand, type MarkdownEditorHandle } from './MarkdownEditor'
 import TemplateManager from './TemplateManager'
+import KnowledgeManager from './KnowledgeManager'
 
 type EditorMode = 'live' | 'read' | 'split'
 
@@ -32,6 +33,7 @@ export default function NotesWindow() {
   const [notice, setNotice] = useState('')
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
   const [mode, setMode] = useState<EditorMode>(() => {
     const stored = window.localStorage.getItem('prism.notes.editorMode')
     return stored === 'read' || stored === 'split' ? stored : 'live'
@@ -159,6 +161,7 @@ export default function NotesWindow() {
             <button disabled={!loaded} aria-label="구분선 삽입" title="구분선" onClick={() => insertBlock('divider')}><Minus size={14} /></button>
           </div>
           <div className="notes-modebar" aria-label="노트 보기 모드">
+            <button aria-label="연구 지식 관리" onClick={() => setKnowledgeOpen(true)}><Lightbulb size={13} /> 지식</button>
             <button aria-label="개인 템플릿 관리" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={13} /> 템플릿</button>
             <button className={mode === 'live' ? 'active' : ''} aria-pressed={mode === 'live'} onClick={() => selectMode('live')}><PenLine size={13} /> Live Edit</button>
             <button className={mode === 'read' ? 'active' : ''} aria-pressed={mode === 'read'} onClick={() => selectMode('read')}><Eye size={13} /> 읽기</button>
@@ -172,6 +175,7 @@ export default function NotesWindow() {
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
       {error && <div className="notes-error">{error}</div>}
       {templatesOpen && <TemplateManager onClose={() => setTemplatesOpen(false)} />}
+      {knowledgeOpen && <KnowledgeManager onClose={() => setKnowledgeOpen(false)} />}
       {conflict && <div className="notes-conflict-backdrop" role="presentation">
         <section className="notes-conflict" role="dialog" aria-modal="true" aria-labelledby="notes-conflict-title">
           <header><AlertTriangle size={18} /><div><h2 id="notes-conflict-title">외부 변경과 충돌했습니다</h2><p>다른 편집기에서 이 파일을 변경했습니다. 두 버전을 비교한 뒤 보존할 내용을 선택하세요.</p></div></header>

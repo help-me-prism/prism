@@ -109,3 +109,57 @@
   .template-manager-body { grid-template-columns: 180px minmax(0, 1fr); }
   .template-fields { grid-template-columns: 1fr; }
 }
+
+.knowledge-manager-backdrop { position: absolute; inset: 0; z-index: 18; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(42, 40, 36, .4); backdrop-filter: blur(2px); }
+.knowledge-manager { width: min(1040px, 100%); height: min(720px, calc(100vh - 36px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d7d2c8; border-radius: 12px; background: #fbfaf7; box-shadow: 0 20px 55px rgba(42, 38, 31, .22); }
+.knowledge-manager > header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 12px 18px; border-bottom: 1px solid #dedad2; }
+.knowledge-manager > header > div { display: flex; align-items: center; gap: 10px; color: #7968bb; }
+.knowledge-manager > header span { display: flex; flex-direction: column; gap: 3px; }
+.knowledge-manager > header h2 { margin: 0; color: #393631; font: 600 16px Georgia, "Noto Serif KR Variable", serif; }
+.knowledge-manager > header p { margin: 0; color: #8c877f; font-size: 8px; }
+.knowledge-manager > header > button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #77736c; cursor: pointer; }
+.knowledge-manager-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.knowledge-manager-body > aside { min-height: 0; display: flex; flex-direction: column; padding: 10px 8px; border-right: 1px solid #ddd9d1; background: #f3f1ec; }
+.knowledge-manager-body > aside > div { min-height: 0; flex: 1; overflow-y: auto; }
+.knowledge-manager-body > aside button { width: 100%; min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: #625e57; text-align: left; cursor: pointer; }
+.knowledge-manager-body > aside button:hover, .knowledge-manager-body > aside button.active { background: #e4e0d8; color: #403d38; }
+.knowledge-manager-body > aside button.knowledge-new { min-height: 34px; justify-content: center; margin-bottom: 8px; border: 1px dashed #bfb6d8; background: #f9f7fd; color: #6759a8; }
+.knowledge-manager-body > aside button span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.knowledge-manager-body > aside button small { color: #8173b8; font-size: 7px; font-weight: 700; text-transform: uppercase; }
+.knowledge-manager-body > aside button strong, .knowledge-manager-body > aside button i { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-manager-body > aside button strong { font-size: 9px; }
+.knowledge-manager-body > aside button i { max-width: 150px; color: #9a958d; font-size: 7px; font-style: normal; }
+.knowledge-status { flex: 0 0 auto; padding: 3px 5px; border-radius: 8px; background: #e9e5dc; color: #777168; font-size: 6px; font-style: normal; }
+.knowledge-status.status-developing { background: #fff0cf; color: #936a22; }
+.knowledge-status.status-established { background: #deefe4; color: #4c795d; }
+.knowledge-status.status-archived { background: #e7e7e7; color: #777; }
+.knowledge-manager-body > main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.knowledge-heading { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 10px 14px; border-bottom: 1px solid #e1ddd5; background: #f8f6f2; }
+.knowledge-heading > div:first-child { min-width: 0; }
+.knowledge-heading small { display: block; overflow: hidden; margin-bottom: 4px; color: #918b83; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-heading h3 { overflow: hidden; margin: 0; color: #393631; font: 600 15px Georgia, "Noto Serif KR Variable", serif; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-properties { display: flex; gap: 6px; }
+.knowledge-properties label { display: flex; flex-direction: column; gap: 3px; color: #847e75; font-size: 7px; font-weight: 700; }
+.knowledge-properties select { height: 27px; min-width: 80px; padding: 0 22px 0 7px; border: 1px solid #d4cec4; border-radius: 12px; outline: 0; background: #fff; color: #5c5750; font-size: 8px; }
+.knowledge-editor { min-height: 0; flex: 1; }
+.knowledge-editor .markdown-editor, .knowledge-editor .cm-editor { height: 100%; }
+.knowledge-create { width: min(480px, calc(100% - 48px)); align-self: center; margin: auto; padding: 24px; border: 1px solid #ded8ce; border-radius: 11px; background: #f8f6f1; }
+.knowledge-create h3 { margin: 0 0 6px; font: 600 18px Georgia, "Noto Serif KR Variable", serif; }
+.knowledge-create p { margin: 0 0 18px; color: #888178; font-size: 9px; }
+.knowledge-create label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; color: #787168; font-size: 8px; font-weight: 700; }
+.knowledge-create input, .knowledge-create select { height: 34px; padding: 0 10px; border: 1px solid #d4cec4; border-radius: 7px; outline: 0; background: #fff; color: #46423d; font-size: 10px; }
+.knowledge-create input:focus, .knowledge-create select:focus { border-color: #8171c1; box-shadow: 0 0 0 2px rgba(120, 103, 190, .12); }
+.knowledge-create button.primary { height: 34px; float: right; padding: 0 13px; border: 0; border-radius: 7px; background: #7767b9; color: #fff; font-size: 9px; cursor: pointer; }
+.knowledge-loading { display: grid; flex: 1; place-items: center; color: #8d887f; font-size: 10px; }
+.knowledge-manager > footer { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-top: 1px solid #dfdbd3; background: #f8f6f2; }
+.knowledge-manager > footer > span { min-width: 0; overflow: hidden; color: #9a6335; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-manager > footer > div { display: flex; gap: 6px; }
+.knowledge-manager > footer button { height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid #d4cec4; border-radius: 7px; background: #fff; color: #5e5952; font-size: 8px; cursor: pointer; }
+.knowledge-manager > footer button:disabled { opacity: .4; cursor: default; }
+.knowledge-manager > footer button.primary { border-color: #7868bc; background: #7868bc; color: #fff; }
+.knowledge-manager > footer button.danger { border-color: #bd685c; background: #fff2ef; color: #a6493e; }
+
+@media (max-width: 850px) {
+  .knowledge-manager-body { grid-template-columns: 190px minmax(0, 1fr); }
+  .knowledge-heading { align-items: flex-start; flex-direction: column; }
+}

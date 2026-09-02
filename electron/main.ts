@@ -9,6 +9,7 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
+import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -720,6 +721,39 @@ ipcMain.handle('templates:set-default', async (_event, nodeType: KnowledgeNodeTy
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return setDefaultTemplate(settings.libraryPath, nodeType, String(id))
+})
+ipcMain.handle('knowledge:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeNodes(settings.libraryPath)
+})
+ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string')) throw new Error('지식 노트 정보가 올바르지 않습니다.')
+  return createKnowledgeNode(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:read', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return readKnowledgeNode(settings.libraryPath, String(id))
+})
+ipcMain.handle('knowledge:save', async (_event, id: string, request: NoteSaveRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000 || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('지식 노트 저장 정보가 올바르지 않습니다.')
+  return saveKnowledgeNode(settings.libraryPath, String(id), request)
+})
+ipcMain.handle('knowledge:update-properties', async (_event, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!patch || typeof patch !== 'object' || typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) throw new Error('속성 변경 정보가 올바르지 않습니다.')
+  return updateKnowledgeProperties(settings.libraryPath, String(id), patch, expectedRevision)
+})
+ipcMain.handle('knowledge:delete', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return deleteKnowledgeNode(settings.libraryPath, String(id))
 })
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')

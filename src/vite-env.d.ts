@@ -24,6 +24,11 @@ type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean }
 type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
 type TemplateSaveResult = { saved: true; templates: TemplateRecord[]; id: string } | { saved: false }
+type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
+type KnowledgeLevel = 'low' | 'medium' | 'high'
+type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; relativePath: string; revision: string; modifiedAt: number }
+type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
+type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 
 interface Window {
   prism: {
@@ -48,6 +53,12 @@ interface Window {
     saveTemplate: (request: TemplateSaveRequest) => Promise<TemplateSaveResult>
     deleteTemplate: (id: string) => Promise<TemplateRecord[]>
     setDefaultTemplate: (nodeType: KnowledgeNodeType, id: string) => Promise<TemplateRecord[]>
+    listKnowledgeNodes: () => Promise<KnowledgeNodeRecord[]>
+    createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
+    readKnowledgeNode: (id: string) => Promise<NoteSnapshot>
+    saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
+    updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
+    deleteKnowledgeNode: (id: string) => Promise<KnowledgeNodeRecord[]>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
