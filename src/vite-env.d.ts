@@ -40,15 +40,18 @@ type ApplyTemplateSectionsResult = { saved: true; snapshot: NoteSnapshot; addedH
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 type KnowledgeRelationType = 'discusses' | 'supports' | 'contradicts' | 'extends' | 'uses' | 'explains' | 'evidence_for' | 'derived_from' | 'raises' | 'related'
-type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; createdAt: string }
+type RelationEvidenceAnchor = EvidenceAnchorRef
+type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; createdAt: string }
 type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
-type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; expectedRevision: string }
+type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
+type KnowledgeRelationUpdateRequest = { id: string; type: KnowledgeRelationType; evidenceAnchor?: RelationEvidenceAnchor | null; expectedRevision: string }
 type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 type KnowledgeRelationMutationResult = { saved: true; relation?: KnowledgeRelationRecord; snapshot: NoteSnapshot; relations: KnowledgeRelationView[] } | { saved: false; conflict: NoteSnapshot }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
+type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 
 interface Window {
   prism: {

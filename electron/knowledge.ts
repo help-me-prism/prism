@@ -22,6 +22,7 @@ export type KnowledgeNodeRecord = {
 }
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
+export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
