@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('prism', {
   deleteTemplate: (id: string) => ipcRenderer.invoke('templates:delete', id),
   setDefaultTemplate: (nodeType: string, id: string) => ipcRenderer.invoke('templates:set-default', nodeType, id),
   listKnowledgeNodes: () => ipcRenderer.invoke('knowledge:list'),
+  searchKnowledge: (query: string) => ipcRenderer.invoke('knowledge:search', query),
   createKnowledgeNode: (request: unknown) => ipcRenderer.invoke('knowledge:create', request),
   readKnowledgeNode: (id: string) => ipcRenderer.invoke('knowledge:read', id),
   saveKnowledgeNode: (id: string, request: unknown) => ipcRenderer.invoke('knowledge:save', id, request),

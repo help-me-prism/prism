@@ -27,6 +27,7 @@ type TemplateSaveResult = { saved: true; templates: TemplateRecord[]; id: string
 type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
 type KnowledgeLevel = 'low' | 'medium' | 'high'
 type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; relativePath: string; revision: string; modifiedAt: number }
+type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -64,6 +65,7 @@ interface Window {
     deleteTemplate: (id: string) => Promise<TemplateRecord[]>
     setDefaultTemplate: (nodeType: KnowledgeNodeType, id: string) => Promise<TemplateRecord[]>
     listKnowledgeNodes: () => Promise<KnowledgeNodeRecord[]>
+    searchKnowledge: (query: string) => Promise<KnowledgeSearchResult[]>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     readKnowledgeNode: (id: string) => Promise<NoteSnapshot>
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>

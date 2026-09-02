@@ -729,6 +729,7 @@ ipcMain.handle('knowledge:list', async () => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeNodes(settings.libraryPath)
 })
+ipcMain.handle('knowledge:search', async () => [])
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
