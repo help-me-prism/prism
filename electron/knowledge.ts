@@ -5,12 +5,14 @@ import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './note
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
 export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
+export type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
 export type KnowledgeNodeRecord = {
   id: string
   title: string
   nodeType: KnowledgeNodeType
   status: KnowledgeStatus
+  readingStatus?: KnowledgeReadingStatus
   importance: KnowledgeLevel
   confidence: KnowledgeLevel
   templateId?: string
@@ -23,13 +25,14 @@ export type KnowledgeNodeRecord = {
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
-export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
+const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
 const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
 const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
@@ -47,18 +50,20 @@ function parseNode(source: string) {
   const id = field(frontmatter[1], 'prism_id'); const title = field(frontmatter[1], 'title'); const nodeType = field(frontmatter[1], 'type') as KnowledgeNodeType
   if (!id || !title || !nodeTypes.has(nodeType)) return undefined
   const status = field(frontmatter[1], 'status') as KnowledgeStatus
+  const readingStatus = field(frontmatter[1], 'reading_status') as KnowledgeReadingStatus
   const importance = field(frontmatter[1], 'importance') as KnowledgeLevel
   const confidence = field(frontmatter[1], 'confidence') as KnowledgeLevel
   return {
     id, title, nodeType,
     status: statuses.has(status) ? status : 'developing' as KnowledgeStatus,
+    readingStatus: nodeType === 'paper' ? readingStatuses.has(readingStatus) ? readingStatus : 'to_read' : undefined,
     importance: levels.has(importance) ? importance : 'medium' as KnowledgeLevel,
     confidence: levels.has(confidence) ? confidence : 'medium' as KnowledgeLevel,
     templateId: field(frontmatter[1], 'template_id'),
   }
 }
 function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
-  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\nimportance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
+  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
 }
 function updateFrontmatter(source: string, patch: KnowledgePropertyPatch) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -240,15 +245,20 @@ export async function saveKnowledgeNode(libraryPath: string, id: string, request
 
 export async function updateKnowledgeProperties(libraryPath: string, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) {
   if (patch.status !== undefined && !statuses.has(patch.status)) throw new Error('상태 값이 올바르지 않습니다.')
+  if (patch.readingStatus !== undefined && !readingStatuses.has(patch.readingStatus)) throw new Error('읽기 상태 값이 올바르지 않습니다.')
   if (patch.importance !== undefined && !levels.has(patch.importance)) throw new Error('중요도 값이 올바르지 않습니다.')
   if (patch.confidence !== undefined && !levels.has(patch.confidence)) throw new Error('확신도 값이 올바르지 않습니다.')
   const allowed: KnowledgePropertyPatch = {}
   if (patch.status !== undefined) allowed.status = patch.status
+  if (patch.readingStatus !== undefined) allowed.readingStatus = patch.readingStatus
   if (patch.importance !== undefined) allowed.importance = patch.importance
   if (patch.confidence !== undefined) allowed.confidence = patch.confidence
   const node = await findNode(libraryPath, id)
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
-  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, allowed), expectedRevision })
+  if (patch.readingStatus !== undefined && node.parsed.nodeType !== 'paper') throw new Error('Paper 노트에서만 읽기 상태를 바꿀 수 있습니다.')
+  const frontmatterPatch = { ...allowed } as Record<string, string | undefined>
+  if (allowed.readingStatus !== undefined) { frontmatterPatch.reading_status = allowed.readingStatus; delete frontmatterPatch.readingStatus }
+  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, frontmatterPatch), expectedRevision })
 }
 
 export async function deleteKnowledgeNode(libraryPath: string, id: string) {
