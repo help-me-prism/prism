@@ -58,6 +58,99 @@ const prismEditorTheme = EditorView.theme({
 
 type DecorationRange = { from: number; to: number; decoration: Decoration }
 
+type MarkdownBlock = { from: number; to: number; contentTo: number; label: string }
+
+function markdownBlocks(state: EditorState) {
+  const text = state.doc.toString()
+  const frontmatterEnd = text.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0].length ?? 0
+  const blocks: MarkdownBlock[] = []
+  let start: number | undefined
+  let contentTo = frontmatterEnd
+  let fence: string | undefined
+  const finish = (nextFrom: number) => {
+    if (start === undefined) return
+    const firstLine = state.doc.lineAt(start).text.replace(/^\s*(?:#{1,6}|[-*+] |\d+\. |>\s*)\s*/, '').trim()
+    blocks.push({ from: start, to: nextFrom, contentTo, label: firstLine.slice(0, 52) || '빈 블록' })
+    start = undefined
+  }
+  for (let number = state.doc.lineAt(Math.min(frontmatterEnd, state.doc.length)).number; number <= state.doc.lines; number += 1) {
+    const line = state.doc.line(number)
+    if (line.to <= frontmatterEnd) continue
+    const trimmed = line.text.trim()
+    if (start === undefined) {
+      if (!trimmed) continue
+      start = line.from
+    }
+    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/)
+    if (fenceMatch && (!fence || fenceMatch[1][0] === fence[0])) fence = fence ? undefined : fenceMatch[1]
+    if (trimmed || fence) contentTo = line.to
+    const next = number < state.doc.lines ? state.doc.line(number + 1) : undefined
+    if (!fence && (!next || !next.text.trim())) {
+      let nextFrom = next?.from ?? state.doc.length
+      let blankNumber = number + 1
+      while (blankNumber <= state.doc.lines && !state.doc.line(blankNumber).text.trim()) {
+        nextFrom = state.doc.line(blankNumber).to < state.doc.length ? state.doc.line(blankNumber).to + 1 : state.doc.length
+        blankNumber += 1
+      }
+      finish(nextFrom)
+    }
+  }
+  finish(state.doc.length)
+  return blocks
+}
+
+function moveMarkdownBlock(view: EditorView, sourcePosition: number, targetPosition: number, after: boolean) {
+  const blocks = markdownBlocks(view.state)
+  const source = blocks.find((block) => sourcePosition >= block.from && sourcePosition < Math.max(block.to, block.contentTo + 1))
+  const target = blocks.find((block) => targetPosition >= block.from && targetPosition <= block.contentTo)
+  if (!source || !target || source === target) return false
+  const destination = after ? target.to : target.from
+  if (destination > source.from && destination < source.to) return false
+  let insert = view.state.doc.sliceString(source.from, source.to)
+  if (destination < view.state.doc.length && !/\r?\n\s*$/.test(insert)) insert += '\n\n'
+  view.dispatch({ changes: [{ from: source.from, to: source.to, insert: '' }, { from: destination, insert }] })
+  return true
+}
+
+class MarkdownBlockHandle extends WidgetType {
+  constructor(readonly position: number, readonly label: string) { super() }
+  eq(other: MarkdownBlockHandle) { return this.position === other.position && this.label === other.label }
+  toDOM() {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'cm-block-drag-handle'
+    button.textContent = '⣿'
+    button.draggable = true
+    button.dataset.blockPosition = String(this.position)
+    button.title = `"${this.label}" 블록 드래그해 이동`
+    button.setAttribute('aria-label', button.title)
+    button.addEventListener('mousedown', (event) => event.preventDefault())
+    button.addEventListener('dragstart', (event) => {
+      event.dataTransfer?.setData('application/x-prism-markdown-block', String(this.position))
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+      button.classList.add('dragging')
+    })
+    button.addEventListener('dragend', () => {
+      button.classList.remove('dragging')
+      document.querySelectorAll('.cm-block-drop-before, .cm-block-drop-after').forEach((element) => element.classList.remove('cm-block-drop-before', 'cm-block-drop-after'))
+    })
+    return button
+  }
+  ignoreEvent() { return false }
+}
+
+function blockHandleDecorationSet(view: EditorView) {
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const block of markdownBlocks(view.state)) builder.add(block.from, block.from, Decoration.widget({ widget: new MarkdownBlockHandle(block.from, block.label), side: -2 }))
+  return builder.finish()
+}
+
+const blockHandleDecorations = ViewPlugin.fromClass(class {
+  decorations: DecorationSet
+  constructor(view: EditorView) { this.decorations = blockHandleDecorationSet(view) }
+  update(update: ViewUpdate) { if (update.docChanged || update.viewportChanged) this.decorations = blockHandleDecorationSet(update.view) }
+}, { decorations: (value) => value.decorations })
+
 const toggleSectionFold = StateEffect.define<number>({ map: (position, changes) => changes.mapPos(position) })
 
 class SectionFoldToggle extends WidgetType {
@@ -363,7 +456,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [liveEditDecorations, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -399,6 +492,29 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
         EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
         EditorView.domEventHandlers({
           blur: () => { onBlurRef.current(); return false },
+          dragover: (event, view) => {
+            if (!event.dataTransfer?.types.includes('application/x-prism-markdown-block')) return false
+            event.preventDefault(); event.dataTransfer.dropEffect = 'move'
+            const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+            if (position === null) return true
+            const block = markdownBlocks(view.state).find((item) => position >= item.from && position <= item.contentTo)
+            const line = (event.target as HTMLElement).closest?.('.cm-line') as HTMLElement | null
+            document.querySelectorAll('.cm-block-drop-before, .cm-block-drop-after').forEach((element) => element.classList.remove('cm-block-drop-before', 'cm-block-drop-after'))
+            if (block && line) line.classList.add(event.clientY > line.getBoundingClientRect().top + line.getBoundingClientRect().height / 2 ? 'cm-block-drop-after' : 'cm-block-drop-before')
+            return true
+          },
+          drop: (event, view) => {
+            const source = Number(event.dataTransfer?.getData('application/x-prism-markdown-block'))
+            const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+            if (!Number.isInteger(source) || position === null) return false
+            event.preventDefault()
+            const line = (event.target as HTMLElement).closest?.('.cm-line') as HTMLElement | null
+            const after = Boolean(line && event.clientY > line.getBoundingClientRect().top + line.getBoundingClientRect().height / 2)
+            const moved = moveMarkdownBlock(view, source, position, after)
+            document.querySelectorAll('.cm-block-drop-before, .cm-block-drop-after').forEach((element) => element.classList.remove('cm-block-drop-before', 'cm-block-drop-after'))
+            if (moved) view.focus()
+            return moved
+          },
           mouseover: (event) => {
             const marker = (event.target as HTMLElement).closest?.('.cm-md-wikilink') as HTMLElement | null
             if (!marker || !hostRef.current) return false
@@ -459,7 +575,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [liveEditDecorations, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 

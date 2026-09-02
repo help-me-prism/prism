@@ -146,6 +146,28 @@ try {
   await notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle').click()`)
   assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Preserve this Obsidian callout.')`), 'Expanding a section did not restore its editor content.')
   assert(await fs.readFile(notePath, 'utf8') === initialNote, 'Expanding a section changed the stored Markdown.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.cm-block-drag-handle').length`) >= 5, 'Live Edit did not expose draggable Markdown block handles.')
+  const dragged = await notesConnection.evaluate(`(() => {
+    const handles = [...document.querySelectorAll('.cm-block-drag-handle')]
+    const source = handles.find((handle) => handle.title.includes('Item | Value'))
+    const target = handles.find((handle) => handle.title.includes('[!note] Evidence'))
+    if (!source || !target) return false
+    const dataTransfer = new DataTransfer()
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }))
+    const line = target.closest('.cm-line'); const bounds = line.getBoundingClientRect()
+    line.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer, clientX: bounds.left + 20, clientY: bounds.top + 1 }))
+    line.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer, clientX: bounds.left + 20, clientY: bounds.top + 1 }))
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }))
+    return true
+  })()`)
+  assert(dragged, 'The table and callout block drag fixture was not found.')
+  const reorderedNote = initialNote.replace(`> [!note] Evidence\n> Preserve this Obsidian callout.\n\n| Item | Value |\n| --- | --- |\n| Loss | $L_2$ |`, `| Item | Value |\n| --- | --- |\n| Loss | $L_2$ |\n\n> [!note] Evidence\n> Preserve this Obsidian callout.`)
+  await waitFor(async () => await fs.readFile(notePath, 'utf8') === reorderedNote, 'Dragging the table before the callout did not save the exact reordered Markdown.')
+  const blockDragScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const blockDragScreenshotPath = path.resolve('tmp/ui/notes-block-drag.png')
+  await fs.writeFile(blockDragScreenshotPath, Buffer.from(blockDragScreenshot.data, 'base64'))
+  await replaceEditor(notesConnection, initialNote)
+  await waitFor(async () => await fs.readFile(notePath, 'utf8') === initialNote, 'Restoring the block drag fixture did not round-trip the exact Markdown.')
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="개인 템플릿 관리"]').click()`)
   await sleep(350)
@@ -719,7 +741,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${foldedSectionScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, template favorites, recent use, exact template versions and missing-section application, Project templates and research data views, Obsidian file/heading/block navigation, structured properties, hybrid search, graph-grounded suggestions with explicit AI relation review, link-plus-relation creation, inline knowledge and @ evidence autocomplete, link previews, immediate Concept creation, conflict-safe evidence copying, evidence-to-Claim relations and direct anchors, PDF section evidence round trips, derived section folding, exact Markdown block dragging, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${foldedSectionScreenshotPath}, ${blockDragScreenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${templateLifecycleScreenshotPath}, ${missingSectionsScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${obsidianScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${linkPreviewScreenshotPath}, ${evidenceAutocompleteScreenshotPath}, ${inlineCreateScreenshotPath}, ${evidenceCopyScreenshotPath}, ${evidenceClaimScreenshotPath}, ${sectionEvidenceScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${suggestionsScreenshotPath}, ${duplicateScreenshotPath}, ${reviewScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()
