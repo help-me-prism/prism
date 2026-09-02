@@ -309,13 +309,13 @@ try {
   const claimAfterSections = await fs.readFile(claimPath, 'utf8')
   assert(claimAfterSections.includes('## 주장') && claimAfterSections.includes('## 나의 근거') && claimAfterSections.indexOf('## 나의 근거') < claimAfterSections.indexOf('## 주장') && claimAfterSections.includes('프로젝트: Diffusion study'), 'Applying missing sections changed or replaced existing note content.')
   const createdTypes = await notesConnection.evaluate(`(async () => {
-    const inputs = [['paper', '수동 Paper 노트'], ['concept', 'Reverse diffusion'], ['insight', '목적함수 연결 아이디어'], ['question', '가중치는 품질에 어떤 영향을 주는가'], ['project', 'Diffusion objective 개선 연구']];
+    const inputs = [['paper', '수동 Paper 노트'], ['concept', 'Reverse diffusion'], ['insight', '목적함수 연결 아이디어'], ['question', '가중치는 품질에 어떤 영향을 주는가'], ['project', 'Diffusion objective 개선 연구'], ['paper', '대조 Paper 노트']];
     const results = [];
     for (const [nodeType, title] of inputs) results.push(await window.prism.createKnowledgeNode({ nodeType, title }));
     return results.map((result) => result.id);
   })()`)
-  assert(createdTypes.length === 5, 'The remaining knowledge node types were not created through the public IPC contract.')
-  for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md'], ['Projects', 'Diffusion objective 개선 연구.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
+  assert(createdTypes.length === 6, 'The remaining knowledge node types were not created through the public IPC contract.')
+  for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md'], ['Projects', 'Diffusion objective 개선 연구.md'], ['Papers', '대조 Paper 노트.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
   const manualPaperPath = path.join(libraryPath, 'Papers', '수동 Paper 노트.md')
   assert((await fs.readFile(manualPaperPath, 'utf8')).includes('reading_status: to_read'), 'A new Paper did not store the default reading status.')
   assert((await fs.readFile(path.join(libraryPath, 'Projects', 'Diffusion objective 개선 연구.md'), 'utf8')).includes('template_id: "project-research-context"'), 'A Project did not use its Markdown default template.')
@@ -352,8 +352,15 @@ try {
   obsidianLocations = (await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/).map((uri) => new URL(uri).searchParams.get('path'))
   assert(obsidianLocations[1] === `${claimPath}#지지 근거`, 'The Obsidian URI did not encode and restore its heading target.')
 
+  const overviewRelations = await notesConnection.evaluate(`(async () => {
+    const add = async (sourceId, targetId, type) => { const snapshot = await window.prism.readKnowledgeNode(sourceId); return window.prism.createKnowledgeRelation({ sourceId, targetId, type, creator: 'user', expectedRevision: snapshot.revision }); };
+    return [await add(${JSON.stringify(createdTypes[4])}, ${JSON.stringify(createdTypes[1])}, 'uses'), await add(${JSON.stringify(createdTypes[4])}, ${JSON.stringify(createdTypes[2])}, 'discusses'), await add(${JSON.stringify(createdTypes[0])}, ${JSON.stringify(createdTypes[5])}, 'contradicts')];
+  })()`)
+  assert(overviewRelations.every((result) => result.saved), 'The approved Project context and Paper conflict fixtures were not created.')
   let knowledgeViews = await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)
   assert(knowledgeViews.projects.length === 1 && knowledgeViews.projects[0].relativePath === 'Projects/Diffusion objective 개선 연구.md', 'The Project data view did not expose a portable Vault-relative Project path.')
+  assert(knowledgeViews.projectContexts.length === 1 && knowledgeViews.projectContexts[0].concepts[0].id === createdTypes[1] && knowledgeViews.projectContexts[0].insights[0].id === createdTypes[2], 'The Project context view did not group its approved Concept and Insight relations.')
+  assert(knowledgeViews.conflictingPapers.length === 1 && knowledgeViews.conflictingPapers[0].left.id === createdTypes[0] && knowledgeViews.conflictingPapers[0].right.id === createdTypes[5], 'The conflicting Paper view did not expose its approved contradiction pair.')
   assert(knowledgeViews.unansweredQuestions.length === 1 && knowledgeViews.unansweredQuestions[0].id === createdTypes[3], 'The unanswered Question data view did not include the developing Question.')
   assert(knowledgeViews.unsupportedClaims.length === 1 && knowledgeViews.unsupportedClaims[0].title.includes('노이즈 예측'), 'The unsupported Claim data view did not include a Claim without evidence.')
   const pendingEvidenceRelation = await notesConnection.evaluate(`(async () => { const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[0])}); return window.prism.createKnowledgeRelation({ sourceId: ${JSON.stringify(createdTypes[0])}, targetId: document.querySelector('.knowledge-manager-body > aside button.active')?.textContent.includes('노이즈 예측') ? (await window.prism.listKnowledgeNodes()).find((node) => node.title.includes('노이즈 예측')).id : '', type: 'supports', creator: 'ai', expectedRevision: snapshot.revision }); })()`)
@@ -364,7 +371,7 @@ try {
   await notesConnection.evaluate(`window.prism.deleteKnowledgeRelation({ id: ${JSON.stringify(approvedEvidenceRelation.relation.id)}, expectedRevision: ${JSON.stringify(approvedEvidenceRelation.snapshot.revision)} })`)
   assert((await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)).unsupportedClaims.length === 1, 'Removing the approved support did not restore the Claim to the unsupported view.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 데이터 보기"]').click()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-data-view').length === 3 && document.querySelector('.view-projects')?.textContent.includes('Diffusion objective 개선 연구') && document.querySelector('.view-questions')?.textContent.includes('가중치는 품질에') && document.querySelector('.view-claims')?.textContent.includes('노이즈 예측')`), 'The research overview did not render Project, unanswered Question, and unsupported Claim views.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-data-view').length === 5 && document.querySelector('.view-projects')?.textContent.includes('Diffusion objective 개선 연구') && document.querySelector('.view-contexts')?.textContent.includes('Reverse diffusion') && document.querySelector('.view-contexts')?.textContent.includes('목적함수 연결') && document.querySelector('.view-conflicts')?.textContent.includes('수동 Paper 노트') && document.querySelector('.view-conflicts')?.textContent.includes('대조 Paper 노트') && document.querySelector('.view-questions')?.textContent.includes('가중치는 품질에') && document.querySelector('.view-claims')?.textContent.includes('노이즈 예측')`), 'The research overview did not render Project context, conflicting Paper, Question, and unsupported Claim views.')
   const dataViewsScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const dataViewsScreenshotPath = path.resolve('tmp/ui/notes-knowledge-data-views.png')
   await fs.writeFile(dataViewsScreenshotPath, Buffer.from(dataViewsScreenshot.data, 'base64'))
@@ -425,8 +432,10 @@ try {
     throw new Error(`${reason.message} Debug: ${JSON.stringify(debug)} Files: ${JSON.stringify(files)}\nClaim: ${await fs.readFile(claimPath, 'utf8')}`)
   }
   let relationFiles = await fs.readdir(path.join(libraryPath, '.prism', 'relations'))
-  assert(relationFiles.length === 1 && relationFiles[0].startsWith('relation-'), 'A typed relation was not stored as an independent sidecar.')
-  const relationRecord = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', relationFiles[0]), 'utf8'))
+  assert(relationFiles.length >= 4 && relationFiles.every((file) => file.startsWith('relation-')), 'Typed relations were not stored as independent sidecars.')
+  const relationRecords = await Promise.all(relationFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
+  const relationRecord = relationRecords.find((relation) => relation.sourceId === claimNodeId && relation.targetId === createdTypes[1] && relation.type === 'supports')
+  assert(relationRecord, 'The Claim-to-Concept support relation sidecar was not found.')
   assert(relationRecord.type === 'supports' && relationRecord.creator === 'user' && relationRecord.reviewStatus === 'approved', 'The relation sidecar did not preserve type, creator, and review status.')
   assert((await fs.readFile(claimPath, 'utf8')).includes('> [!abstract] 관계 · 지지함'), 'The approved relation was not kept as human-readable Markdown.')
   const relationsScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
@@ -447,7 +456,8 @@ try {
   await notesConnection.evaluate(`document.querySelector('.knowledge-relations .relation-delete').click()`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.knowledge-relations')`), 'Deleting an outgoing relation did not remove its card.')
   relationFiles = await fs.readdir(path.join(libraryPath, '.prism', 'relations'))
-  assert(relationFiles.length === 0 && !(await fs.readFile(claimPath, 'utf8')).includes('prism-relation:'), 'Deleting a relation did not remove its sidecar and generated Markdown block.')
+  const remainingRelationRecords = await Promise.all(relationFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
+  assert(relationFiles.length === 3 && !remainingRelationRecords.some((relation) => relation.id === relationRecord.id) && !(await fs.readFile(claimPath, 'utf8')).includes('prism-relation:'), 'Deleting a relation did not remove its sidecar and generated Markdown block.')
   assert((await fs.readFile(claimPath, 'utf8')).includes('[[Concepts/Reverse diffusion|Reverse diffusion]]'), 'Deleting a typed relation removed a separate user-authored wiki link.')
   const aiRelation = await notesConnection.evaluate(`(async () => {
     const source = (await window.prism.listKnowledgeNodes()).find((node) => node.title.includes('노이즈 예측'));
@@ -459,7 +469,9 @@ try {
   const pendingContext = await notesConnection.evaluate(`window.prism.retrieveResearchContext('노이즈 예측 score matching')`)
   assert(!pendingContext.relations.some((relation) => relation.id === aiRelation.relation.id), 'Graph-grounded retrieval followed a pending AI relation.')
   const removedAiRelation = await notesConnection.evaluate(`window.prism.deleteKnowledgeRelation({ id: ${JSON.stringify(aiRelation.relation.id)}, expectedRevision: ${JSON.stringify(aiRelation.snapshot.revision)} })`)
-  assert(removedAiRelation.saved && (await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).length === 0, 'Deleting a pending AI relation did not remove its sidecar.')
+  relationFiles = await fs.readdir(path.join(libraryPath, '.prism', 'relations'))
+  const relationsAfterAiDelete = await Promise.all(relationFiles.map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
+  assert(removedAiRelation.saved && relationFiles.length === 3 && !relationsAfterAiDelete.some((relation) => relation.id === aiRelation.relation.id), 'Deleting a pending AI relation did not remove its sidecar.')
 
   claimMarkdown = await fs.readFile(claimPath, 'utf8')
   await replaceEditor(notesConnection, `${claimMarkdown}\n사용자가 문서형 화면에서 추가한 판단.\n`, '.knowledge-editor .cm-content')
@@ -473,19 +485,19 @@ try {
   assert(hybridResults[0]?.node.id === createdTypes[1] && hybridResults[0].semanticScore > 0 && !conceptSearchText.includes('노이즈 제거 과정'), `Hybrid research search did not rank a semantically overlapping Concept without an exact phrase match: ${JSON.stringify(hybridResults.map((result) => ({ title: result.node.title, score: result.score, textScore: result.textScore, semanticScore: result.semanticScore })))}`)
   const researchIndexPath = path.join(libraryPath, '.prism', 'index', 'research-search-v1.json')
   const researchIndex = JSON.parse(await fs.readFile(researchIndexPath, 'utf8'))
-  assert(researchIndex.version === 1 && researchIndex.signature !== baselineIndex.signature && researchIndex.entries.length === 6 && researchIndex.entries.every((entry) => entry.vector.length === 384 && !path.isAbsolute(entry.relativePath) && !entry.relativePath.includes('\\')), 'The rebuildable research index did not refresh after Markdown changed or preserve portable local embeddings.')
+  assert(researchIndex.version === 1 && researchIndex.signature !== baselineIndex.signature && researchIndex.entries.length === 7 && researchIndex.entries.every((entry) => entry.vector.length === 384 && !path.isAbsolute(entry.relativePath) && !entry.relativePath.includes('\\')), 'The rebuildable research index did not refresh after Markdown changed or preserve portable local embeddings.')
   const rebuiltIndex = await notesConnection.evaluate(`window.prism.rebuildResearchIndex()`)
-  assert(rebuiltIndex.rebuilt && rebuiltIndex.nodeCount === 6 && rebuiltIndex.relativePath === '.prism/index/research-search-v1.json', 'Explicit research index rebuild did not report its derived artifact.')
+  assert(rebuiltIndex.rebuilt && rebuiltIndex.nodeCount === 7 && rebuiltIndex.relativePath === '.prism/index/research-search-v1.json', 'Explicit research index rebuild did not report its derived artifact.')
   await fs.writeFile(researchIndexPath, '{"version":1,"entries":"malformed"}', 'utf8')
   assert((await notesConnection.evaluate(`window.prism.searchResearchKnowledge('노이즈 제거 과정')`))[0]?.node.id === createdTypes[1], 'Research search did not rebuild a malformed derived index from source Markdown.')
-  assert(JSON.parse(await fs.readFile(researchIndexPath, 'utf8')).entries.length === 6, 'Malformed derived index data was not replaced by a valid rebuild.')
+  assert(JSON.parse(await fs.readFile(researchIndexPath, 'utf8')).entries.length === 7, 'Malformed derived index data was not replaced by a valid rebuild.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, '문서형 화면에서'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 1 && document.querySelector('.knowledge-manager-body > aside > div button i')?.textContent.includes('문서형 화면에서')`), 'Full-text knowledge search did not find the body-only phrase with context.')
   const searchScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const searchScreenshotPath = path.resolve('tmp/ui/notes-full-text-search.png')
   await fs.writeFile(searchScreenshotPath, Buffer.from(searchScreenshot.data, 'base64'))
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 6`), 'Clearing knowledge search did not restore the complete node list.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 7`), 'Clearing knowledge search did not restore the complete node list.')
 
   const duplicateConceptId = await notesConnection.evaluate(`(async () => {
     const created = await window.prism.createKnowledgeNode({ nodeType: 'concept', title: 'Reverse diffusion process' });

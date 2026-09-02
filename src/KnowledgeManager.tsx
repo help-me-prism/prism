@@ -88,6 +88,8 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
   const editorEvidenceLinks = useMemo(() => anchors.filter((anchor) => !linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId)).map((anchor) => ({ id: `${anchor.paperId}-${anchor.anchorId}`, label: anchor.label, description: `${evidenceTypeLabel(anchor.type)} · ${anchor.paperTitle} · p.${anchor.page}`, searchText: `${anchor.paperTitle} ${anchor.source}`, markdown: evidenceMarkdown(anchor) })), [anchors, linkedEvidence])
   const viewSections = [
     { key: 'projects', title: '프로젝트', description: '진행 중인 연구 문맥', empty: '진행 중인 Project가 없습니다.', items: dataViews.projects },
+    { key: 'contexts', title: '프로젝트 지식 문맥', description: '승인된 관계로 연결된 Concept과 Insight', empty: '프로젝트에 연결된 개념과 아이디어가 없습니다.', items: dataViews.projectContexts.flatMap((context) => [...context.concepts, ...context.insights].map((node) => ({ ...node, title: `${context.project.title} · ${node.title}` }))) },
+    { key: 'conflicts', title: '충돌하는 논문', description: '승인된 반박 관계의 Paper 쌍', empty: '서로 반박하는 Paper가 없습니다.', items: dataViews.conflictingPapers.map((pair) => ({ ...pair.left, title: `${pair.left.title} ↔ ${pair.right.title}`, relativePath: `${pair.left.relativePath} · ${pair.right.relativePath}` })) },
     { key: 'questions', title: '미완성 질문', description: '아직 정리되지 않은 Question', empty: '열린 Question이 없습니다.', items: dataViews.unansweredQuestions },
     { key: 'claims', title: '근거 없는 Claim', description: 'PDF 근거나 승인된 지지가 필요함', empty: '모든 Claim에 근거가 있습니다.', items: dataViews.unsupportedClaims },
   ]
