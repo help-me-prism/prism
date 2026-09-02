@@ -2,7 +2,7 @@
 
 마지막 정리: 2026-09-02  
 작업 브랜치: `kys_enhanced`
-기능 구현 기준 커밋: `5693042` (`fix: harden cross-platform CLI and session storage`)
+기능 구현 기준 커밋: `a9f29b8` (`feat: enrich chat reading and recovery`)
 
 이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
 
@@ -78,6 +78,12 @@ codex login
 - 대화 삭제는 6초 undo를 제공하고 마지막 대화나 실행 중 대화의 삭제를 막는다.
 - `@` 자동완성에 위/아래, Enter/Tab 선택, Escape 닫기를 추가했다.
 - 15페이지 테스트 논문에서 약 24초 걸리던 초기 리더 진입을 약 2초로 줄였다. PDF를 피겨 preview보다 먼저 열고 인접 페이지만 canvas/operator를 lazy render하며 전체 앵커 분석 진행률을 표시한다.
+- 병기 스크롤은 전체 문서 비율 대신 같은 페이지 내부 위치를 동기화한다. 확대 전 페이지 위치도 확대 후 복원하며, 좁은 원문 box에서 한국어가 세로로 쌓이지 않도록 번역 block 최소 폭을 보정한다.
+- 사이드바의 중복 검색 아이콘을 제거하고 현재 라이브러리 폴더 이름을 표시한다.
+- 채팅 답변은 GFM Markdown과 KaTeX로 제목·목록·표·코드·수식을 렌더링한다. 문장·수식·피겨·페이지 참조는 질문과 답변 본문 안의 타입별 아이콘 태그로 표시한다.
+- 스트리밍 자동 스크롤은 사용자가 하단을 보고 있을 때만 유지한다. 위로 스크롤하면 읽던 위치를 보존하고 `최신 답변으로` 버튼을 제공한다.
+- 삭제한 대화는 `deletedAt`과 함께 `sessions.json`에 보존되며 사이드바 휴지통 또는 즉시 실행 취소 toast에서 복원할 수 있다.
+- UI smoke는 휴지통 복원, Markdown 제목·표, KaTeX, 인라인 수식 태그, 자동 스크롤 일시정지를 추가 검증한다. 시각 샘플은 로컬 `tmp/ui/chat-markdown.png`에 생성된다.
 - Notes는 논문·라이브러리 전환, blur, unload에서 dirty 내용을 flush하고 절대 경로 대신 로컬 Markdown 파일명을 표시한다.
 - 번역 진행 중 버튼으로 작업을 중지할 수 있으며 완료된 batch cache는 유지한다.
 - renderer CSP를 명시하고 Electron 보안 경고를 smoke 회귀 조건으로 추가했다.
