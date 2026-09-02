@@ -762,6 +762,9 @@ ipcMain.handle('knowledge:backlinks', async (_event, id: string) => {
   if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return listKnowledgeBacklinks(settings.libraryPath, id)
 })
+ipcMain.handle('knowledge:relations:list', async () => [])
+ipcMain.handle('knowledge:relations:create', async () => { throw new Error('관계 생성은 구현 중입니다.') })
+ipcMain.handle('knowledge:relations:delete', async () => { throw new Error('관계 삭제는 구현 중입니다.') })
 ipcMain.handle('evidence:list', async () => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

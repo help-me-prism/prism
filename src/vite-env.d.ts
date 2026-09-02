@@ -30,6 +30,12 @@ type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeT
 type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
+type KnowledgeRelationType = 'discusses' | 'supports' | 'contradicts' | 'extends' | 'uses' | 'explains' | 'evidence_for' | 'derived_from' | 'raises' | 'related'
+type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; createdAt: string }
+type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
+type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; expectedRevision: string }
+type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
+type KnowledgeRelationMutationResult = { saved: true; relation?: KnowledgeRelationRecord; snapshot: NoteSnapshot; relations: KnowledgeRelationView[] } | { saved: false; conflict: NoteSnapshot }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -64,6 +70,9 @@ interface Window {
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<KnowledgeNodeRecord[]>
     listKnowledgeBacklinks: (id: string) => Promise<KnowledgeBacklink[]>
+    listKnowledgeRelations: (id: string) => Promise<KnowledgeRelationView[]>
+    createKnowledgeRelation: (request: KnowledgeRelationCreateRequest) => Promise<KnowledgeRelationMutationResult>
+    deleteKnowledgeRelation: (request: KnowledgeRelationDeleteRequest) => Promise<KnowledgeRelationMutationResult>
     listEvidenceAnchors: () => Promise<EvidenceAnchor[]>
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
