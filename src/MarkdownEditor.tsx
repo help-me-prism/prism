@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/state'
-import { Decoration, EditorView, ViewPlugin, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
 
@@ -57,6 +57,90 @@ const prismEditorTheme = EditorView.theme({
 })
 
 type DecorationRange = { from: number; to: number; decoration: Decoration }
+
+const toggleSectionFold = StateEffect.define<number>({ map: (position, changes) => changes.mapPos(position) })
+
+class SectionFoldToggle extends WidgetType {
+  constructor(readonly position: number, readonly label: string, readonly folded: boolean) { super() }
+  eq(other: SectionFoldToggle) { return this.position === other.position && this.label === other.label && this.folded === other.folded }
+  toDOM(view: EditorView) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'cm-section-fold-toggle'
+    button.textContent = this.folded ? '▸' : '▾'
+    button.title = this.folded ? `"${this.label}" 섹션 펼치기` : `"${this.label}" 섹션 접기`
+    button.setAttribute('aria-label', button.title)
+    button.setAttribute('aria-expanded', String(!this.folded))
+    button.addEventListener('mousedown', (event) => event.preventDefault())
+    button.addEventListener('click', (event) => { event.preventDefault(); view.dispatch({ effects: toggleSectionFold.of(this.position) }) })
+    return button
+  }
+  ignoreEvent() { return false }
+}
+
+class SectionFoldSummary extends WidgetType {
+  constructor(readonly lineCount: number) { super() }
+  eq(other: SectionFoldSummary) { return this.lineCount === other.lineCount }
+  toDOM() {
+    const summary = document.createElement('span')
+    summary.className = 'cm-section-fold-summary'
+    summary.textContent = `… ${this.lineCount}줄 접힘`
+    summary.setAttribute('aria-hidden', 'true')
+    return summary
+  }
+}
+
+type SectionHeading = { from: number; contentFrom: number; end: number; level: number; label: string; lineCount: number }
+
+function sectionHeadings(state: EditorState) {
+  const headings: Omit<SectionHeading, 'end' | 'lineCount'>[] = []
+  for (let number = 1; number <= state.doc.lines; number += 1) {
+    const line = state.doc.line(number)
+    const match = line.text.match(/^(#{1,6})\s+(.+?)\s*$/)
+    if (match) headings.push({ from: line.from, contentFrom: Math.min(state.doc.length, line.to + 1), level: match[1].length, label: match[2] })
+  }
+  return headings.map((heading, index): SectionHeading => {
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level)
+    const end = next?.from ?? state.doc.length
+    const startLine = state.doc.lineAt(heading.contentFrom).number
+    const endLine = state.doc.lineAt(Math.max(heading.contentFrom, end - 1)).number
+    return { ...heading, end, lineCount: Math.max(0, endLine - startLine + 1) }
+  })
+}
+
+function sectionFoldDecorations(state: EditorState, folded: ReadonlySet<number>) {
+  const headings = sectionHeadings(state)
+  const validFolded = new Set(headings.filter((heading) => folded.has(heading.from)).map((heading) => heading.from))
+  const hidden: { from: number; to: number }[] = []
+  const ranges: DecorationRange[] = []
+  for (const heading of headings) {
+    if (hidden.some((range) => heading.from >= range.from && heading.from < range.to)) continue
+    const isFolded = validFolded.has(heading.from) && heading.contentFrom < heading.end
+    ranges.push({ from: heading.from, to: heading.from, decoration: Decoration.widget({ widget: new SectionFoldToggle(heading.from, heading.label, isFolded), side: -1 }) })
+    if (isFolded) {
+      hidden.push({ from: heading.contentFrom, to: heading.end })
+      ranges.push({ from: heading.contentFrom, to: heading.end, decoration: Decoration.replace({ widget: new SectionFoldSummary(heading.lineCount), block: true }) })
+    }
+  }
+  ranges.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide || a.to - b.to)
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const range of ranges) builder.add(range.from, range.to, range.decoration)
+  return { folded: validFolded, decorations: builder.finish() }
+}
+
+const sectionFoldState = StateField.define<{ folded: ReadonlySet<number>; decorations: DecorationSet }>({
+  create: (state) => sectionFoldDecorations(state, new Set()),
+  update(value, transaction) {
+    const folded = new Set([...value.folded].map((position) => transaction.changes.mapPos(position)))
+    for (const effect of transaction.effects) {
+      if (!effect.is(toggleSectionFold)) continue
+      if (folded.has(effect.value)) folded.delete(effect.value)
+      else folded.add(effect.value)
+    }
+    return sectionFoldDecorations(transaction.state, folded)
+  },
+  provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+})
 
 function liveEditDecorationSet(view: EditorView) {
   const ranges: DecorationRange[] = []
@@ -279,7 +363,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [liveEditDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -366,13 +450,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     const view = viewRef.current
-    if (!view || view.state.doc.toString() === value) return
-    const anchor = Math.min(view.state.selection.main.head, value.length)
+    if (!view) return
+    const current = view.state.doc.toString()
+    if (current === value) return
+    const frontmatter = value.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
+    const anchor = current.length === 0 ? (frontmatter?.[0].length ?? 0) : Math.min(view.state.selection.main.head, value.length)
     syncingRef.current = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, selection: { anchor } }); syncingRef.current = false
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [liveEditDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 
