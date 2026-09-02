@@ -4,7 +4,8 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
-import { CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, Save, Sigma, StickyNote, Table2 } from 'lucide-react'
+import './notes.css'
+import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Sigma, StickyNote, Table2 } from 'lucide-react'
 import MarkdownEditor, { type MarkdownBlockCommand, type MarkdownEditorHandle } from './MarkdownEditor'
 
 type EditorMode = 'live' | 'read' | 'split'
@@ -27,11 +28,13 @@ export default function NotesWindow() {
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [conflict, setConflict] = useState<NoteSnapshot>()
   const [mode, setMode] = useState<EditorMode>(() => {
     const stored = window.localStorage.getItem('prism.notes.editorMode')
     return stored === 'read' || stored === 'split' ? stored : 'live'
   })
-  const activeIdRef = useRef<string | undefined>(undefined); const noteRef = useRef(''); const dirtyRef = useRef(false)
+  const activeIdRef = useRef<string | undefined>(undefined); const noteRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined)
   const editorRef = useRef<MarkdownEditorHandle>(null)
   const active = library.find((paper) => paper.arxivId === activeId)
 
@@ -52,27 +55,54 @@ export default function NotesWindow() {
   }, [])
   useEffect(() => {
     if (!activeId) { setNote(''); setLoaded(false); return }
-    let disposed = false; setLoaded(false); setError('')
-    window.prism.readPaperNote(activeId).then((content) => { if (!disposed) { noteRef.current = content; dirtyRef.current = false; setNote(content); setLoaded(true); setSaved(true) } }).catch((reason) => setError(String(reason)))
+    let disposed = false; setLoaded(false); setError(''); setNotice(''); setConflict(undefined)
+    window.prism.readPaperNote(activeId).then((snapshot) => { if (!disposed) { noteRef.current = snapshot.content; revisionRef.current = snapshot.revision; dirtyRef.current = false; setNote(snapshot.content); setLoaded(true); setSaved(true) } }).catch((reason) => setError(String(reason)))
     return () => { disposed = true }
   }, [activeId])
 
-  async function saveCurrentNote() {
+  async function saveCurrentNote(force = false) {
     const paperId = activeIdRef.current
     if (!paperId || !dirtyRef.current) return true
+    if (conflict && !force) return false
     const content = noteRef.current
     try {
-      await window.prism.savePaperNote(paperId, content)
-      if (activeIdRef.current === paperId && noteRef.current === content) { dirtyRef.current = false; setSaved(true) }
+      const result = await window.prism.savePaperNote(paperId, { content, expectedRevision: revisionRef.current, force })
+      if (!result.saved) { setConflict(result.conflict); setNotice(''); setSaved(false); return false }
+      revisionRef.current = result.snapshot.revision
+      setConflict(undefined)
+      if (activeIdRef.current === paperId && noteRef.current === content) { dirtyRef.current = false; setSaved(true); if (force) setNotice('내 편집본으로 안전하게 저장했습니다.') }
       return true
     } catch (reason) { setError(String(reason)); return false }
   }
 
   useEffect(() => {
-    if (!activeId || !loaded || saved) return
+    if (!activeId || !loaded || saved || conflict) return
     const timeout = window.setTimeout(() => void saveCurrentNote(), 300)
     return () => window.clearTimeout(timeout)
-  }, [activeId, note, loaded, saved])
+  }, [activeId, note, loaded, saved, conflict])
+
+  useEffect(() => {
+    if (!activeId || !loaded) return
+    let disposed = false; let checking = false
+    const checkDisk = async () => {
+      if (checking || disposed) return
+      checking = true
+      try {
+        const snapshot = await window.prism.readPaperNote(activeId)
+        if (disposed || snapshot.revision === revisionRef.current) return
+        if (dirtyRef.current) {
+          setConflict(snapshot); setNotice('')
+        } else {
+          revisionRef.current = snapshot.revision; noteRef.current = snapshot.content; setNote(snapshot.content); setSaved(true); setNotice('외부 편집기의 변경 내용을 불러왔습니다.')
+        }
+      } catch (reason) { if (!disposed) setError(String(reason)) }
+      finally { checking = false }
+    }
+    const timer = window.setInterval(() => void checkDisk(), 1200)
+    const onFocus = () => void checkDisk()
+    window.addEventListener('focus', onFocus)
+    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
+  }, [activeId, loaded])
 
   async function selectPaper(paperId: string) {
     if (paperId === activeIdRef.current) return
@@ -84,6 +114,12 @@ export default function NotesWindow() {
     dirtyRef.current = true
     setNote(value)
     setSaved(false)
+  }
+
+  function useDiskVersion() {
+    if (!conflict) return
+    revisionRef.current = conflict.revision; noteRef.current = conflict.content; dirtyRef.current = false
+    setNote(conflict.content); setConflict(undefined); setSaved(true); setNotice('디스크의 최신 버전을 불러왔습니다.')
   }
 
   function selectMode(nextMode: EditorMode) {
@@ -105,6 +141,7 @@ export default function NotesWindow() {
     </aside>
     <section className="notes-editor">
       {active ? <><header><div><StickyNote size={17} /><span><strong>{active.title}</strong><small title={active.notePath}>로컬 Markdown · {active.notePath.split(/[\\/]/).pop()}</small></span></div><div className={`notes-save-status ${saved ? 'saved' : ''}`} role="status"><Save size={13} /> {saved ? '저장됨' : '저장 중…'}</div></header>
+        {notice && <div className="notes-notice" role="status"><RefreshCw size={13} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="알림 닫기">×</button></div>}
         <div className="notes-toolbar">
           <div className="notes-block-tools" aria-label="블록 삽입 도구" aria-disabled={!loaded}>
             <button disabled={!loaded} aria-label="제목 블록 삽입" title="제목" onClick={() => insertBlock('heading')}><Heading2 size={14} /></button>
@@ -131,6 +168,16 @@ export default function NotesWindow() {
         </div>
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
       {error && <div className="notes-error">{error}</div>}
+      {conflict && <div className="notes-conflict-backdrop" role="presentation">
+        <section className="notes-conflict" role="dialog" aria-modal="true" aria-labelledby="notes-conflict-title">
+          <header><AlertTriangle size={18} /><div><h2 id="notes-conflict-title">외부 변경과 충돌했습니다</h2><p>다른 편집기에서 이 파일을 변경했습니다. 두 버전을 비교한 뒤 보존할 내용을 선택하세요.</p></div></header>
+          <div className="notes-conflict-compare">
+            <article><h3>내 편집본</h3><pre>{note}</pre></article>
+            <article><h3>디스크 최신 버전</h3><small>{new Date(conflict.modifiedAt).toLocaleString()}</small><pre>{conflict.content}</pre></article>
+          </div>
+          <footer><button onClick={useDiskVersion}>디스크 버전 사용</button><button className="primary" onClick={() => void saveCurrentNote(true)}>내 편집본으로 덮어쓰기</button></footer>
+        </section>
+      </div>}
     </section>
   </main>
 }

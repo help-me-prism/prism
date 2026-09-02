@@ -17,6 +17,9 @@ type TranslationSegment = { id: string; page: number; source: string; kind: 'tex
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
 type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
 type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string; libraryPath?: string }
+type NoteSnapshot = { content: string; revision: string; modifiedAt: number }
+type NoteSaveRequest = { content: string; expectedRevision?: string; force?: boolean }
+type NoteSaveResult = { saved: true; snapshot: NoteSnapshot } | { saved: false; conflict: NoteSnapshot }
 
 interface Window {
   prism: {
@@ -35,8 +38,8 @@ interface Window {
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
     readPaperFigures: (arxivId: string) => Promise<PaperFigureAsset[]>
     openNotes: () => Promise<boolean>
-    readPaperNote: (arxivId: string) => Promise<string>
-    savePaperNote: (arxivId: string, content: string) => Promise<boolean>
+    readPaperNote: (arxivId: string) => Promise<NoteSnapshot>
+    savePaperNote: (arxivId: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>

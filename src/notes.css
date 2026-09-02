@@ -1,0 +1,73 @@
+.notes-notice {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #cfe1d5;
+  background: #edf7f0;
+  color: #477557;
+  font-size: 9px;
+}
+
+.notes-notice span { flex: 1; }
+.notes-notice button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; }
+
+.notes-conflict-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(42, 40, 36, .38);
+  backdrop-filter: blur(2px);
+}
+
+.notes-conflict {
+  width: min(900px, 100%);
+  max-height: min(650px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d8c8ad;
+  border-radius: 12px;
+  background: #fbfaf7;
+  box-shadow: 0 20px 55px rgba(42, 38, 31, .2);
+}
+
+.notes-conflict > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e1d8ca;
+  color: #a46625;
+}
+
+.notes-conflict h2 { margin: 0 0 4px; color: #4a4238; font-size: 15px; }
+.notes-conflict p { margin: 0; color: #81766a; font-size: 9px; line-height: 1.5; }
+
+.notes-conflict-compare {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  background: #ded8ce;
+}
+
+.notes-conflict-compare article { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 13px; background: #f7f5f0; }
+.notes-conflict-compare h3 { margin: 0 0 3px; color: #4f4a42; font-size: 10px; }
+.notes-conflict-compare small { min-height: 13px; color: #969087; font-size: 8px; }
+.notes-conflict-compare pre { min-height: 220px; flex: 1; overflow: auto; margin: 8px 0 0; padding: 11px; border: 1px solid #ded9d0; border-radius: 7px; background: #fff; color: #514d47; font: 9px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+
+.notes-conflict > footer { display: flex; justify-content: flex-end; gap: 7px; padding: 12px 15px; border-top: 1px solid #e1ddd4; }
+.notes-conflict > footer button { height: 30px; padding: 0 11px; border: 1px solid #d6d0c6; border-radius: 7px; background: #f5f2ec; color: #5d5750; font-size: 9px; cursor: pointer; }
+.notes-conflict > footer button.primary { border-color: #7969bd; background: #7969bd; color: #fff; }
+
+@media (max-width: 760px) {
+  .notes-conflict-compare { grid-template-columns: 1fr; overflow-y: auto; }
+  .notes-conflict-compare pre { min-height: 150px; max-height: 220px; }
+}

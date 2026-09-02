@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
+import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -685,14 +686,16 @@ ipcMain.handle('notes:open', () => openNotesWindow())
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return fs.readFile(record.notePath, 'utf8')
+  return readNoteSnapshot(record.notePath)
 })
-ipcMain.handle('paper:note:save', async (_event, arxivId: string, content: string) => {
-  if (typeof content !== 'string' || content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
+ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteSaveRequest) => {
+  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
+  if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
+  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
+  if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  await fs.writeFile(record.notePath, content, 'utf8')
-  return true
+  return saveNoteSnapshot(record.notePath, request)
 })
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')

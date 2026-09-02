@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('prism', {
   readPaperFigures: (arxivId: string) => ipcRenderer.invoke('paper:figures', arxivId),
   openNotes: () => ipcRenderer.invoke('notes:open'),
   readPaperNote: (arxivId: string) => ipcRenderer.invoke('paper:note:read', arxivId),
-  savePaperNote: (arxivId: string, content: string) => ipcRenderer.invoke('paper:note:save', arxivId, content),
+  savePaperNote: (arxivId: string, request: unknown) => ipcRenderer.invoke('paper:note:save', arxivId, request),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),
   savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),

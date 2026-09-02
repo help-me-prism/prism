@@ -99,6 +99,13 @@ async function connect(page) {
 }
 function assert(condition, message) { if (!condition) throw new Error(message) }
 
+async function replaceEditor(connection, content) {
+  await connection.evaluate(`document.querySelector('.cm-content').focus()`)
+  await connection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
+  await connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
+  await connection.send('Input.insertText', { text: content })
+}
+
 let mainConnection
 let notesConnection
 try {
@@ -131,12 +138,48 @@ try {
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.mode-split .markdown-editor') && document.querySelector('.mode-split .notes-preview'))`), 'Split mode did not show editor and preview together.')
 
   const replacement = `${initialNote}\nExact spacing:  A  B\n`
-  await notesConnection.evaluate(`document.querySelector('.cm-content').focus()`)
-  await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
-  await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: 2 })
-  await notesConnection.send('Input.insertText', { text: replacement })
+  await replaceEditor(notesConnection, replacement)
   await sleep(700)
   assert(await fs.readFile(notePath, 'utf8') === replacement, 'The exact Markdown text was not saved after editing.')
+
+  const localConflict = `${replacement}\nLocal draft must not be lost.\n`
+  const externalConflict = `${replacement}\nExternal edit from Obsidian.\n`
+  await replaceEditor(notesConnection, localConflict)
+  await fs.writeFile(notePath, externalConflict, 'utf8')
+  await sleep(700)
+  const conflictState = await notesConnection.evaluate(`(() => ({
+    visible: Boolean(document.querySelector('.notes-conflict')),
+    title: document.querySelector('#notes-conflict-title')?.textContent,
+    versions: [...document.querySelectorAll('.notes-conflict pre')].map((element) => element.textContent),
+  }))()`)
+  assert(conflictState.visible && conflictState.title.includes('외부 변경'), 'An external edit did not open the conflict comparison.')
+  assert(conflictState.versions[0].includes('Local draft') && conflictState.versions[1].includes('External edit'), 'The conflict comparison did not preserve both versions.')
+  assert(await fs.readFile(notePath, 'utf8') === externalConflict, 'Autosave overwrote an external edit before conflict resolution.')
+
+  const conflictScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const conflictScreenshotPath = path.resolve('tmp/ui/notes-conflict.png')
+  await fs.mkdir(path.dirname(conflictScreenshotPath), { recursive: true })
+  await fs.writeFile(conflictScreenshotPath, Buffer.from(conflictScreenshot.data, 'base64'))
+
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-conflict button')].find((button) => button.textContent.includes('디스크 버전')).click()`)
+  await sleep(150)
+  assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.notes-conflict'))`), 'Choosing the disk version did not close the conflict dialog.')
+  assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('External edit from Obsidian.')`), 'Choosing the disk version did not load its content.')
+
+  const cleanExternal = `${externalConflict}\nReloaded while clean.\n`
+  await fs.writeFile(notePath, cleanExternal, 'utf8')
+  await sleep(1500)
+  assert(await notesConnection.evaluate(`document.querySelector('.notes-notice')?.textContent.includes('외부 편집기')`), 'A clean external edit was not reported and reloaded.')
+  assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Reloaded while clean.')`), 'A clean external edit was not loaded into the editor.')
+
+  const localOverwrite = `${cleanExternal}\nKeep my second local draft.\n`
+  const secondExternal = `${cleanExternal}\nSecond external edit.\n`
+  await replaceEditor(notesConnection, localOverwrite)
+  await fs.writeFile(notePath, secondExternal, 'utf8')
+  await sleep(700)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-conflict button')].find((button) => button.textContent.includes('내 편집본')).click()`)
+  await sleep(700)
+  assert(await fs.readFile(notePath, 'utf8') === localOverwrite, 'Explicit overwrite did not atomically save the local version.')
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="제목 블록 삽입"]').click()`)
   await sleep(500)
@@ -165,7 +208,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: document editing, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshot: ${screenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()
