@@ -14,6 +14,8 @@ export type KnowledgeNodeRecord = {
   importance: KnowledgeLevel
   confidence: KnowledgeLevel
   templateId?: string
+  preview: string
+  evidenceCount: number
   relativePath: string
   revision: string
   modifiedAt: number
@@ -87,7 +89,7 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
   const nodes: KnowledgeNodeRecord[] = []
   for (const filePath of await nodeFiles(libraryPath)) {
     const snapshot = await readNoteSnapshot(filePath); const parsed = parseNode(snapshot.content)
-    if (parsed) nodes.push({ ...parsed, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
+    if (parsed) nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
 }

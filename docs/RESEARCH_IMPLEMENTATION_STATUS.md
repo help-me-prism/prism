@@ -32,12 +32,14 @@
 
 검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-template-lifecycle.png`, `notes-template-missing-sections.png`.
 
-### B. 편집기 안의 연결 작성
+### B. 편집기 안의 연결 작성 — 완료
 
 - 지식 노트 본문에서 `@`로 현재 Vault의 PDF 근거를 검색하고 삽입한다.
 - 링크 검색 결과가 없을 때 Concept 또는 Claim을 즉시 만들고 현재 노트에 연결한다.
 - 내부 링크 hover 미리보기에 노드 요약과 PDF 근거 수를 표시한다.
 - 링크를 추가하면서 선택적으로 관계 타입을 함께 지정한다.
+
+검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `notes-link-preview.png`, `notes-evidence-autocomplete.png`, `notes-inline-create.png`.
 
 ### C. 근거 카드 작업
 

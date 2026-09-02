@@ -5,8 +5,9 @@ import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; focus: () => void; moveToEnd: () => void }
-export type WikiLinkOption = { id: string; label: string; target: string; description: string }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
+export type WikiLinkOption = { id: string; label: string; target: string; description: string; preview?: string; evidenceCount?: number }
+export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
 type MarkdownEditorProps = {
   value: string
@@ -16,6 +17,8 @@ type MarkdownEditorProps = {
   onChange: (value: string) => void
   onBlur: () => void
   wikiLinks?: WikiLinkOption[]
+  evidenceLinks?: EvidenceLinkOption[]
+  onCreateWikiLink?: (nodeType: 'concept' | 'claim', title: string) => Promise<WikiLinkOption | undefined>
 }
 
 type SlashState = { from: number; to: number; query: string; top: number; left: number }
@@ -34,6 +37,13 @@ export const markdownBlockCommands: CommandOption[] = [
   { command: 'image', label: '이미지', description: '이미지 링크를 추가합니다', keywords: 'image picture figure 이미지 피겨' },
   { command: 'divider', label: '구분선', description: '문서 구분선을 추가합니다', keywords: 'divider rule separator 구분선' },
 ]
+
+function menuPosition(coords: { top: number; bottom: number; left: number } | null, bounds: DOMRect | undefined, width: number, estimatedHeight = 190) {
+  if (!coords || !bounds) return { top: 42, left: 24 }
+  const below = coords.bottom - bounds.top + 5
+  const top = below + estimatedHeight <= bounds.height ? below : Math.max(6, coords.top - bounds.top - estimatedHeight - 5)
+  return { top, left: Math.min(coords.left - bounds.left, Math.max(12, bounds.width - width)) }
+}
 
 const prismEditorTheme = EditorView.theme({
   '&': { height: '100%', backgroundColor: 'transparent' },
@@ -167,13 +177,23 @@ function insertText(view: EditorView, text: string) {
   view.focus()
 }
 
-const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [] }, ref) {
+function replaceWithBlock(view: EditorView, replace: { from: number; to: number }, text: string) {
+  const before = view.state.doc.sliceString(Math.max(0, replace.from - 2), replace.from)
+  const after = view.state.doc.sliceString(replace.to, Math.min(view.state.doc.length, replace.to + 2))
+  const prefix = replace.from === 0 || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+  const suffix = replace.to === view.state.doc.length || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n'
+  const insert = `${prefix}${text}${suffix}`
+  view.dispatch({ changes: { from: replace.from, to: replace.to, insert }, selection: { anchor: replace.from + insert.length }, scrollIntoView: true }); view.focus()
+}
+
+const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [], evidenceLinks = [], onCreateWikiLink }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editable = useRef(new Compartment())
   const visualMode = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
+  const wikiLinksRef = useRef(wikiLinks)
   const syncingRef = useRef(false)
   const slashRef = useRef<SlashState | null>(null)
   const filteredRef = useRef<CommandOption[]>(markdownBlockCommands)
@@ -185,6 +205,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const activeWikiIndexRef = useRef(0)
   const [wiki, setWiki] = useState<SlashState | null>(null)
   const [activeWikiIndex, setActiveWikiIndex] = useState(0)
+  const evidenceRef = useRef<SlashState | null>(null)
+  const filteredEvidenceRef = useRef<EvidenceLinkOption[]>([])
+  const activeEvidenceIndexRef = useRef(0)
+  const [evidence, setEvidence] = useState<SlashState | null>(null)
+  const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0)
+  const [hoverWiki, setHoverWiki] = useState<{ option: WikiLinkOption; top: number; left: number }>()
   const filteredCommands = useMemo(() => {
     const query = slash?.query.toLocaleLowerCase() ?? ''
     if (!slash) return []
@@ -202,15 +228,24 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const query = wiki.query.toLocaleLowerCase()
     return wikiLinks.filter((option) => !query || `${option.label} ${option.target} ${option.description}`.toLocaleLowerCase().includes(query)).slice(0, 40)
   }, [wiki, wikiLinks])
+  const filteredEvidenceLinks = useMemo(() => {
+    if (!evidence) return []
+    const query = evidence.query.toLocaleLowerCase()
+    return evidenceLinks.filter((option) => !query || `${option.label} ${option.description} ${option.searchText}`.toLocaleLowerCase().includes(query)).slice(0, 40)
+  }, [evidence, evidenceLinks])
 
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
   useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
+  useEffect(() => { wikiLinksRef.current = wikiLinks }, [wikiLinks])
   useEffect(() => { slashRef.current = slash }, [slash])
   useEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
   useEffect(() => { activeSlashIndexRef.current = activeSlashIndex }, [activeSlashIndex])
   useEffect(() => { wikiRef.current = wiki }, [wiki])
   useEffect(() => { filteredWikiRef.current = filteredWikiLinks }, [filteredWikiLinks])
   useEffect(() => { activeWikiIndexRef.current = activeWikiIndex }, [activeWikiIndex])
+  useEffect(() => { evidenceRef.current = evidence }, [evidence])
+  useEffect(() => { filteredEvidenceRef.current = filteredEvidenceLinks }, [filteredEvidenceLinks])
+  useEffect(() => { activeEvidenceIndexRef.current = activeEvidenceIndex }, [activeEvidenceIndex])
 
   function closeSlashMenu() { slashRef.current = null; setSlash(null); setActiveSlashIndex(0) }
   function chooseSlashCommand(option: CommandOption) {
@@ -227,13 +262,29 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     view.dispatch({ changes: { from: current.from, to: current.to, insert }, selection: { anchor: current.from + insert.length }, scrollIntoView: true })
     view.focus()
   }
+  async function createWikiLink(nodeType: 'concept' | 'claim') {
+    const view = viewRef.current; const current = wikiRef.current; const title = current?.query.trim()
+    if (!view || !current || !title || !onCreateWikiLink) return
+    const option = await onCreateWikiLink(nodeType, title)
+    if (option) chooseWikiLink(option)
+  }
+  function closeEvidenceMenu() { evidenceRef.current = null; setEvidence(null); setActiveEvidenceIndex(0) }
+  function chooseEvidenceLink(option: EvidenceLinkOption) {
+    const view = viewRef.current; const current = evidenceRef.current
+    if (!view || !current) return
+    closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
+  }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return
     const liveExtensions = liveEdit ? [liveEditDecorations, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
+      if (evidenceRef.current && filteredEvidenceRef.current.length) {
+        const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
+        activeEvidenceIndexRef.current = next; setActiveEvidenceIndex(next); return true
+      }
       if (wikiRef.current && filteredWikiRef.current.length) {
         const next = (activeWikiIndexRef.current + delta + filteredWikiRef.current.length) % filteredWikiRef.current.length
         activeWikiIndexRef.current = next; setActiveWikiIndex(next); return true
@@ -243,6 +294,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       activeSlashIndexRef.current = next; setActiveSlashIndex(next); return true
     }
     const applySlashSelection = () => {
+      if (evidenceRef.current && filteredEvidenceRef.current.length) { chooseEvidenceLink(filteredEvidenceRef.current[activeEvidenceIndexRef.current] ?? filteredEvidenceRef.current[0]); return true }
       if (wikiRef.current && filteredWikiRef.current.length) { chooseWikiLink(filteredWikiRef.current[activeWikiIndexRef.current] ?? filteredWikiRef.current[0]); return true }
       if (!slashRef.current || !filteredRef.current.length) return false
       chooseSlashCommand(filteredRef.current[activeSlashIndexRef.current] ?? filteredRef.current[0]); return true
@@ -252,7 +304,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       { key: 'ArrowUp', run: () => moveSlashSelection(-1) },
       { key: 'Enter', run: applySlashSelection },
       { key: 'Tab', run: applySlashSelection },
-      { key: 'Escape', run: () => { if (wikiRef.current) { closeWikiMenu(); return true } if (!slashRef.current) return false; closeSlashMenu(); return true } },
+      { key: 'Escape', run: () => { if (evidenceRef.current) { closeEvidenceMenu(); return true } if (wikiRef.current) { closeWikiMenu(); return true } if (!slashRef.current) return false; closeSlashMenu(); return true } },
     ]))
     const frontmatter = value.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
     const view = new EditorView({
@@ -263,28 +315,47 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
         EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
         EditorView.domEventHandlers({
           blur: () => { onBlurRef.current(); return false },
+          mouseover: (event) => {
+            const marker = (event.target as HTMLElement).closest?.('.cm-md-wikilink') as HTMLElement | null
+            if (!marker || !hostRef.current) return false
+            const key = marker.textContent?.split('|')[0].replaceAll('\\', '/').toLocaleLowerCase()
+            const option = wikiLinksRef.current.find((item) => item.target.toLocaleLowerCase() === key || item.label.toLocaleLowerCase() === key)
+            if (!option) return false
+            const markerBounds = marker.getBoundingClientRect(); const hostBounds = hostRef.current.getBoundingClientRect()
+            setHoverWiki({ option, top: markerBounds.bottom - hostBounds.top + 6, left: Math.min(markerBounds.left - hostBounds.left, Math.max(12, hostBounds.width - 280)) }); return false
+          },
+          mouseout: (event) => { if ((event.target as HTMLElement).closest?.('.cm-md-wikilink')) setHoverWiki(undefined); return false },
         }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !syncingRef.current) onChangeRef.current(update.state.doc.toString())
           if (!update.docChanged && !update.selectionSet) return
           const selection = update.state.selection.main
-          if (!selection.empty) { closeSlashMenu(); closeWikiMenu(); return }
+          if (!selection.empty) { closeSlashMenu(); closeWikiMenu(); closeEvidenceMenu(); return }
           const line = update.state.doc.lineAt(selection.head)
           const prefix = update.state.doc.sliceString(line.from, selection.head)
           const wikiMatch = prefix.match(/\[\[([^\]\n]*)$/u)
           if (wikiMatch) {
-            closeSlashMenu()
+            closeSlashMenu(); closeEvidenceMenu()
             const from = selection.head - wikiMatch[1].length - 2
             const coords = update.view.coordsAtPos(selection.head); const bounds = hostRef.current?.getBoundingClientRect()
-            const next = { from, to: selection.head, query: wikiMatch[1], top: coords && bounds ? coords.bottom - bounds.top + 5 : 42, left: coords && bounds ? Math.min(coords.left - bounds.left, Math.max(12, bounds.width - 300)) : 24 }
+            const next = { from, to: selection.head, query: wikiMatch[1], ...menuPosition(coords, bounds, 300) }
             wikiRef.current = next; setWiki(next); activeWikiIndexRef.current = 0; setActiveWikiIndex(0); return
           }
           closeWikiMenu()
+          const evidenceMatch = prefix.match(/(?:^|\s)@([^\s@]*)$/u)
+          if (evidenceMatch) {
+            closeSlashMenu()
+            const from = selection.head - evidenceMatch[1].length - 1
+            const coords = update.view.coordsAtPos(selection.head); const bounds = hostRef.current?.getBoundingClientRect()
+            const next = { from, to: selection.head, query: evidenceMatch[1], ...menuPosition(coords, bounds, 320) }
+            evidenceRef.current = next; setEvidence(next); activeEvidenceIndexRef.current = 0; setActiveEvidenceIndex(0); return
+          }
+          closeEvidenceMenu()
           const match = prefix.match(/(?:^|\s)\/([^\s/]*)$/u)
           if (!match) { closeSlashMenu(); return }
           const from = selection.head - match[1].length - 1
           const coords = update.view.coordsAtPos(selection.head); const bounds = hostRef.current?.getBoundingClientRect()
-          const next = { from, to: selection.head, query: match[1], top: coords && bounds ? coords.bottom - bounds.top + 5 : 42, left: coords && bounds ? Math.min(coords.left - bounds.left, Math.max(12, bounds.width - 280)) : 24 }
+          const next = { from, to: selection.head, query: match[1], ...menuPosition(coords, bounds, 280) }
           slashRef.current = next; setSlash(next); activeSlashIndexRef.current = 0; setActiveSlashIndex(0)
         }),
       ] }),
@@ -296,7 +367,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useEffect(() => {
     const view = viewRef.current
     if (!view || view.state.doc.toString() === value) return
-    syncingRef.current = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } }); syncingRef.current = false
+    const anchor = Math.min(view.state.selection.main.head, value.length)
+    syncingRef.current = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, selection: { anchor } }); syncingRef.current = false
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
@@ -310,7 +382,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     </div>}
     {wiki && <div className="wiki-link-menu" role="listbox" aria-label="지식 링크 자동완성" style={{ top: wiki.top, left: wiki.left }}>
       {filteredWikiLinks.length ? filteredWikiLinks.map((option, index) => <button key={option.id} className={index === activeWikiIndex ? 'active' : ''} role="option" aria-selected={index === activeWikiIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseWikiLink(option)}><strong>{option.label}</strong><small>{option.description} · {option.target}</small></button>) : <p>일치하는 지식 노트가 없습니다</p>}
+      {wiki.query.trim() && !wikiLinks.some((option) => option.label.toLocaleLowerCase() === wiki.query.trim().toLocaleLowerCase()) && onCreateWikiLink && <footer><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('concept')}>Concept로 만들기</button><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('claim')}>Claim으로 만들기</button></footer>}
     </div>}
+    {evidence && <div className="evidence-link-menu" role="listbox" aria-label="PDF 근거 자동완성" style={{ top: evidence.top, left: evidence.left }}>{filteredEvidenceLinks.length ? filteredEvidenceLinks.map((option, index) => <button key={option.id} className={index === activeEvidenceIndex ? 'active' : ''} role="option" aria-selected={index === activeEvidenceIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseEvidenceLink(option)}><strong>{option.label}</strong><small>{option.description}</small></button>) : <p>일치하는 PDF 근거가 없습니다</p>}</div>}
+    {hoverWiki && <aside className="wiki-link-preview" role="tooltip" style={{ top: hoverWiki.top, left: hoverWiki.left }}><small>{hoverWiki.option.description}</small><strong>{hoverWiki.option.label}</strong><p>{hoverWiki.option.preview || '작성된 요약이 없습니다.'}</p><span>PDF 근거 {hoverWiki.option.evidenceCount ?? 0}개</span></aside>}
   </div>
 })
 
