@@ -23,4 +23,6 @@ ProseMirror와 Milkdown은 구조화된 WYSIWYG 블록과 플러그인 생태계
 4. 근거 카드, 내부 링크와 관계 카드의 원자적 widget
 5. 외부 파일 변경 감지, hash 비교와 충돌 해결
 
+1~3은 구현되었다. 기본 Live Edit에서는 frontmatter와 보존 주석을 숨기고 제목, 강조, callout, 인라인 코드·수식과 내부 링크를 문서 형태로 표시한다. 커서가 있는 구조의 Markdown 표식은 다시 보여 직접 수정할 수 있다. 분할 모드의 왼쪽은 전체 Markdown 원문을 계속 제공한다.
+
 CodeMirror 문서는 편집 상태의 `doc`이 문자열 표현을 제공하고 모든 변경이 transaction으로 적용된다고 설명한다. decoration은 문서 내용을 바꾸지 않고 보이는 표현만 변경하므로 Prism의 Markdown-first 구조와 맞는다.

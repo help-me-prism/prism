@@ -109,6 +109,8 @@ try {
 
   assert(await notesConnection.evaluate(`document.querySelector('.notes-modebar button.active')?.textContent.includes('Live Edit')`), 'Live Edit was not the default mode.')
   assert(await notesConnection.evaluate(`document.querySelector('.cm-content')?.getAttribute('aria-label')`) === 'Editor fixture Markdown 노트', 'CodeMirror editor was not accessible.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.cm-live-edit .cm-md-h1'))`), 'Live Edit did not present Markdown as a styled document.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.notes-block-tools button').length`) === 11, 'The block toolbar did not expose every supported block command.')
 
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-modebar button')].find((button) => button.textContent.includes('읽기')).click()`)
   await sleep(100)
@@ -136,12 +138,34 @@ try {
   await sleep(700)
   assert(await fs.readFile(notePath, 'utf8') === replacement, 'The exact Markdown text was not saved after editing.')
 
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="제목 블록 삽입"]').click()`)
+  await sleep(500)
+  assert((await fs.readFile(notePath, 'utf8')).includes('## 제목'), 'The toolbar did not insert a heading block.')
+
+  await notesConnection.evaluate(`document.querySelector('.cm-content').focus()`)
+  for (const key of ['ArrowRight', 'Enter', 'Enter']) {
+    const code = key === 'Enter' ? 13 : 39
+    await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code })
+    await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code })
+  }
+  await notesConnection.send('Input.insertText', { text: '/표' })
+  await sleep(150)
+  assert(await notesConnection.evaluate(`document.querySelector('.slash-command-menu button')?.textContent.includes('표')`), 'Typing /표 did not open the filtered slash command menu.')
+  const frontmatterState = await notesConnection.evaluate(`(() => { const lines = [...document.querySelectorAll('.cm-line')].slice(0, 6); return { lines: lines.map((line) => ({ text: line.textContent, className: line.className, display: getComputedStyle(line).display })) } })()`)
+  assert(frontmatterState.lines.filter((line) => line.className.includes('cm-md-frontmatter') && line.display === 'none').length >= 3, `Live Edit exposed frontmatter: ${JSON.stringify(frontmatterState)}`)
+
   const screenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
-  const screenshotPath = path.resolve('tmp/ui/notes-editor.png')
+  const screenshotPath = path.resolve('tmp/ui/notes-live-edit.png')
   await fs.mkdir(path.dirname(screenshotPath), { recursive: true })
   await fs.writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'))
+
+  await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+  await notesConnection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+  await sleep(700)
+  const slashResult = await fs.readFile(notePath, 'utf8')
+  assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: exact Markdown, reading, Live Edit, and split modes.\nScreenshot: ${screenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: document editing, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshot: ${screenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()
