@@ -20,6 +20,10 @@ type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activ
 type NoteSnapshot = { content: string; revision: string; modifiedAt: number }
 type NoteSaveRequest = { content: string; expectedRevision?: string; force?: boolean }
 type NoteSaveResult = { saved: true; snapshot: NoteSnapshot } | { saved: false; conflict: NoteSnapshot }
+type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question'
+type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean }
+type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
+type TemplateSaveResult = { saved: true; templates: TemplateRecord[]; id: string } | { saved: false }
 
 interface Window {
   prism: {
@@ -40,6 +44,10 @@ interface Window {
     openNotes: () => Promise<boolean>
     readPaperNote: (arxivId: string) => Promise<NoteSnapshot>
     savePaperNote: (arxivId: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
+    listTemplates: () => Promise<TemplateRecord[]>
+    saveTemplate: (request: TemplateSaveRequest) => Promise<TemplateSaveResult>
+    deleteTemplate: (id: string) => Promise<TemplateRecord[]>
+    setDefaultTemplate: (nodeType: KnowledgeNodeType, id: string) => Promise<TemplateRecord[]>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>

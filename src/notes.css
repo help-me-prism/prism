@@ -71,3 +71,41 @@
   .notes-conflict-compare { grid-template-columns: 1fr; overflow-y: auto; }
   .notes-conflict-compare pre { min-height: 150px; max-height: 220px; }
 }
+
+.template-manager-backdrop { position: absolute; inset: 0; z-index: 18; display: flex; align-items: center; justify-content: center; padding: 22px; background: rgba(42, 40, 36, .38); backdrop-filter: blur(2px); }
+.template-manager { width: min(940px, 100%); height: min(680px, calc(100vh - 44px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d7d2c8; border-radius: 12px; background: #fbfaf7; box-shadow: 0 20px 55px rgba(42, 38, 31, .2); }
+.template-manager > header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 12px 18px; border-bottom: 1px solid #dedad2; }
+.template-manager > header h2 { margin: 0 0 4px; color: #393631; font: 600 16px Georgia, "Noto Serif KR Variable", serif; }
+.template-manager > header p { margin: 0; color: #8c877f; font-size: 8px; }
+.template-manager > header button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #77736c; cursor: pointer; }
+.template-manager-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 230px minmax(0, 1fr); }
+.template-manager-body > aside { min-height: 0; display: flex; flex-direction: column; padding: 10px 8px; border-right: 1px solid #ddd9d1; background: #f3f1ec; }
+.template-manager-body > aside > div { min-height: 0; flex: 1; overflow-y: auto; }
+.template-manager-body > aside button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: #65615a; text-align: left; cursor: pointer; }
+.template-manager-body > aside button:hover, .template-manager-body > aside button.active { background: #e5e1d9; color: #423f3a; }
+.template-manager-body > aside button.template-new { min-height: 32px; justify-content: center; margin-bottom: 8px; border: 1px dashed #c8c1b6; background: #faf8f4; }
+.template-manager-body > aside button span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.template-manager-body > aside button small { color: #918b82; font-size: 7px; text-transform: uppercase; }
+.template-manager-body > aside button strong { overflow: hidden; font-size: 9px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.template-manager-body > aside svg { flex: 0 0 auto; color: #9a7b34; }
+.template-manager-body > main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.template-fields { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #e2ded6; background: #f8f6f2; }
+.template-fields label { display: flex; flex-direction: column; gap: 5px; color: #817b72; font-size: 8px; font-weight: 700; }
+.template-fields input, .template-fields select { height: 31px; padding: 0 9px; border: 1px solid #d7d1c7; border-radius: 6px; outline: 0; background: #fff; color: #48443e; font: 10px Inter, Arial, sans-serif; }
+.template-fields input:focus, .template-fields select:focus { border-color: #8778c8; box-shadow: 0 0 0 2px rgba(120, 103, 190, .12); }
+.template-editor { min-height: 0; flex: 1; }
+.template-editor .markdown-editor, .template-editor .cm-editor { height: 100%; }
+.template-editor .cm-content { padding-top: 22px; }
+.template-loading { display: grid; flex: 1; place-items: center; color: #8d887f; font-size: 10px; }
+.template-manager > footer { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-top: 1px solid #dfdbd3; background: #f8f6f2; }
+.template-manager > footer > span { min-width: 0; overflow: hidden; color: #9a6335; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.template-manager > footer > div { display: flex; gap: 6px; }
+.template-manager > footer button { height: 30px; display: flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid #d4cec4; border-radius: 7px; background: #fff; color: #5e5952; font-size: 8px; cursor: pointer; }
+.template-manager > footer button:disabled { opacity: .4; cursor: default; }
+.template-manager > footer button.primary { border-color: #7868bc; background: #7868bc; color: #fff; }
+.template-manager > footer button.danger { border-color: #bd685c; background: #fff2ef; color: #a6493e; }
+
+@media (max-width: 760px) {
+  .template-manager-body { grid-template-columns: 180px minmax(0, 1fr); }
+  .template-fields { grid-template-columns: 1fr; }
+}

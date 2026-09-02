@@ -8,6 +8,7 @@ import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
+import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -696,6 +697,29 @@ ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteS
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   return saveNoteSnapshot(record.notePath, request)
+})
+ipcMain.handle('templates:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listTemplates(settings.libraryPath)
+})
+ipcMain.handle('templates:save', async (_event, request: TemplateSaveRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.name !== 'string' || typeof request.content !== 'string' || request.name.length > 200 || request.content.length > 2_000_000) throw new Error('템플릿 데이터가 올바르지 않습니다.')
+  if (request.id !== undefined && (typeof request.id !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.id))) throw new Error('템플릿 ID가 올바르지 않습니다.')
+  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('템플릿 버전이 올바르지 않습니다.')
+  return saveTemplate(settings.libraryPath, request)
+})
+ipcMain.handle('templates:delete', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return deleteTemplate(settings.libraryPath, String(id))
+})
+ipcMain.handle('templates:set-default', async (_event, nodeType: KnowledgeNodeType, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return setDefaultTemplate(settings.libraryPath, nodeType, String(id))
 })
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
