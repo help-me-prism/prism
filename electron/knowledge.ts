@@ -23,7 +23,7 @@ export type KnowledgePropertyPatch = { status?: KnowledgeStatus; importance?: Kn
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
-const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions' }
+const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])

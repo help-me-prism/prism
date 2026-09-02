@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ExternalLink, FilePlus2, Link2, Network, RefreshCw, Search, Lightbulb, Save, Sparkles, Trash2, X } from 'lucide-react'
+import { ExternalLink, FilePlus2, LayoutDashboard, Link2, Network, RefreshCw, Search, Lightbulb, Save, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 
-const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question' }
+const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question', project: 'Project' }
 const statusLabels: Record<KnowledgeStatus, string> = { inbox: 'Inbox', developing: '발전 중', established: '정리됨', archived: '보관됨' }
 const levelLabels: Record<KnowledgeLevel, string> = { low: '낮음', medium: '보통', high: '높음' }
 const relationLabels: Record<KnowledgeRelationType, string> = { discusses: '다룸', supports: '지지함', contradicts: '반박함', extends: '확장함', uses: '사용함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', raises: '질문 제기', related: '관련' }
@@ -40,6 +40,9 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
   const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [dataViewOpen, setDataViewOpen] = useState(false)
+  const [dataViews, setDataViews] = useState<KnowledgeDataViews>({ projects: [], unansweredQuestions: [], unsupportedClaims: [] })
+  const [viewsLoading, setViewsLoading] = useState(false)
   const loadingRef = useRef(0)
   const searchRef = useRef(0)
   const editorRef = useRef<MarkdownEditorHandle>(null)
@@ -59,10 +62,15 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
     const query = evidenceQuery.trim().toLocaleLowerCase()
     return anchors.filter((anchor) => (evidenceType === 'all' || anchor.type === evidenceType) && (!query || `${anchor.paperTitle} ${anchor.label} ${anchor.source}`.toLocaleLowerCase().includes(query))).slice(0, 80)
   }, [anchors, evidenceQuery, evidenceType])
+  const viewSections = [
+    { key: 'projects', title: '프로젝트', description: '진행 중인 연구 문맥', empty: '진행 중인 Project가 없습니다.', items: dataViews.projects },
+    { key: 'questions', title: '미완성 질문', description: '아직 정리되지 않은 Question', empty: '열린 Question이 없습니다.', items: dataViews.unansweredQuestions },
+    { key: 'claims', title: '근거 없는 Claim', description: 'PDF 근거나 승인된 지지가 필요함', empty: '모든 Claim에 근거가 있습니다.', items: dataViews.unsupportedClaims },
+  ]
 
   useEffect(() => {
-    Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors()]).then(([items, availableTemplates, availableAnchors]) => {
-      setNodes(items); setTemplates(availableTemplates); setAnchors(availableAnchors)
+    Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors(), window.prism.listKnowledgeDataViews()]).then(([items, availableTemplates, availableAnchors, availableViews]) => {
+      setNodes(items); setTemplates(availableTemplates); setAnchors(availableAnchors); setDataViews(availableViews)
       const initial = items.find((item) => item.id === initialNodeId) ?? items[0]
       if (initial) void openNode(initial.id, true)
     }).catch((reason) => setError(String(reason)))
@@ -86,12 +94,19 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
     try {
       const [next, nextBacklinks, nextRelations] = await Promise.all([window.prism.readKnowledgeNode(id), window.prism.listKnowledgeBacklinks(id), window.prism.listKnowledgeRelations(id)])
       if (request !== loadingRef.current) return
-      setActiveId(id); setSnapshot(next); setContent(next.content); setBacklinks(nextBacklinks); setRelations(nextRelations); setDirty(false); setCreating(false); setDeleteReady(false); setLinkOpen(false); setRelationOpen(false); setGraphOpen(false); setError('')
+      setActiveId(id); setSnapshot(next); setContent(next.content); setBacklinks(nextBacklinks); setRelations(nextRelations); setDirty(false); setCreating(false); setDeleteReady(false); setLinkOpen(false); setRelationOpen(false); setGraphOpen(false); setDataViewOpen(false); setError('')
     } catch (reason) { setError(String(reason)) }
   }
   function startCreate() {
     if (dirty) { setError('현재 노트를 저장하거나 변경을 취소한 뒤 새 노트를 만드세요.'); return }
-    setCreating(true); setActiveId(undefined); setSnapshot(undefined); setContent(''); setNewTitle(''); setDeleteReady(false); setError('')
+    setCreating(true); setDataViewOpen(false); setActiveId(undefined); setSnapshot(undefined); setContent(''); setNewTitle(''); setDeleteReady(false); setError('')
+  }
+  async function openDataViews() {
+    if (dirty) { setError('현재 노트를 저장하거나 변경을 취소한 뒤 데이터 보기를 여세요.'); return }
+    setDataViewOpen(true); setCreating(false); setViewsLoading(true); setLinkOpen(false); setRelationOpen(false); setGraphOpen(false); setError('')
+    try { setDataViews(await window.prism.listKnowledgeDataViews()) }
+    catch (reason) { setError(String(reason)) }
+    finally { setViewsLoading(false) }
   }
   async function create() {
     if (!newTitle.trim()) { setError('새 지식 노트의 제목을 입력하세요.'); return }
@@ -182,9 +197,9 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
     <section className="knowledge-manager" role="dialog" aria-modal="true" aria-labelledby="knowledge-manager-title">
       <header><div><Lightbulb size={18} /><span><h2 id="knowledge-manager-title">연구 지식</h2><p>생각을 근거가 연결되는 Markdown 지식 노트로 발전시킵니다.</p></span></div><button aria-label="연구 지식 닫기" onClick={() => dirty ? setError('변경 내용을 저장하거나 취소한 뒤 닫으세요.') : onClose()}><X size={16} /></button></header>
       <div className="knowledge-manager-body">
-        <aside><button className="knowledge-new" onClick={startCreate}><FilePlus2 size={13} /> 새 지식 노트</button><label className="knowledge-search"><Search size={13} /><input aria-label="지식 노트 검색" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="제목과 본문 검색" />{searching && <span>검색 중</span>}</label><div>{visibleNodes.map((node) => { const result = searchResults.find((item) => item.node.id === node.id); return <button key={node.id} className={node.id === activeId ? 'active' : ''} onClick={() => void openNode(node.id)}><span><small>{typeLabels[node.nodeType]}</small><strong>{node.title}</strong><i>{result?.excerpt || node.relativePath}</i></span><em className={`knowledge-status status-${node.status}`}>{statusLabels[node.status]}</em></button> })}{searchQuery.trim() && !searching && !visibleNodes.length ? <p className="knowledge-search-empty">일치하는 지식이 없습니다.</p> : null}</div></aside>
+        <aside><button className="knowledge-new" onClick={startCreate}><FilePlus2 size={13} /> 새 지식 노트</button><button className={`knowledge-overview-button${dataViewOpen ? ' active' : ''}`} aria-label="지식 데이터 보기" onClick={() => void openDataViews()}><LayoutDashboard size={13} /><span><strong>연구 현황</strong><i>{dataViews.projects.length} 프로젝트 · {dataViews.unansweredQuestions.length} 질문 · {dataViews.unsupportedClaims.length} 무근거</i></span></button><label className="knowledge-search"><Search size={13} /><input aria-label="지식 노트 검색" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="제목과 본문 검색" />{searching && <span>검색 중</span>}</label><div>{visibleNodes.map((node) => { const result = searchResults.find((item) => item.node.id === node.id); return <button key={node.id} className={!dataViewOpen && node.id === activeId ? 'active' : ''} onClick={() => void openNode(node.id)}><span><small>{typeLabels[node.nodeType]}</small><strong>{node.title}</strong><i>{result?.excerpt || node.relativePath}</i></span><em className={`knowledge-status status-${node.status}`}>{statusLabels[node.status]}</em></button> })}{searchQuery.trim() && !searching && !visibleNodes.length ? <p className="knowledge-search-empty">일치하는 지식이 없습니다.</p> : null}</div></aside>
         <main>
-          {creating || (!active && !nodes.length) ? <div className="knowledge-create"><h3>새 지식 노트</h3><p>유형과 템플릿을 선택하면 일반 Markdown 파일로 생성됩니다.</p><label><span>유형</span><select aria-label="새 지식 노트 유형" value={newType} onChange={(event) => setNewType(event.target.value as KnowledgeNodeType)}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>제목</span><input autoFocus aria-label="새 지식 노트 제목" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="예: Score matching과 노이즈 예측의 관계" /></label><label><span>템플릿</span><select aria-label="새 지식 노트 템플릿" value={newTemplateId} onChange={(event) => setNewTemplateId(event.target.value)}>{compatibleTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' · 기본값' : ''}</option>)}</select></label><button className="primary" onClick={() => void create()}>노트 만들기</button></div> : active && snapshot ? <>
+          {dataViewOpen ? <section className="knowledge-data-views" aria-label="연구 지식 데이터 보기"><header><div><LayoutDashboard size={17} /><span><h3>연구 현황</h3><p>Markdown과 승인된 관계에서 다시 계산한 작업 목록입니다.</p></span></div>{viewsLoading && <small>새로고침 중…</small>}</header><div>{viewSections.map((section) => <article key={section.key} className={`knowledge-data-view view-${section.key}`}><header><span><strong>{section.title}</strong><small>{section.description}</small></span><em>{section.items.length}</em></header><div>{section.items.length ? section.items.map((node) => <button key={node.id} onClick={() => void openNode(node.id)}><span><small>{typeLabels[node.nodeType]} · {statusLabels[node.status]}</small><strong>{node.title}</strong><i>{node.relativePath}</i></span><ExternalLink size={13} /></button>) : <p>{section.empty}</p>}</div></article>)}</div></section> : creating || (!active && !nodes.length) ? <div className="knowledge-create"><h3>새 지식 노트</h3><p>유형과 템플릿을 선택하면 일반 Markdown 파일로 생성됩니다.</p><label><span>유형</span><select aria-label="새 지식 노트 유형" value={newType} onChange={(event) => setNewType(event.target.value as KnowledgeNodeType)}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>제목</span><input autoFocus aria-label="새 지식 노트 제목" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="예: Score matching과 노이즈 예측의 관계" /></label><label><span>템플릿</span><select aria-label="새 지식 노트 템플릿" value={newTemplateId} onChange={(event) => setNewTemplateId(event.target.value)}>{compatibleTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}{template.isDefault ? ' · 기본값' : ''}</option>)}</select></label><button className="primary" onClick={() => void create()}>노트 만들기</button></div> : active && snapshot ? <>
             <div className="knowledge-heading"><div><small>{typeLabels[active.nodeType]} · {active.relativePath}</small><h3>{active.title}</h3></div><div className="knowledge-properties"><label><span>상태</span><select aria-label="지식 노트 상태" value={active.status} onChange={(event) => void updateProperty({ status: event.target.value as KnowledgeStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>중요도</span><select aria-label="지식 노트 중요도" value={active.importance} onChange={(event) => void updateProperty({ importance: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>확신도</span><select aria-label="지식 노트 확신도" value={active.confidence} onChange={(event) => void updateProperty({ confidence: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><button aria-label="지식 링크 추가" onClick={() => setLinkOpen((value) => !value)}><Link2 size={13} /> 링크</button><button aria-label="지식 관계 추가" onClick={() => setRelationOpen((value) => !value)}><Link2 size={13} /> 관계</button><button className="knowledge-add-evidence" aria-label="PDF 근거 추가" onClick={() => setEvidenceOpen((value) => !value)}><Link2 size={13} /> 근거</button></div></div>
             {linkOpen && <section className="knowledge-link-picker" aria-label="지식 노트 연결"><header><div><Search size={14} /><input autoFocus aria-label="연결할 지식 노트 검색" value={linkQuery} onChange={(event) => setLinkQuery(event.target.value)} placeholder="제목, 유형, 경로 검색" /></div><button aria-label="지식 노트 연결 닫기" onClick={() => setLinkOpen(false)}><X size={14} /></button></header><div>{matchingNodes.length ? matchingNodes.map((node) => <button key={node.id} onClick={() => addKnowledgeLink(node)}><span><small>{typeLabels[node.nodeType]} · {node.relativePath}</small><strong>{node.title}</strong></span><Link2 size={13} /></button>) : <p>연결할 지식 노트가 없습니다.</p>}</div></section>}
             {relationOpen && <section className="knowledge-link-picker relation-picker" aria-label="지식 관계 선택"><header><select aria-label="지식 관계 유형" value={relationType} onChange={(event) => setRelationType(event.target.value as KnowledgeRelationType)}>{Object.entries(relationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><div><Search size={14} /><input autoFocus aria-label="관계 대상 검색" value={relationQuery} onChange={(event) => setRelationQuery(event.target.value)} placeholder="관계를 맺을 노트 검색" /></div><button aria-label="지식 관계 닫기" onClick={() => setRelationOpen(false)}><X size={14} /></button></header><div>{matchingRelationNodes.length ? matchingRelationNodes.map((node) => <button key={node.id} onClick={() => void addRelation(node)}><span><small>{typeLabels[node.nodeType]} · {node.relativePath}</small><strong>{node.title}</strong></span><span className="relation-choice">{relationLabels[relationType]}</span></button>) : <p>관계를 연결할 노트가 없습니다.</p>}</div></section>}
@@ -198,7 +213,7 @@ export default function KnowledgeManager({ onClose, initialNodeId }: { onClose: 
           </> : <div className="knowledge-loading">노트를 불러오는 중…</div>}
         </main>
       </div>
-      <footer><span>{error || (dirty ? '저장되지 않은 본문 변경이 있습니다.' : active ? `${statusLabels[active.status]} · 중요도 ${levelLabels[active.importance]} · 확신도 ${levelLabels[active.confidence]}` : '')}</span><div>{active && <button className={deleteReady ? 'danger' : ''} onClick={() => void remove()}><Trash2 size={13} /> {deleteReady ? '삭제 확인' : '삭제'}</button>}{dirty && <button onClick={discard}>변경 취소</button>}{active && <button className="primary" disabled={!dirty} onClick={() => void save()}><Save size={13} /> 저장</button>}</div></footer>
+      <footer><span>{error || (dataViewOpen ? '항목을 선택하면 해당 Markdown 노트를 엽니다.' : dirty ? '저장되지 않은 본문 변경이 있습니다.' : active ? `${statusLabels[active.status]} · 중요도 ${levelLabels[active.importance]} · 확신도 ${levelLabels[active.confidence]}` : '')}</span><div>{active && !dataViewOpen && <button className={deleteReady ? 'danger' : ''} onClick={() => void remove()}><Trash2 size={13} /> {deleteReady ? '삭제 확인' : '삭제'}</button>}{dirty && <button onClick={discard}>변경 취소</button>}{active && !dataViewOpen && <button className="primary" disabled={!dirty} onClick={() => void save()}><Save size={13} /> 저장</button>}</div></footer>
     </section>
   </div>
 }

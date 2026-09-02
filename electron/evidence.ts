@@ -16,7 +16,7 @@ export type EvidenceAnchor = {
   sourceHash: string
   availability: 'linked' | 'needs-relink'
 }
-export type EvidenceBacklink = { nodeId: string; title: string; nodeType: 'paper' | 'concept' | 'claim' | 'insight' | 'question'; relativePath: string; excerpt: string }
+export type EvidenceBacklink = { nodeId: string; title: string; nodeType: 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'; relativePath: string; excerpt: string }
 
 type StoredAnchor = { id?: unknown; type?: unknown; page?: unknown; source?: unknown }
 const sourceTypes = new Set(['text', 'heading', 'caption', 'equation', 'table', 'figure'])

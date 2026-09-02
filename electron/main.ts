@@ -12,6 +12,7 @@ import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, type K
 import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type KnowledgeCreateRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest } from './relations.js'
+import { listKnowledgeDataViews } from './knowledgeViews.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -732,6 +733,10 @@ ipcMain.handle('knowledge:list', async () => {
 ipcMain.handle('knowledge:search', async (_event, query: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return searchKnowledge(settings.libraryPath, String(query))
+})
+ipcMain.handle('knowledge:views', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeDataViews(settings.libraryPath)
 })
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()

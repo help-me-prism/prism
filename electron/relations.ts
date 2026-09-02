@@ -31,6 +31,7 @@ async function records(libraryPath: string) {
   }
   return result
 }
+export async function listKnowledgeRelationRecords(libraryPath: string) { return records(libraryPath) }
 function compactNode(node: KnowledgeNodeRecord) { return { id: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath } }
 
 export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {

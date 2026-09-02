@@ -134,8 +134,8 @@ try {
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="개인 템플릿 관리"]').click()`)
   await sleep(350)
-  assert(await notesConnection.evaluate(`document.querySelectorAll('.template-manager-body aside > div > button').length`) === 5, 'The five starter templates were not created.')
-  assert((await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md')).length === 5, 'Starter templates were not stored as Markdown files.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.template-manager-body aside > div > button').length`) === 6, 'The six starter templates were not created.')
+  assert((await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md')).length === 6, 'Starter templates were not stored as Markdown files.')
   for (const directory of ['00 Inbox', 'Papers', 'Concepts', 'Claims', 'Insights', 'Questions', 'Projects', 'Templates', 'Assets']) assert((await fs.stat(path.join(libraryPath, directory))).isDirectory(), `Vault directory was not created: ${directory}`)
 
   const templateScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
@@ -149,7 +149,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await sleep(350)
   let templateFiles = (await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md'))
-  assert(templateFiles.length === 6, 'A personal template was not created.')
+  assert(templateFiles.length === 7, 'A personal template was not created.')
   const customTemplateName = templateFiles.find((name) => name.startsWith('나의 주장 검토'))
   assert(customTemplateName, 'The personal template Markdown file was not named as expected.')
   const customTemplatePath = path.join(libraryPath, 'Templates', customTemplateName)
@@ -159,7 +159,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.includes('복제')).click()`)
   await sleep(350)
   templateFiles = (await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md'))
-  assert(templateFiles.length === 7, 'Template duplication did not create a Markdown copy.')
+  assert(templateFiles.length === 8, 'Template duplication did not create a Markdown copy.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.includes('기본값')).click()`)
   await sleep(250)
   const defaults = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'template-defaults.json'), 'utf8'))
@@ -168,7 +168,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.trim() === '삭제').click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.includes('삭제 확인')).click()`)
   await sleep(350)
-  assert((await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md')).length === 6, 'Template deletion did not remove the active file.')
+  assert((await fs.readdir(path.join(libraryPath, 'Templates'))).filter((name) => name.endsWith('.md')).length === 7, 'Template deletion did not remove the active file.')
   assert((await fs.readdir(path.join(libraryPath, '.prism', 'trash', 'templates'))).length === 1, 'Deleted templates were not recoverably moved to trash.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager-body aside > div > button')].find((button) => button.textContent.includes('Paper - Deep review')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.template-manager footer button')].find((button) => button.textContent.trim() === '삭제').click()`)
@@ -183,7 +183,7 @@ try {
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 관리"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-create'))`), 'The empty knowledge workspace did not show its creation form.')
-  assert(await notesConnection.evaluate(`document.querySelectorAll('select[aria-label="새 지식 노트 유형"] option').length`) === 5, 'The knowledge creator did not expose every supported node type.')
+  assert(await notesConnection.evaluate(`document.querySelectorAll('select[aria-label="새 지식 노트 유형"] option').length`) === 6, 'The knowledge creator did not expose every supported node type.')
   await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label="새 지식 노트 유형"]'); const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; selectSetter.call(select, 'claim'); select.dispatchEvent(new Event('change', { bubbles: true })); const input = document.querySelector('input[aria-label="새 지식 노트 제목"]'); const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; inputSetter.call(input, '노이즈 예측은 score matching이다'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await sleep(150)
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-create button')].find((button) => button.textContent.includes('노트 만들기')).click()`)
@@ -193,13 +193,14 @@ try {
   let claimMarkdown = await fs.readFile(claimPath, 'utf8')
   assert(claimMarkdown.includes('prism_id: "claim-') && claimMarkdown.includes('template_id:') && claimMarkdown.includes('# 노이즈 예측은 score matching이다'), 'The generated Claim did not retain identity, template, and rendered title metadata.')
   const createdTypes = await notesConnection.evaluate(`(async () => {
-    const inputs = [['paper', '수동 Paper 노트'], ['concept', 'Reverse diffusion'], ['insight', '목적함수 연결 아이디어'], ['question', '가중치는 품질에 어떤 영향을 주는가']];
+    const inputs = [['paper', '수동 Paper 노트'], ['concept', 'Reverse diffusion'], ['insight', '목적함수 연결 아이디어'], ['question', '가중치는 품질에 어떤 영향을 주는가'], ['project', 'Diffusion objective 개선 연구']];
     const results = [];
     for (const [nodeType, title] of inputs) results.push(await window.prism.createKnowledgeNode({ nodeType, title }));
     return results.map((result) => result.id);
   })()`)
-  assert(createdTypes.length === 4, 'The remaining knowledge node types were not created through the public IPC contract.')
-  for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
+  assert(createdTypes.length === 5, 'The remaining knowledge node types were not created through the public IPC contract.')
+  for (const [folder, file] of [['Papers', '수동 Paper 노트.md'], ['Concepts', 'Reverse diffusion.md'], ['Insights', '목적함수 연결 아이디어.md'], ['Questions', '가중치는 품질에 어떤 영향을 주는가.md'], ['Projects', 'Diffusion objective 개선 연구.md']]) assert((await fs.stat(path.join(libraryPath, folder, file))).isFile(), `${folder} node was not stored in its Markdown folder.`)
+  assert((await fs.readFile(path.join(libraryPath, 'Projects', 'Diffusion objective 개선 연구.md'), 'utf8')).includes('template_id: "project-research-context"'), 'A Project did not use its Markdown default template.')
 
   async function chooseKnowledgeProperty(label, value, expectedLine) {
     await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label=${JSON.stringify(label)}]'); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, ${JSON.stringify(value)}); select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
@@ -208,6 +209,27 @@ try {
   await chooseKnowledgeProperty('지식 노트 상태', 'established', 'status: established')
   await chooseKnowledgeProperty('지식 노트 중요도', 'high', 'importance: high')
   await chooseKnowledgeProperty('지식 노트 확신도', 'low', 'confidence: low')
+
+  let knowledgeViews = await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)
+  assert(knowledgeViews.projects.length === 1 && knowledgeViews.projects[0].relativePath === 'Projects/Diffusion objective 개선 연구.md', 'The Project data view did not expose a portable Vault-relative Project path.')
+  assert(knowledgeViews.unansweredQuestions.length === 1 && knowledgeViews.unansweredQuestions[0].id === createdTypes[3], 'The unanswered Question data view did not include the developing Question.')
+  assert(knowledgeViews.unsupportedClaims.length === 1 && knowledgeViews.unsupportedClaims[0].title.includes('노이즈 예측'), 'The unsupported Claim data view did not include a Claim without evidence.')
+  const pendingEvidenceRelation = await notesConnection.evaluate(`(async () => { const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[0])}); return window.prism.createKnowledgeRelation({ sourceId: ${JSON.stringify(createdTypes[0])}, targetId: document.querySelector('.knowledge-manager-body > aside button.active')?.textContent.includes('노이즈 예측') ? (await window.prism.listKnowledgeNodes()).find((node) => node.title.includes('노이즈 예측')).id : '', type: 'supports', creator: 'ai', expectedRevision: snapshot.revision }); })()`)
+  assert(pendingEvidenceRelation.saved && (await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)).unsupportedClaims.length === 1, 'A pending AI relation incorrectly removed a Claim from the unsupported view.')
+  await notesConnection.evaluate(`window.prism.deleteKnowledgeRelation({ id: ${JSON.stringify(pendingEvidenceRelation.relation.id)}, expectedRevision: ${JSON.stringify(pendingEvidenceRelation.snapshot.revision)} })`)
+  const approvedEvidenceRelation = await notesConnection.evaluate(`(async () => { const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[0])}); const claim = (await window.prism.listKnowledgeNodes()).find((node) => node.title.includes('노이즈 예측')); return window.prism.createKnowledgeRelation({ sourceId: ${JSON.stringify(createdTypes[0])}, targetId: claim.id, type: 'supports', creator: 'user', expectedRevision: snapshot.revision }); })()`)
+  assert(approvedEvidenceRelation.saved && (await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)).unsupportedClaims.length === 0, 'An approved incoming supporting relation did not satisfy the Claim evidence view.')
+  await notesConnection.evaluate(`window.prism.deleteKnowledgeRelation({ id: ${JSON.stringify(approvedEvidenceRelation.relation.id)}, expectedRevision: ${JSON.stringify(approvedEvidenceRelation.snapshot.revision)} })`)
+  assert((await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)).unsupportedClaims.length === 1, 'Removing the approved support did not restore the Claim to the unsupported view.')
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 데이터 보기"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-data-view').length === 3 && document.querySelector('.view-projects')?.textContent.includes('Diffusion objective 개선 연구') && document.querySelector('.view-questions')?.textContent.includes('가중치는 품질에') && document.querySelector('.view-claims')?.textContent.includes('노이즈 예측')`), 'The research overview did not render Project, unanswered Question, and unsupported Claim views.')
+  const dataViewsScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const dataViewsScreenshotPath = path.resolve('tmp/ui/notes-knowledge-data-views.png')
+  await fs.writeFile(dataViewsScreenshotPath, Buffer.from(dataViewsScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`document.querySelector('.view-claims button').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.knowledge-heading h3')?.textContent.includes('노이즈 예측') && !document.querySelector('.knowledge-data-views')`), 'Selecting an unsupported Claim did not open its Markdown note.')
+  await notesConnection.evaluate(`(async () => { const snapshot = await window.prism.readKnowledgeNode(${JSON.stringify(createdTypes[3])}); return window.prism.updateKnowledgeProperties(${JSON.stringify(createdTypes[3])}, { status: 'established' }, snapshot.revision); })()`)
+  assert((await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)).unansweredQuestions.length === 0, 'An established Question remained in the unanswered view.')
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="지식 링크 추가"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-link-picker'))`), 'The knowledge link picker did not open.')
@@ -289,12 +311,12 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('사용자가 문서형 화면에서 추가한 판단.'), 'The knowledge note body was not saved from Live Edit.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, '문서형 화면에서'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 1 && document.querySelector('.knowledge-manager-body > aside button i')?.textContent.includes('문서형 화면에서')`), 'Full-text knowledge search did not find the body-only phrase with context.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 1 && document.querySelector('.knowledge-manager-body > aside > div button i')?.textContent.includes('문서형 화면에서')`), 'Full-text knowledge search did not find the body-only phrase with context.')
   const searchScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const searchScreenshotPath = path.resolve('tmp/ui/notes-full-text-search.png')
   await fs.writeFile(searchScreenshotPath, Buffer.from(searchScreenshot.data, 'base64'))
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 5`), 'Clearing knowledge search did not restore the complete node list.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 6`), 'Clearing knowledge search did not restore the complete node list.')
 
   assert(await notesConnection.evaluate(`window.prism.listEvidenceAnchors().then((items) => new Set(items.map((item) => item.type)).size)`) === 5, 'The evidence catalog did not expose sentence, equation, table, figure, and page anchors.')
   await notesConnection.evaluate(`document.querySelector('button[aria-label="PDF 근거 추가"]').click()`)
@@ -308,6 +330,8 @@ try {
   await waitFor(() => mainConnection.evaluate(`window.__openedEvidence?.[0]?.anchorId === 'equation-p2-3'`), 'Clicking the evidence card did not ask the Reader to open the stable PDF anchor.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.knowledge-manager footer button')].find((button) => button.textContent.includes('저장')).click()`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('prism-evidence:') && (await fs.readFile(claimPath, 'utf8')).includes('^evidence-test-0001-equation-p2-3'), 'The evidence reference was not preserved in portable Markdown.')
+  knowledgeViews = await notesConnection.evaluate(`window.prism.listKnowledgeDataViews()`)
+  assert(knowledgeViews.unsupportedClaims.length === 0, 'A Claim with an embedded PDF evidence card remained in the unsupported view.')
   try {
     await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-heading h3')) && Boolean(document.querySelector('.evidence-strip article'))`), 'The knowledge document did not settle after saving the evidence card.')
   } catch (reason) {
@@ -464,7 +488,7 @@ try {
   const slashResult = await fs.readFile(notePath, 'utf8')
   assert(slashResult.includes('| 항목 | 내용 |') && !slashResult.includes('/표'), 'Enter did not apply the selected slash command.')
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write(`Notes UI smoke passed: knowledge nodes, structured properties, full-text search, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
+  process.stdout.write(`Notes UI smoke passed: knowledge nodes, Project templates and research data views, structured properties, full-text search, knowledge links, inline autocomplete, backlinks, typed relations and local graph navigation, evidence relinking, promotion and backlinks, templates, document editing, safe external changes, conflict resolution, toolbar, slash commands, exact Markdown, reading, and split modes.\nScreenshots: ${screenshotPath}, ${conflictScreenshotPath}, ${templateScreenshotPath}, ${knowledgeScreenshotPath}, ${dataViewsScreenshotPath}, ${linksScreenshotPath}, ${autocompleteScreenshotPath}, ${relationsScreenshotPath}, ${graphScreenshotPath}, ${searchScreenshotPath}, ${promotionScreenshotPath}, ${backlinkScreenshotPath}\n`)
 } finally {
   notesConnection?.socket.close()
   mainConnection?.socket.close()

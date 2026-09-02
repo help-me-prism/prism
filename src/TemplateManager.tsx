@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, FilePlus2, Save, Star, Trash2, X } from 'lucide-react'
 import MarkdownEditor from './MarkdownEditor'
 
-const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question' }
+const typeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question', project: 'Project' }
 type Draft = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; revision?: string }
 
 function fromTemplate(template: TemplateRecord): Draft {
