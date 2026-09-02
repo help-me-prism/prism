@@ -43,6 +43,7 @@ async function waitForPage() {
 let socket
 const pending = new Map()
 const exceptions = []
+const securityWarnings = []
 let sequence = 0
 function send(method, params = {}) {
   sequence += 1
@@ -69,6 +70,10 @@ try {
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data))
     if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails?.text ?? 'Renderer exception')
+    if (message.method === 'Runtime.consoleAPICalled') {
+      const rendered = (message.params.args ?? []).map((argument) => argument.value ?? argument.description ?? '').join(' ')
+      if (rendered.includes('Insecure Content-Security-Policy')) securityWarnings.push(rendered)
+    }
     if (!message.id) return
     const callback = pending.get(message.id)
     if (!callback) return
@@ -116,6 +121,7 @@ try {
   assert(await evaluate(`document.querySelectorAll('.session-item').length`) === 2, 'Undo did not restore the deleted chat.')
 
   assert(exceptions.length === 0, `Renderer exceptions were reported: ${exceptions.join('; ')}`)
+  assert(securityWarnings.length === 0, 'Electron reported an insecure Content Security Policy.')
   process.stdout.write('Electron UI smoke passed: onboarding, keyboard close, settings, and undo.\n')
 } finally {
   socket?.close()

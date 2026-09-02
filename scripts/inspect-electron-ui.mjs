@@ -3,12 +3,15 @@ import path from 'node:path'
 
 const port = Number(process.env.PRISM_DEBUG_PORT ?? process.argv[2] ?? 9223)
 const outputPath = path.resolve(process.argv[3] ?? 'tmp/ui/prism.png')
+const requestedTitle = process.argv[4]
 
 const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
   if (!response.ok) throw new Error(`Electron debug endpoint returned ${response.status}`)
   return response.json()
 })
-const page = pages.find((candidate) => candidate.type === 'page' && /Prism/i.test(candidate.title)) ?? pages.find((candidate) => candidate.type === 'page')
+const page = (requestedTitle ? pages.find((candidate) => candidate.type === 'page' && candidate.title === requestedTitle) : undefined)
+  ?? pages.find((candidate) => candidate.type === 'page' && candidate.title === 'Prism')
+  ?? pages.find((candidate) => candidate.type === 'page')
 if (!page?.webSocketDebuggerUrl) throw new Error(`No Electron page found on port ${port}`)
 
 const socket = new WebSocket(page.webSocketDebuggerUrl)

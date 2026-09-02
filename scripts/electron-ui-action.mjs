@@ -1,9 +1,12 @@
 const port = Number(process.env.PRISM_DEBUG_PORT ?? process.argv[2] ?? 9223)
 const action = process.argv[3]
 const value = process.argv[4] ?? ''
+const requestedTitle = process.argv[5]
 
 const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json())
-const page = pages.find((candidate) => candidate.type === 'page' && /Prism/i.test(candidate.title)) ?? pages.find((candidate) => candidate.type === 'page')
+const page = (requestedTitle ? pages.find((candidate) => candidate.type === 'page' && candidate.title === requestedTitle) : undefined)
+  ?? pages.find((candidate) => candidate.type === 'page' && candidate.title === 'Prism')
+  ?? pages.find((candidate) => candidate.type === 'page')
 if (!page?.webSocketDebuggerUrl) throw new Error(`No Electron page found on port ${port}`)
 
 const socket = new WebSocket(page.webSocketDebuggerUrl)
@@ -42,6 +45,12 @@ if (action === 'click-label') {
   const encodedLabel = JSON.stringify(label)
   const encodedText = JSON.stringify(text)
   await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('input, textarea')].find((candidate) => candidate.getAttribute('aria-label') === ${encodedLabel}); if (!element) throw new Error('Field not found'); const setter = Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set; setter.call(element, ${encodedText}); element.dispatchEvent(new Event('input', { bubbles: true })); return true })()` })
+} else if (action === 'append-label') {
+  const [label, text] = value.split('=', 2)
+  if (!label || text === undefined) throw new Error('append-label expects label=value')
+  const encodedLabel = JSON.stringify(label)
+  const encodedText = JSON.stringify(text)
+  await send('Runtime.evaluate', { expression: `(() => { const element = [...document.querySelectorAll('input, textarea')].find((candidate) => candidate.getAttribute('aria-label') === ${encodedLabel}); if (!element) throw new Error('Field not found'); const setter = Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set; setter.call(element, element.value + ${encodedText}); element.dispatchEvent(new Event('input', { bubbles: true })); element.blur(); return true })()` })
 } else if (action === 'press') {
   const key = value
   const keyCode = key === 'Escape' ? 27 : key === 'Enter' ? 13 : key === 'Tab' ? 9 : 0
