@@ -16,6 +16,7 @@ import { listKnowledgeDataViews } from './knowledgeViews.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
+import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -596,6 +597,8 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
 
 let mainWindow: BrowserWindow | undefined
 let notesWindow: BrowserWindow | undefined
+let mcpAnchorRequestId = ''
+let mcpAnchorTimer: NodeJS.Timeout | undefined
 
 function loadRenderer(window: BrowserWindow, view?: string) {
   const devUrl = process.env.VITE_DEV_SERVER_URL
@@ -632,6 +635,17 @@ function openNotesWindow() {
   notesWindow.on('closed', () => { notesWindow = undefined })
   loadRenderer(notesWindow, 'notes')
   return true
+}
+
+async function checkMcpAnchorRequest() {
+  const settings = await readSettings(); if (!settings.libraryPath) return
+  const request = await readMcpOpenAnchorRequest(settings.libraryPath)
+  if (!request || request.requestId === mcpAnchorRequestId) return
+  mcpAnchorRequestId = request.requestId
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  const notify = () => mainWindow?.webContents.send('evidence:open-requested', { paperId: request.paperId, anchorId: request.anchorId, type: request.type, page: request.page, label: request.label })
+  if (mainWindow?.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', notify); else notify()
+  mainWindow?.show(); mainWindow?.focus()
 }
 
 ipcMain.handle('providers:list', () => providerInfo())
@@ -921,7 +935,12 @@ ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {
   active.process?.kill(); activeChats.delete(sessionId); return true
 })
 
-app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (!mainWindow) createWindow() }) })
+app.whenReady().then(() => {
+  createWindow(); mcpAnchorTimer = setInterval(() => void checkMcpAnchorRequest().catch((reason) => console.error('MCP anchor request:', reason)), 800)
+  void checkMcpAnchorRequest().catch((reason) => console.error('MCP anchor request:', reason))
+  app.on('activate', () => { if (!mainWindow) createWindow() })
+})
+app.on('before-quit', () => { if (mcpAnchorTimer) { clearInterval(mcpAnchorTimer); mcpAnchorTimer = undefined } })
 app.on('window-all-closed', () => {
   for (const active of activeChats.values()) active.process?.kill()
   for (const child of translationJobs.values()) child.kill()

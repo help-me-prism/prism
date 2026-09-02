@@ -85,6 +85,29 @@ Obsidian을 함께 사용할 때는 Prism에서 선택한 라이브러리 폴더
 
 Prism은 Markdown 링크와 저장 경로를 Vault 기준 `/` 상대 경로로 유지합니다. 외부 앱을 여는 순간에만 현재 운영체제의 절대 경로를 만들며 이 경로는 노트에 저장하지 않습니다. URI 동작과 heading/block 규칙은 [Obsidian 공식 URI 문서](https://help.obsidian.md/Extending%2BObsidian/Obsidian%2BURI)를 따릅니다. Windows와 macOS 경로 변환은 `npm run test:notes-ui`에 포함된 호환성 테스트로 확인할 수 있습니다.
 
+### 로컬 연구 지식 MCP 연결
+
+Prism Vault를 지원하는 AI 호스트에서 검색·근거 조회·논문 비교를 사용하려면 먼저 소스를 빌드합니다.
+
+```bash
+npm ci
+npm run build
+```
+
+호스트의 MCP 설정에는 `node` 명령과 아래 인수를 등록합니다. 두 경로는 상대 경로 대신 현재 컴퓨터의 절대 경로를 사용합니다.
+
+```text
+<Prism 저장소>/dist-electron/mcpServer.js
+--vault
+<Prism에서 선택한 Vault 폴더>
+```
+
+예를 들어 Windows에서는 명령이 `node`, 인수가 `C:\\dev\\prism\\dist-electron\\mcpServer.js`, `--vault`, `D:\\ResearchVault`가 됩니다. 호스트가 환경 변수를 지원한다면 `--vault` 대신 `PRISM_VAULT_PATH`를 설정할 수도 있습니다. 서버는 로컬 stdio로만 통신하며 네트워크 포트를 열지 않습니다.
+
+연결 후 `search_knowledge`, `get_claim_evidence`, `find_related_concepts`, `compare_papers`, `open_paper_anchor`, `suggest_relationships`, `create_note_draft` 도구를 사용할 수 있습니다. 앞의 여섯 도구는 Vault 내용을 수정하지 않습니다. `create_note_draft`만 `created_by: ai`, `draft: true`인 새 Markdown 노트를 만들며 같은 이름의 파일을 덮어쓰지 않습니다. 관계 승인·거절과 기존 노트 편집은 계속 Prism의 연구 지식 화면에서 사용자가 직접 수행합니다.
+
+실제 stdio 연결, 일곱 도구, 승인된 관계만의 조회, Electron Reader 앵커 이동, 초안 충돌 방지는 `npm run test:mcp`로 확인할 수 있습니다.
+
 ### Windows 실행 파일
 
 `npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
