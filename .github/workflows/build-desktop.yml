@@ -20,14 +20,14 @@ jobs:
             command: package:win
             artifact: Prism-Windows
             files: release/*.exe
-          - name: macOS universal DMG
+          - name: macOS Intel and Apple Silicon DMGs
             os: macos-latest
             command: package:mac
             artifact: Prism-macOS
             files: release/*.dmg
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm

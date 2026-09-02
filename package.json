@@ -16,7 +16,7 @@
     "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable",
-    "package:mac": "npm run build && electron-builder --mac dmg --universal"
+    "package:mac": "npm run build && electron-builder --mac dmg --x64 --arm64"
   },
   "devDependencies": {
     "@types/node": "latest",

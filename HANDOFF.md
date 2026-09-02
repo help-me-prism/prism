@@ -31,7 +31,7 @@ npm start
 - 타입 검사와 프로덕션 빌드: `npm run build`
 - Windows portable EXE: `npm run package:win`
 - 생성 파일: `release/Prism 0.1.0.exe`
-- macOS universal DMG 명령: `npm run package:mac` — GitHub Actions의 macOS runner에서도 생성한다. 실제 Mac UX 및 서명 검증은 아직 필요하다.
+- macOS Intel/Apple Silicon DMG 명령: `npm run package:mac` — GitHub Actions의 macOS runner에서도 두 아키텍처를 각각 생성한다. 실제 Mac UX 및 서명 검증은 아직 필요하다.
 
 `index.html`을 브라우저에서 직접 열면 `file://` CORS 문제로 동작하지 않는다. 반드시 Electron 실행 명령이나 패키징된 EXE를 사용한다.
 
@@ -94,7 +94,7 @@ codex login
 - LaTeX 수식은 PDF 수식 segment와 토큰 유사도로 연결하고, 표는 `table`/`tabular` 원본 블록을 PDF 표 캡션에 연결해 별도 구조 태그로 노출한다. AI 문맥에는 축약하지 않은 원본 LaTeX가 전달된다.
 - 한국어 번역층이 수식·표·피겨를 덮지 않도록 겹침이 적은 방향으로 텍스트 block을 확장하고, 보호 구조 영역은 원본 PDF canvas에서 다시 그려 글자·선 누락을 막는다.
 - 채팅 인라인 태그에 표 타입과 아이콘을 추가했으며 UI smoke가 수식과 표 태그를 함께 검증한다.
-- `.nvmrc`, OS별 원클릭 실행 스크립트와 Windows/macOS GitHub Actions 패키징을 추가했다. `release/`는 계속 Git에서 제외하고 Actions artifact로 공유한다.
+- `.nvmrc`, OS별 원클릭 실행 스크립트와 Windows/macOS GitHub Actions 패키징을 추가했다. macOS는 universal 병합 실패 가능성을 피하고 Intel/Apple Silicon DMG를 각각 만든다. `release/`는 계속 Git에서 제외하고 Actions artifact로 공유한다.
 
 관련 커밋: `ddfb479`, `caf1f89`, `6474baf`, `5693042`
 
