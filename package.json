@@ -54,12 +54,14 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "artifactName": "Prism-${version}-Windows-${arch}.${ext}"
     },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.productivity",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "artifactName": "Prism-${version}-macOS-${arch}.${ext}"
     }
   },
   "dependencies": {

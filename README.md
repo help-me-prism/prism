@@ -114,15 +114,15 @@ npm run build
 
 ### Windows 실행 파일
 
-`npm run package:win`을 실행하면 `release/Prism 0.1.0.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
+`npm run package:win`을 실행하면 `release/Prism-0.1.0-Windows-x64.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
 
-생성한 패키지가 실제 renderer를 여는지 별도 테스트 프로필로 확인하려면 `node scripts/smoke-packaged-launch.mjs "release/Prism 0.1.0.exe"`를 실행합니다.
+생성한 패키지가 실제 renderer를 여는지 별도 테스트 프로필로 확인하려면 `node scripts/smoke-packaged-launch.mjs "release/Prism-0.1.0-Windows-x64.exe"`를 실행합니다.
 
 `release/`는 빌드 결과라 Git에 저장하지 않습니다. 따라서 예전에 만든 EXE가 폴더에 남아 있다면 최신 소스가 아닐 수 있습니다. 브랜치에 푸시할 때마다 GitHub Actions의 **Build desktop apps**가 Windows portable EXE와 Intel/Apple Silicon용 macOS DMG를 새로 만들며, 해당 실행의 Artifacts에서 내려받을 수 있습니다.
 
 ### macOS
 
-Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 현재 Mac 아키텍처용 DMG를 만들 수 있습니다. GitHub Actions는 Intel(x64)과 Apple Silicon(arm64) runner에서 각각 DMG를 생성합니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
+Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 현재 Mac 아키텍처용 DMG를 만들 수 있습니다. GitHub Actions는 `Prism-0.1.0-macOS-x64.dmg`와 `Prism-0.1.0-macOS-arm64.dmg`를 각각 Intel/Apple Silicon runner에서 생성합니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
 
 현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 대규모 Vault 성능·동기화 검증과 macOS 서명·notarization입니다.
 

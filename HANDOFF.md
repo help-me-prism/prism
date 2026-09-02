@@ -30,7 +30,7 @@ npm start
 - 개발 모드: `npm run dev`
 - 타입 검사와 프로덕션 빌드: `npm run build`
 - Windows portable EXE: `npm run package:win`
-- 생성 파일: `release/Prism 0.1.0.exe`
+- 생성 파일: `release/Prism-0.1.0-Windows-x64.exe`
 - 현재 Mac용 DMG 명령: `npm run package:mac` — GitHub Actions는 `macos-15-intel`과 `macos-15` runner에서 Intel/Apple Silicon DMG를 각각 생성한다. 실제 Mac UX 및 서명 검증은 아직 필요하다.
 
 `index.html`을 브라우저에서 직접 열면 `file://` CORS 문제로 동작하지 않는다. 반드시 Electron 실행 명령이나 패키징된 EXE를 사용한다.
@@ -274,7 +274,7 @@ library/
 - 전체 40페이지에서 raw LaTeXiT payload, 번역 block overflow, 세로형 텍스트, 페이지 바깥 이탈 0건 확인
 - Attention Is All You Need를 테스트 라이브러리에 실제 검색·저장하고 2초 이내 첫 페이지 표시 확인
 - Notes blur 직후 실제 Markdown 파일 저장 확인
-- 2026-09-03 Windows portable EXE 재생성 확인 (`release/Prism 0.1.0.exe`, 111.8MB) 및 `scripts/smoke-packaged-launch.mjs`로 패키지 내부 renderer 실제 실행 확인
+- 2026-09-03 Windows portable EXE 재생성 확인 (`release/Prism-0.1.0-Windows-x64.exe`, 111.8MB) 및 `scripts/smoke-packaged-launch.mjs`로 패키지 내부 renderer 실제 실행 확인
 - `npm run test:notes-ui` 성공 — 템플릿·지식 노드·근거·관계·검색·제안·문서형 표/수식/이미지/코드/체크박스·충돌·접기·드래그·Ctrl/Cmd·클립보드·Windows 원자 교체 재시도 회귀
 - `npm run test:mcp` 성공 — 일곱 stdio 도구, 승인 관계, Reader 이동, portable path 검증
 - `npm run test:structure` 성공 — LaTeX 수식·표 원문 byte-for-byte 보존

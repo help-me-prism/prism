@@ -68,7 +68,7 @@
 - Windows의 일시적 `EPERM`/`EBUSY`/`EACCES` 파일 점유에서 원자 교체를 재시도하고 임시 파일을 정리한다.
 - 모든 항목 완료 후 `RESEARCH_KNOWLEDGE_SYSTEM.md`의 1차 완료 기준을 처음부터 재검증한다.
 
-검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `npm run test:structure`, `npm run package:win`, `node scripts/smoke-packaged-launch.mjs "release/Prism 0.1.0.exe"`, `notes-paper-reading-status.png`, `notes-knowledge-data-views.png`.
+검증: `npm run test:notes-ui`, `npm run test:mcp`, `npm run test:ui`, `npm run test:structure`, `npm run package:win`, `node scripts/smoke-packaged-launch.mjs "release/Prism-0.1.0-Windows-x64.exe"`, `notes-paper-reading-status.png`, `notes-knowledge-data-views.png`.
 
 Windows에서는 portable EXE를 새로 만들고 패키지 안의 renderer가 실제로 열리는 것까지 확인했다. macOS는 Windows에서 DMG를 교차 생성하지 않으며, `package:mac:x64`와 `package:mac:arm64`를 각각 네이티브 GitHub Actions runner에서 실행하도록 구성되어 있다. 이번 로컬 감사에서는 macOS 실행 스크립트, `/` 상대 경로 저장, URI 인코딩, heading/block target 계약을 확인했으며 실제 Mac의 DMG 실행·서명·notarization은 배포 검증 항목으로 남는다.
 
