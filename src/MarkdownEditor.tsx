@@ -7,6 +7,7 @@ import { basicSetup } from 'codemirror'
 import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
+export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence' | 'graph'
 export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
 export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
@@ -21,23 +22,35 @@ type MarkdownEditorProps = {
   wikiLinks?: WikiLinkOption[]
   evidenceLinks?: EvidenceLinkOption[]
   onCreateWikiLink?: (nodeType: 'concept' | 'claim', title: string) => Promise<WikiLinkOption | undefined>
+  slashActions?: MarkdownSlashAction[]
+  onSlashAction?: (action: MarkdownSlashAction) => void
 }
 
 type SlashState = { from: number; to: number; query: string; top: number; left: number }
-type CommandOption = { command: MarkdownBlockCommand; label: string; description: string; keywords: string }
+type BlockCommandOption = { kind: 'block'; command: MarkdownBlockCommand; label: string; description: string; keywords: string }
+type ActionCommandOption = { kind: 'action'; command: MarkdownSlashAction; label: string; description: string; keywords: string }
+type CommandOption = BlockCommandOption | ActionCommandOption
 
-export const markdownBlockCommands: CommandOption[] = [
-  { command: 'heading', label: '제목', description: '섹션 제목을 추가합니다', keywords: 'heading header 제목 헤딩' },
-  { command: 'bullet', label: '글머리표 목록', description: '순서 없는 목록을 추가합니다', keywords: 'bullet list 글머리 목록' },
-  { command: 'ordered', label: '번호 목록', description: '순서 있는 목록을 추가합니다', keywords: 'number ordered list 번호 목록' },
-  { command: 'task', label: '체크박스', description: '할 일 항목을 추가합니다', keywords: 'task checkbox todo 체크 할일' },
-  { command: 'quote', label: '인용', description: '인용문 블록을 추가합니다', keywords: 'quote blockquote 인용' },
-  { command: 'callout', label: 'Callout', description: 'Obsidian 호환 메모 블록을 추가합니다', keywords: 'callout note 메모 콜아웃' },
-  { command: 'table', label: '표', description: '2열 표를 추가합니다', keywords: 'table grid 표 테이블' },
-  { command: 'code', label: '코드 블록', description: '코드 영역을 추가합니다', keywords: 'code fence 코드' },
-  { command: 'math', label: '수식 블록', description: 'LaTeX 수식 영역을 추가합니다', keywords: 'math latex equation 수식' },
-  { command: 'image', label: '이미지', description: '이미지 링크를 추가합니다', keywords: 'image picture figure 이미지 피겨' },
-  { command: 'divider', label: '구분선', description: '문서 구분선을 추가합니다', keywords: 'divider rule separator 구분선' },
+export const markdownBlockCommands: BlockCommandOption[] = [
+  { kind: 'block', command: 'heading', label: '제목', description: '섹션 제목을 추가합니다', keywords: 'heading header 제목 헤딩' },
+  { kind: 'block', command: 'bullet', label: '글머리표 목록', description: '순서 없는 목록을 추가합니다', keywords: 'bullet list 글머리 목록' },
+  { kind: 'block', command: 'ordered', label: '번호 목록', description: '순서 있는 목록을 추가합니다', keywords: 'number ordered list 번호 목록' },
+  { kind: 'block', command: 'task', label: '체크박스', description: '할 일 항목을 추가합니다', keywords: 'task checkbox todo 체크 할일' },
+  { kind: 'block', command: 'quote', label: '인용', description: '인용문 블록을 추가합니다', keywords: 'quote blockquote 인용' },
+  { kind: 'block', command: 'callout', label: 'Callout', description: 'Obsidian 호환 메모 블록을 추가합니다', keywords: 'callout note 메모 콜아웃' },
+  { kind: 'block', command: 'table', label: '표', description: '2열 표를 추가합니다', keywords: 'table grid 표 테이블' },
+  { kind: 'block', command: 'code', label: '코드 블록', description: '코드 영역을 추가합니다', keywords: 'code fence 코드' },
+  { kind: 'block', command: 'math', label: '수식 블록', description: 'LaTeX 수식 영역을 추가합니다', keywords: 'math latex equation 수식' },
+  { kind: 'block', command: 'image', label: '이미지', description: '이미지 링크를 추가합니다', keywords: 'image picture figure 이미지 피겨' },
+  { kind: 'block', command: 'divider', label: '구분선', description: '문서 구분선을 추가합니다', keywords: 'divider rule separator 구분선' },
+]
+const markdownActionCommands: ActionCommandOption[] = [
+  { kind: 'action', command: 'relation', label: '관계', description: '대상과 의미 있는 관계를 연결합니다', keywords: 'relation 관계 연결' },
+  { kind: 'action', command: 'supports', label: '지지 관계', description: '지지할 Claim을 선택합니다', keywords: 'support supports 지지 뒷받침' },
+  { kind: 'action', command: 'contradicts', label: '반박 관계', description: '반박할 Claim을 선택합니다', keywords: 'contradict refute 반박 모순' },
+  { kind: 'action', command: 'link', label: '논문·지식 링크', description: '논문, Concept, Claim을 검색합니다', keywords: 'link 링크 논문 paper concept claim' },
+  { kind: 'action', command: 'evidence', label: 'PDF 근거', description: '논문의 정확한 위치를 연결합니다', keywords: 'evidence pdf 근거 인용' },
+  { kind: 'action', command: 'graph', label: '관계 그래프', description: '현재 노트의 연결을 확인합니다', keywords: 'graph network 그래프 관계망' },
 ]
 
 function menuPosition(coords: { top: number; bottom: number; left: number } | null, bounds: DOMRect | undefined, width: number, estimatedHeight = 190) {
@@ -584,13 +597,14 @@ function replaceWithBlock(view: EditorView, replace: { from: number; to: number 
   view.dispatch({ changes: { from: replace.from, to: replace.to, insert }, selection: { anchor: replace.from + insert.length }, scrollIntoView: true }); view.focus()
 }
 
-const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [], evidenceLinks = [], onCreateWikiLink }, ref) {
+const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [], evidenceLinks = [], onCreateWikiLink, slashActions = [], onSlashAction }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editable = useRef(new Compartment())
   const visualMode = useRef(new Compartment())
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
+  const onSlashActionRef = useRef(onSlashAction)
   const wikiLinksRef = useRef(wikiLinks)
   const syncingRef = useRef(false)
   const slashRef = useRef<SlashState | null>(null)
@@ -609,6 +623,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const [evidence, setEvidence] = useState<SlashState | null>(null)
   const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0)
   const [hoverWiki, setHoverWiki] = useState<{ option: WikiLinkOption; top: number; left: number }>()
+  const availableCommands = useMemo<CommandOption[]>(() => [...markdownBlockCommands, ...markdownActionCommands.filter((option) => slashActions.includes(option.command))], [slashActions])
   const filteredCommands = useMemo(() => {
     const query = slash?.query.toLocaleLowerCase() ?? ''
     if (!slash) return []
@@ -619,8 +634,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       if (option.keywords.toLocaleLowerCase().split(' ').some((keyword) => keyword === query || keyword.startsWith(query))) return 2
       return 3
     }
-    return markdownBlockCommands.filter((option) => !query || `${option.label} ${option.keywords}`.toLocaleLowerCase().includes(query)).sort((a, b) => score(a) - score(b))
-  }, [slash])
+    return availableCommands.filter((option) => !query || `${option.label} ${option.keywords}`.toLocaleLowerCase().includes(query)).sort((a, b) => score(a) - score(b))
+  }, [slash, availableCommands])
   const filteredWikiLinks = useMemo(() => {
     if (!wiki) return []
     const query = wiki.query.toLocaleLowerCase()
@@ -646,6 +661,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
   useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
+  useEffect(() => { onSlashActionRef.current = onSlashAction }, [onSlashAction])
   useEffect(() => { wikiLinksRef.current = wikiLinks }, [wikiLinks])
   useEffect(() => { slashRef.current = slash }, [slash])
   useLayoutEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
@@ -661,7 +677,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   function chooseSlashCommand(option: CommandOption) {
     const view = viewRef.current; const current = slashRef.current
     if (!view || !current) return
-    closeSlashMenu(); insertBlock(view, option.command, { from: current.from, to: current.to })
+    closeSlashMenu()
+    if (option.kind === 'block') { insertBlock(view, option.command, { from: current.from, to: current.to }); return }
+    syncingRef.current = true
+    view.dispatch({ changes: { from: current.from, to: current.to, insert: '' }, selection: { anchor: current.from } })
+    syncingRef.current = false
+    onChangeRef.current(view.state.doc.toString())
+    onSlashActionRef.current?.(option.command)
   }
   function closeWikiMenu() { wikiRef.current = null; setWiki(null); setActiveWikiIndex(0) }
   function chooseWikiLink(option: WikiLinkOption) {
@@ -811,8 +833,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [liveEdit])
 
   return <div className="markdown-editor" ref={hostRef}>
-    {slash && <div className="slash-command-menu" role="listbox" aria-label="블록 삽입 명령" style={{ top: slash.top, left: slash.left }}>
-      {filteredCommands.length ? filteredCommands.map((option, index) => <button key={option.command} className={index === activeSlashIndex ? 'active' : ''} role="option" aria-selected={index === activeSlashIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSlashCommand(option)}><strong>{option.label}</strong><small>{option.description}</small></button>) : <p>일치하는 블록이 없습니다</p>}
+    {slash && <div className="slash-command-menu" role="listbox" aria-label="삽입 및 작업 명령" style={{ top: slash.top, left: slash.left }}>
+      {filteredCommands.length ? filteredCommands.map((option, index) => <button key={`${option.kind}-${option.command}`} className={index === activeSlashIndex ? 'active' : ''} role="option" aria-selected={index === activeSlashIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSlashCommand(option)}><strong>{option.label}</strong><small>{option.description}</small></button>) : <p>일치하는 명령이 없습니다</p>}
     </div>}
     {wiki && <div className="wiki-link-menu" role="listbox" aria-label="지식 링크 자동완성" style={{ top: wiki.top, left: wiki.left }}>
       {filteredWikiLinks.length ? filteredWikiLinks.map((option, index) => <button key={option.id} className={index === activeWikiIndex ? 'active' : ''} role="option" aria-selected={index === activeWikiIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseWikiLink(option)}><strong>{option.label}</strong><small>{option.description} · {option.target}</small></button>) : <p>일치하는 지식 노트가 없습니다</p>}

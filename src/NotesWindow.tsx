@@ -220,7 +220,7 @@ export default function NotesWindow() {
         </div>
         {linkOpen && <section className="notes-link-picker" aria-label="노트 링크 찾기"><header><div><Search size={13} /><input autoFocus aria-label="노트 링크 검색" value={linkQuery} onChange={(event) => setLinkQuery(event.target.value)} placeholder="논문명, arXiv ID, Concept, Claim 검색" /></div><button aria-label="노트 링크 찾기 닫기" onClick={() => setLinkOpen(false)}><X size={13} /></button></header><div>{filteredWikiLinks.length ? filteredWikiLinks.map((option) => <button key={option.id} onClick={() => insertWikiLink(option)}><span><small>{option.description}</small><strong>{option.label}</strong><i>{option.target}</i></span><Link2 size={13} /></button>) : <p>일치하는 논문이나 지식 노트가 없습니다.</p>}</div><footer><span><kbd>[[</kbd> 입력 후 검색</span><span><kbd>↑↓</kbd> 선택</span><span><kbd>Tab</kbd> 삽입</span></footer></section>}
         <div className={`notes-document mode-${mode}`}>
-          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote()} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} wikiLinks={wikiLinks} />
+          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote()} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} wikiLinks={wikiLinks} slashActions={['link']} onSlashAction={() => setLinkOpen(true)} />
           {mode !== 'live' && <MarkdownPreview content={note} />}
         </div>
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
