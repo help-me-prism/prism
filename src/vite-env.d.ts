@@ -55,7 +55,7 @@ type ProjectKnowledgeContext = { project: KnowledgeNodeRecord; concepts: Knowled
 type ConflictingPaperPair = { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord }
 type KnowledgeDataViews = { projects: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; unsupportedClaims: KnowledgeNodeRecord[]; projectContexts: ProjectKnowledgeContext[]; conflictingPapers: ConflictingPaperPair[] }
 type ObsidianOpenRequest = { nodeId: string; heading?: string; blockId?: string }
-type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
+type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
 type ApplyTemplateSectionsResult = { saved: true; snapshot: NoteSnapshot; addedHeadings: string[] } | { saved: false; conflict: NoteSnapshot }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -95,6 +95,8 @@ interface Window {
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
     readPaperFigures: (arxivId: string) => Promise<PaperFigureAsset[]>
     openNotes: () => Promise<boolean>
+    openPaperInReader: (arxivId?: string) => Promise<boolean>
+    onOpenPaperInReader: (callback: (arxivId: string) => void) => () => void
     readPaperNote: (arxivId: string) => Promise<NoteSnapshot>
     savePaperNote: (arxivId: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     capturePaperNote: (request: PaperCaptureRequest) => Promise<PaperCaptureResult>
@@ -111,6 +113,7 @@ interface Window {
     suggestKnowledge: (nodeId: string) => Promise<KnowledgeSuggestion[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
     listCurationQueue: () => Promise<CurationQueue>
+    ensureLinkStubs: (id: string) => Promise<string[]>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
     reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>

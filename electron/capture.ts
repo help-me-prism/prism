@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSnapshot } from './notes.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
-import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeNodeRecord } from './knowledge.js'
+import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords } from './relations.js'
 
 /**
@@ -173,9 +173,8 @@ export async function ensureLinkStubs(libraryPath: string, content: string) {
   for (const name of targets) {
     if (known.has(name.toLocaleLowerCase())) continue
     try { await fs.access(path.join(libraryPath, 'Concepts', `${name}.md`)); continue } catch { /* not present: create the stub */ }
-    const result = await createKnowledgeNode(libraryPath, { title: name, nodeType: 'concept' })
-    const snapshot = await readKnowledgeNode(libraryPath, result.id)
-    await updateKnowledgeProperties(libraryPath, result.id, { status: 'inbox' }, snapshot.revision)
+    // Born as a stub in one write, so a reader never sees it in a half-created state.
+    await createKnowledgeNode(libraryPath, { title: name, nodeType: 'concept', status: 'inbox' })
     created.push(name)
     known.add(name.toLocaleLowerCase())
   }

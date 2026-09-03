@@ -32,7 +32,7 @@ export type KnowledgeNodeRecord = {
   scopeAssumptions?: string[]
   projects?: string[]
 }
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
@@ -105,11 +105,11 @@ function parseNode(source: string, fallbackPaperId?: string) {
     importance: levels.has(importance) ? importance : 'medium' as KnowledgeLevel,
     confidence: levels.has(confidence) ? confidence : 'medium' as KnowledgeLevel,
     templateId: field(frontmatter[1], 'template_id'),
-    arxivId: field(frontmatter[1], 'arxiv_id'),
+    arxivId: field(frontmatter[1], 'arxiv_id') ?? (nodeType === 'paper' ? fallbackPaperId : undefined),
   }
 }
-function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
-  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}${input.nodeType === 'claim' ? 'claim_origin: paper\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
+function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string; status?: KnowledgeStatus }) {
+  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: ${input.status ?? 'developing'}\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}${input.nodeType === 'claim' ? 'claim_origin: paper\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
 }
 function updateFrontmatter(source: string, fields: Array<[string, string | string[] | undefined]>) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -280,7 +280,8 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     values[key] = value
   }
   const body = (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
-  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body })
+  if (request.status !== undefined && !statuses.has(request.status)) throw new Error('상태 값이 올바르지 않습니다.')
+  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body, status: request.status })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })
   if (template) await markTemplateUsed(libraryPath, template.id).catch(() => undefined)
   return { nodes: await listKnowledgeNodes(libraryPath), id }

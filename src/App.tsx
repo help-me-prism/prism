@@ -484,6 +484,7 @@ function App() {
 
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
+  useEffect(() => window.prism.onOpenPaperInReader((paperId) => runWorkspaceCommand('open-paper', paperId)), [])
   async function saveAnswerToNote(message: ChatMessage) {
     if (!activeSession) return
     const index = activeSession.messages.findIndex((item) => item.id === message.id)

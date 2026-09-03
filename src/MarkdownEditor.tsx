@@ -8,7 +8,7 @@ import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence' | 'graph'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void }
 export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
@@ -566,6 +566,15 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
   view.focus()
 }
 
+/** Types the "/" that opens the block menu, adding a line break first when the cursor sits mid-sentence. */
+function openInsertMenu(view: EditorView) {
+  view.focus()
+  const head = view.state.selection.main.head
+  const line = view.state.doc.lineAt(head)
+  const prefix = view.state.doc.sliceString(line.from, head)
+  const insert = !prefix || /\s$/.test(prefix) ? '/' : '\n/'
+  view.dispatch({ changes: { from: head, insert }, selection: { anchor: head + insert.length }, scrollIntoView: true })
+}
 function insertText(view: EditorView, text: string) {
   const selection = view.state.selection.main
   const frontmatter = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
@@ -705,7 +714,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return

@@ -433,7 +433,18 @@ npm run start:fast
 
 주의: 화면 캡처 스크립트나 테스트에 실제 Vault를 넘기면 안 된다. 라이브러리 사본을 쓰되, 사본의 `library.json` 절대 경로는 7번 항목 덕분에 사본 아래로 재배치된다.
 
-## 12. 다음 대화에 전달할 시작 프롬프트 예시
+## 12. 2026-09-03 Notes 화면 재구성
+
+노트 창을 볼트 작업 공간으로 다시 짰다. 배경과 규칙은 `docs/NOTES_WORKSPACE.md`.
+
+- 레일(리더·노트·정리·검색·연결·양식·폴더) + 노드 트리 + 탭 문서 + 상시 연결 패널 + 상태바의 4열 구조.
+- 지식 노드가 모달에서 나와 트리에 올라왔다. `KnowledgeManager.tsx`는 `NoteDocument.tsx`, `ConnectionsPanel.tsx`, `NotesWindow.tsx`로 나뉘었고 공통 라벨·관계 규칙은 `src/knowledgeModel.ts`에 있다.
+- Live Edit / 읽기 / 분할 모드를 없앴다. 본문은 항상 Live Edit이고, 블록 삽입은 `/`와 `블록 삽입` 버튼 하나로 합쳤다.
+- 속성은 접이식 표가 되었고 관계가 그 안의 행으로 들어간다. 검토 대기 AI 관계는 그 자리에서 승인·거절한다.
+- 리더 왕복이 보인다: 레일 첫 버튼과 논문 노트의 `리더에서 열기`(`reader:open` IPC).
+- 이 과정에서 실제 버그 세 개를 고쳤다. 자동 저장이 dirty를 먼저 지워 링크 스텁 스캔이 영영 실행되지 않던 문제, 스냅샷 로드 전 속성 변경이 조용히 무시되던 문제, 스텁이 두 번 쓰기로 만들어져 상태가 잠깐 어긋나던 문제.
+
+## 13. 다음 대화에 전달할 시작 프롬프트 예시
 
 연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
 

@@ -709,7 +709,7 @@ function createWindow() {
 function openNotesWindow() {
   if (notesWindow && !notesWindow.isDestroyed()) { notesWindow.show(); notesWindow.focus(); return true }
   notesWindow = new BrowserWindow({
-    width: 980, height: 780, minWidth: 700, minHeight: 520, backgroundColor: '#f5f3ee', title: 'Prism Notes',
+    width: 1320, height: 860, minWidth: 900, minHeight: 560, backgroundColor: '#f5f3ee', title: 'Prism Notes',
     icon: path.join(__dirname, '../dist/icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
@@ -839,6 +839,18 @@ ipcMain.handle('paper:figures', async (_event, arxivId: string) => {
   return paperFigures(record)
 })
 ipcMain.handle('notes:open', () => openNotesWindow())
+ipcMain.handle('reader:open', async (_event, arxivId?: string) => {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  const target = mainWindow
+  if (!target) return false
+  if (typeof arxivId === 'string' && arxivId) {
+    if (!/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+    const send = () => target.webContents.send('reader:open-paper', arxivId)
+    if (target.webContents.isLoading()) target.webContents.once('did-finish-load', send); else send()
+  }
+  target.show(); target.focus()
+  return true
+})
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
@@ -946,6 +958,12 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
   return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
 })
+ipcMain.handle('knowledge:stubs:ensure', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const snapshot = await readKnowledgeNode(settings.libraryPath, id)
+  return ensureLinkStubs(settings.libraryPath, snapshot.content)
+})
 ipcMain.handle('knowledge:curation:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listCurationQueue(settings.libraryPath)
@@ -978,7 +996,7 @@ ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpe
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables)))) throw new Error('지식 노트 정보가 올바르지 않습니다.')
+  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables))) || (request.status !== undefined && typeof request.status !== 'string')) throw new Error('지식 노트 정보가 올바르지 않습니다.')
   return createKnowledgeNode(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:apply-template-sections', async (_event, request: ApplyTemplateSectionsRequest) => {

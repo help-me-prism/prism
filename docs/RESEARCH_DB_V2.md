@@ -61,6 +61,10 @@ Claim 간 `contradicts`는 `scope_domain`/`scope_regime`이 둘 다 있고 다�
 - `npm run test:notes-ui` — 기존 회귀에 더해 연결 패널, Reader/채팅 캡처의 노트 반영, 대기열에서의 Claim 승격, 미설정 모델 제안 거부.
 - `node scripts/capture-research-ui.mjs <library>` — 실제 논문이 있는 라이브러리 사본으로 화면을 캡처해 `tmp/ui/research-*.png`로 저장한다. 절대 실제 Vault 경로를 넘기지 말 것.
 
+## 화면
+
+2026-09-03 노트 창을 목업 기준의 볼트 작업 공간으로 재구성했다. 레일·트리·탭·연결 패널 구조와 UX 규칙은 `docs/NOTES_WORKSPACE.md`에 따로 적었다.
+
 ## 남은 것
 
 - Reader에서 우클릭 없이 키보드만으로 담는 단축키.
