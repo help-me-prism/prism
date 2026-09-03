@@ -21,9 +21,15 @@ type NoteSnapshot = { content: string; revision: string; modifiedAt: number }
 type NoteSaveRequest = { content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
 type NoteSaveResult = { saved: true; snapshot: NoteSnapshot; stubs?: string[] } | { saved: false; conflict: NoteSnapshot }
 type PaperCaptureRequest =
-  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string }
+  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
   | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
-type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string }
+type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: EvidenceAnchorRef; memo: string }
+type CurationStub = { node: KnowledgeNodeRecord; backlinks: number; ready: boolean }
+type CurationPendingRelation = { relation: KnowledgeRelationRecord; source: KnowledgeNodeRecord; target: KnowledgeNodeRecord }
+type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; total: number }
+type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; nodeType: 'claim' | 'question'; title: string }
+type MergeConceptsRequest = { sourceId: string; targetId: string }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
 type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
@@ -99,6 +105,9 @@ interface Window {
     rebuildResearchIndex: () => Promise<ResearchIndexStatus>
     suggestKnowledge: (nodeId: string) => Promise<KnowledgeSuggestion[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
+    listCurationQueue: () => Promise<CurationQueue>
+    promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>
+    mergeConcepts: (request: MergeConceptsRequest) => Promise<{ id: string }>
     openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     applyTemplateSections: (request: { nodeId: string; templateId: string; expectedRevision: string }) => Promise<ApplyTemplateSectionsResult>

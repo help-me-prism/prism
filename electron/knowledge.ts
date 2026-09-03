@@ -188,7 +188,7 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
 }
 
-function evidenceBlock(source: string, blockId: string) {
+export function evidenceBlock(source: string, blockId: string) {
   const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n\\r?\\n|$)`))
   return match?.[1]

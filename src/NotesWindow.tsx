@@ -5,7 +5,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, LayoutTemplate, Lightbulb, Link2, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Search, Sigma, StickyNote, Table2, X } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, Inbox, LayoutTemplate, Lightbulb, Link2, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Search, Sigma, StickyNote, Table2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownBlockCommand, type MarkdownEditorHandle, type WikiLinkOption } from './MarkdownEditor'
 import TemplateManager from './TemplateManager'
 import KnowledgeManager from './KnowledgeManager'
@@ -48,6 +48,8 @@ export default function NotesWindow() {
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkQuery, setLinkQuery] = useState('')
   const [requestedKnowledgeId, setRequestedKnowledgeId] = useState<string>()
+  const [requestedView, setRequestedView] = useState<'curation'>()
+  const [curationCount, setCurationCount] = useState<number>()
   const [mode, setMode] = useState<EditorMode>(() => {
     const stored = window.localStorage.getItem('prism.notes.editorMode')
     return stored === 'read' || stored === 'split' ? stored : 'live'
@@ -88,6 +90,7 @@ export default function NotesWindow() {
     try {
       const [papers, settings] = await Promise.all([window.prism.listLibrary(), window.prism.getSettings()]); setLibrary(papers); setLibraryPath(settings.libraryPath)
       setKnowledgeNodes(settings.libraryPath ? await window.prism.listKnowledgeNodes() : [])
+      if (settings.libraryPath) window.prism.listCurationQueue().then((queue) => setCurationCount(queue.total)).catch(() => setCurationCount(undefined))
       setActiveId((current) => current && papers.some((paper) => paper.arxivId === current) ? current : papers[0]?.arxivId)
     } catch (reason) { setError(String(reason)) }
   }
@@ -213,6 +216,7 @@ export default function NotesWindow() {
           <div className="notes-modebar" aria-label="노트 보기 모드">
             <button aria-label="노트 링크 찾기" onClick={() => setLinkOpen((value) => !value)}><Link2 size={13} /> 링크</button>
             <button aria-label="연구 지식 관리" onClick={() => setKnowledgeOpen(true)}><Lightbulb size={13} /> 지식</button>
+            <button aria-label="정리 대기열" className={curationCount ? 'has-count' : ''} onClick={() => { setRequestedView('curation'); setKnowledgeOpen(true) }}><Inbox size={13} /> 정리{curationCount ? <em>{curationCount}</em> : null}</button>
             <button aria-label="개인 템플릿 관리" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={13} /> 템플릿</button>
             <button className={mode === 'live' ? 'active' : ''} aria-pressed={mode === 'live'} onClick={() => selectMode('live')}><PenLine size={13} /> Live Edit</button>
             <button className={mode === 'read' ? 'active' : ''} aria-pressed={mode === 'read'} onClick={() => selectMode('read')}><Eye size={13} /> 읽기</button>
@@ -227,7 +231,7 @@ export default function NotesWindow() {
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
       {error && <div className="notes-error">{error}</div>}
       {templatesOpen && <TemplateManager onClose={() => setTemplatesOpen(false)} />}
-      {knowledgeOpen && <KnowledgeManager initialNodeId={requestedKnowledgeId} onClose={() => { setKnowledgeOpen(false); setRequestedKnowledgeId(undefined); void refresh() }} />}
+      {knowledgeOpen && <KnowledgeManager initialNodeId={requestedKnowledgeId} initialView={requestedView} onClose={() => { setKnowledgeOpen(false); setRequestedKnowledgeId(undefined); setRequestedView(undefined); void refresh() }} />}
       {conflict && <div className="notes-conflict-backdrop" role="presentation">
         <section className="notes-conflict" role="dialog" aria-modal="true" aria-labelledby="notes-conflict-title">
           <header><AlertTriangle size={18} /><div><h2 id="notes-conflict-title">외부 변경과 충돌했습니다</h2><p>다른 편집기에서 이 파일을 변경했습니다. 두 버전을 비교한 뒤 보존할 내용을 선택하세요.</p></div></header>

@@ -18,6 +18,7 @@ import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge 
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
+import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -842,7 +843,7 @@ ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.paperId !== 'string' || (request.kind !== 'evidence' && request.kind !== 'chat')) throw new Error('노트 담기 요청이 올바르지 않습니다.')
-  if (request.kind === 'evidence' && (typeof request.anchorId !== 'string' || request.anchorId.length < 1 || request.anchorId.length > 300 || (request.memo !== undefined && (typeof request.memo !== 'string' || request.memo.length > 4_000)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  if (request.kind === 'evidence' && (typeof request.anchorId !== 'string' || request.anchorId.length < 1 || request.anchorId.length > 300 || (request.memo !== undefined && (typeof request.memo !== 'string' || request.memo.length > 4_000)) || (request.concept !== undefined && (typeof request.concept !== 'string' || request.concept.length > 200)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
   if (request.kind === 'chat' && (typeof request.question !== 'string' || typeof request.answer !== 'string' || request.answer.length > 200_000 || typeof request.provider !== 'string' || typeof request.model !== 'string' || (request.anchors !== undefined && !Array.isArray(request.anchors)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === request.paperId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
@@ -902,6 +903,21 @@ ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return suggestKnowledge(settings.libraryPath, nodeId)
+})
+ipcMain.handle('knowledge:curation:list', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listCurationQueue(settings.libraryPath)
+})
+ipcMain.handle('knowledge:curation:promote-memo', async (_event, request: PromoteMemoRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.blockId !== 'string' || !/^evidence-[a-zA-Z0-9_-]{1,100}$/.test(request.blockId)
+    || typeof request.memo !== 'string' || request.memo.length > 4_000 || (request.nodeType !== 'claim' && request.nodeType !== 'question') || typeof request.title !== 'string' || request.title.length > 300) throw new Error('승격 요청이 올바르지 않습니다.')
+  return promoteMemo(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:curation:merge-concepts', async (_event, request: MergeConceptsRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.sourceId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.sourceId) || typeof request.targetId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.targetId)) throw new Error('병합 요청이 올바르지 않습니다.')
+  return mergeConcepts(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:views', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
