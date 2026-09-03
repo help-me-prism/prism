@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
@@ -7,8 +7,8 @@ import { basicSetup } from 'codemirror'
 import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
-export type WikiLinkOption = { id: string; label: string; target: string; description: string; preview?: string; evidenceCount?: number }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void }
+export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
 type MarkdownEditorProps = {
@@ -566,6 +566,15 @@ function insertText(view: EditorView, text: string) {
   view.focus()
 }
 
+function insertWikiLink(view: EditorView, option: WikiLinkOption, replace: { from: number; to: number } = view.state.selection.main) {
+  const frontmatterEnd = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0].length ?? 0
+  const from = replace.from < frontmatterEnd ? frontmatterEnd : replace.from
+  const to = replace.to < frontmatterEnd ? frontmatterEnd : replace.to
+  const insert = `[[${option.target}|${option.label}]]`
+  view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true })
+  view.focus()
+}
+
 function replaceWithBlock(view: EditorView, replace: { from: number; to: number }, text: string) {
   const before = view.state.doc.sliceString(Math.max(0, replace.from - 2), replace.from)
   const after = view.state.doc.sliceString(replace.to, Math.min(view.state.doc.length, replace.to + 2))
@@ -615,7 +624,19 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const filteredWikiLinks = useMemo(() => {
     if (!wiki) return []
     const query = wiki.query.toLocaleLowerCase()
-    return wikiLinks.filter((option) => !query || `${option.label} ${option.target} ${option.description}`.toLocaleLowerCase().includes(query)).slice(0, 40)
+    const score = (option: WikiLinkOption) => {
+      if (!query) return 0
+      const label = option.label.toLocaleLowerCase()
+      if (label.startsWith(query)) return 0
+      if (label.includes(query)) return 1
+      if (`${option.target} ${option.searchText ?? ''}`.toLocaleLowerCase().includes(query)) return 2
+      if (option.description.toLocaleLowerCase().includes(query)) return 3
+      return 4
+    }
+    return wikiLinks
+      .filter((option) => !query || `${option.label} ${option.target} ${option.description} ${option.searchText ?? ''} ${option.preview ?? ''}`.toLocaleLowerCase().includes(query))
+      .sort((a, b) => score(a) - score(b) || a.label.localeCompare(b.label))
+      .slice(0, 40)
   }, [wiki, wikiLinks])
   const filteredEvidenceLinks = useMemo(() => {
     if (!evidence) return []
@@ -627,13 +648,13 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
   useEffect(() => { wikiLinksRef.current = wikiLinks }, [wikiLinks])
   useEffect(() => { slashRef.current = slash }, [slash])
-  useEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
+  useLayoutEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
   useEffect(() => { activeSlashIndexRef.current = activeSlashIndex }, [activeSlashIndex])
   useEffect(() => { wikiRef.current = wiki }, [wiki])
-  useEffect(() => { filteredWikiRef.current = filteredWikiLinks }, [filteredWikiLinks])
+  useLayoutEffect(() => { filteredWikiRef.current = filteredWikiLinks }, [filteredWikiLinks])
   useEffect(() => { activeWikiIndexRef.current = activeWikiIndex }, [activeWikiIndex])
   useEffect(() => { evidenceRef.current = evidence }, [evidence])
-  useEffect(() => { filteredEvidenceRef.current = filteredEvidenceLinks }, [filteredEvidenceLinks])
+  useLayoutEffect(() => { filteredEvidenceRef.current = filteredEvidenceLinks }, [filteredEvidenceLinks])
   useEffect(() => { activeEvidenceIndexRef.current = activeEvidenceIndex }, [activeEvidenceIndex])
 
   function closeSlashMenu() { slashRef.current = null; setSlash(null); setActiveSlashIndex(0) }
@@ -647,9 +668,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const view = viewRef.current; const current = wikiRef.current
     if (!view || !current) return
     closeWikiMenu()
-    const insert = `[[${option.target}|${option.label}]]`
-    view.dispatch({ changes: { from: current.from, to: current.to, insert }, selection: { anchor: current.from + insert.length }, scrollIntoView: true })
-    view.focus()
+    insertWikiLink(view, option, current)
   }
   async function createWikiLink(nodeType: 'concept' | 'claim') {
     const view = viewRef.current; const current = wikiRef.current; const title = current?.query.trim()
@@ -664,7 +683,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return

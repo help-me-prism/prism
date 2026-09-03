@@ -1,16 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, LayoutTemplate, Lightbulb, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Sigma, StickyNote, Table2 } from 'lucide-react'
-import MarkdownEditor, { type MarkdownBlockCommand, type MarkdownEditorHandle } from './MarkdownEditor'
+import { AlertTriangle, CheckSquare, Code2, Columns2, Eye, FileImage, FileText, FolderOpen, Heading2, LayoutTemplate, Lightbulb, Link2, List, ListOrdered, MessageSquareQuote, Minus, PenLine, Quote, RefreshCw, Save, Search, Sigma, StickyNote, Table2, X } from 'lucide-react'
+import MarkdownEditor, { type MarkdownBlockCommand, type MarkdownEditorHandle, type WikiLinkOption } from './MarkdownEditor'
 import TemplateManager from './TemplateManager'
 import KnowledgeManager from './KnowledgeManager'
 
 type EditorMode = 'live' | 'read' | 'split'
+
+const knowledgeTypeLabels: Record<KnowledgeNodeType, string> = { paper: 'Paper', concept: 'Concept', claim: 'Claim', insight: 'Insight', question: 'Question', project: 'Project' }
+
+function vaultTarget(libraryPath: string | undefined, filePath: string) {
+  if (!libraryPath) return undefined
+  const root = libraryPath.replaceAll('\\', '/').replace(/\/$/, '')
+  const file = filePath.replaceAll('\\', '/')
+  if (!file.toLocaleLowerCase().startsWith(`${root.toLocaleLowerCase()}/`)) return undefined
+  return file.slice(root.length + 1).replace(/\.md$/i, '')
+}
 
 function markdownBody(markdown: string) {
   const match = markdown.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
@@ -25,6 +35,7 @@ function MarkdownPreview({ content }: { content: string }) {
 export default function NotesWindow() {
   const [library, setLibrary] = useState<PaperRecord[]>([])
   const [libraryPath, setLibraryPath] = useState<string>()
+  const [knowledgeNodes, setKnowledgeNodes] = useState<KnowledgeNodeRecord[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [note, setNote] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -34,6 +45,8 @@ export default function NotesWindow() {
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [knowledgeOpen, setKnowledgeOpen] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkQuery, setLinkQuery] = useState('')
   const [requestedKnowledgeId, setRequestedKnowledgeId] = useState<string>()
   const [mode, setMode] = useState<EditorMode>(() => {
     const stored = window.localStorage.getItem('prism.notes.editorMode')
@@ -42,10 +55,39 @@ export default function NotesWindow() {
   const activeIdRef = useRef<string | undefined>(undefined); const noteRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined)
   const editorRef = useRef<MarkdownEditorHandle>(null)
   const active = library.find((paper) => paper.arxivId === activeId)
+  const wikiLinks = useMemo(() => {
+    const links = new Map<string, WikiLinkOption>()
+    for (const node of knowledgeNodes) {
+      const target = node.relativePath.replace(/\.md$/i, '')
+      links.set(target.toLocaleLowerCase(), { id: node.id, label: node.title, target, description: knowledgeTypeLabels[node.nodeType], searchText: `${node.nodeType} ${node.preview}`, preview: node.preview, evidenceCount: node.evidenceCount })
+    }
+    for (const paper of library) {
+      const target = vaultTarget(libraryPath, paper.notePath)
+      if (!target || paper.arxivId === activeId) continue
+      links.set(target.toLocaleLowerCase(), { id: `library-paper-${paper.arxivId}`, label: paper.title, target, description: `Paper · arXiv ${paper.arxivId}`, searchText: `${paper.arxivId} ${paper.authors.join(' ')}`, preview: paper.summary })
+    }
+    return [...links.values()]
+  }, [knowledgeNodes, library, libraryPath, activeId])
+  const filteredWikiLinks = useMemo(() => {
+    const query = linkQuery.trim().toLocaleLowerCase()
+    const score = (option: WikiLinkOption) => {
+      if (!query) return 0
+      const label = option.label.toLocaleLowerCase()
+      if (label.startsWith(query)) return 0
+      if (label.includes(query)) return 1
+      if (`${option.target} ${option.searchText ?? ''}`.toLocaleLowerCase().includes(query)) return 2
+      return 3
+    }
+    return wikiLinks
+      .filter((option) => !query || `${option.label} ${option.target} ${option.description} ${option.searchText ?? ''} ${option.preview ?? ''}`.toLocaleLowerCase().includes(query))
+      .sort((a, b) => score(a) - score(b) || a.label.localeCompare(b.label))
+      .slice(0, 80)
+  }, [wikiLinks, linkQuery])
 
   async function refresh() {
     try {
       const [papers, settings] = await Promise.all([window.prism.listLibrary(), window.prism.getSettings()]); setLibrary(papers); setLibraryPath(settings.libraryPath)
+      setKnowledgeNodes(settings.libraryPath ? await window.prism.listKnowledgeNodes() : [])
       setActiveId((current) => current && papers.some((paper) => paper.arxivId === current) ? current : papers[0]?.arxivId)
     } catch (reason) { setError(String(reason)) }
   }
@@ -138,6 +180,11 @@ export default function NotesWindow() {
     selectMode('live')
   }
 
+  function insertWikiLink(option: WikiLinkOption) {
+    editorRef.current?.insertWikiLink(option)
+    setLinkOpen(false); setLinkQuery(''); selectMode('live')
+  }
+
   return <main className="notes-window">
     <aside className="notes-library">
       <header><img className="brand-mark" src="./icon.png" alt="" /><div><strong>Prism Notes</strong><small>Markdown research notebook</small></div></header>
@@ -163,6 +210,7 @@ export default function NotesWindow() {
             <button disabled={!loaded} aria-label="구분선 삽입" title="구분선" onClick={() => insertBlock('divider')}><Minus size={14} /></button>
           </div>
           <div className="notes-modebar" aria-label="노트 보기 모드">
+            <button aria-label="노트 링크 찾기" onClick={() => setLinkOpen((value) => !value)}><Link2 size={13} /> 링크</button>
             <button aria-label="연구 지식 관리" onClick={() => setKnowledgeOpen(true)}><Lightbulb size={13} /> 지식</button>
             <button aria-label="개인 템플릿 관리" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={13} /> 템플릿</button>
             <button className={mode === 'live' ? 'active' : ''} aria-pressed={mode === 'live'} onClick={() => selectMode('live')}><PenLine size={13} /> Live Edit</button>
@@ -170,14 +218,15 @@ export default function NotesWindow() {
             <button className={mode === 'split' ? 'active' : ''} aria-pressed={mode === 'split'} onClick={() => selectMode('split')}><Columns2 size={13} /> 분할</button>
           </div>
         </div>
+        {linkOpen && <section className="notes-link-picker" aria-label="노트 링크 찾기"><header><div><Search size={13} /><input autoFocus aria-label="노트 링크 검색" value={linkQuery} onChange={(event) => setLinkQuery(event.target.value)} placeholder="논문명, arXiv ID, Concept, Claim 검색" /></div><button aria-label="노트 링크 찾기 닫기" onClick={() => setLinkOpen(false)}><X size={13} /></button></header><div>{filteredWikiLinks.length ? filteredWikiLinks.map((option) => <button key={option.id} onClick={() => insertWikiLink(option)}><span><small>{option.description}</small><strong>{option.label}</strong><i>{option.target}</i></span><Link2 size={13} /></button>) : <p>일치하는 논문이나 지식 노트가 없습니다.</p>}</div><footer><span><kbd>[[</kbd> 입력 후 검색</span><span><kbd>↑↓</kbd> 선택</span><span><kbd>Tab</kbd> 삽입</span></footer></section>}
         <div className={`notes-document mode-${mode}`}>
-          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote()} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} />
+          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote()} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} wikiLinks={wikiLinks} />
           {mode !== 'live' && <MarkdownPreview content={note} />}
         </div>
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}
       {error && <div className="notes-error">{error}</div>}
       {templatesOpen && <TemplateManager onClose={() => setTemplatesOpen(false)} />}
-      {knowledgeOpen && <KnowledgeManager initialNodeId={requestedKnowledgeId} onClose={() => { setKnowledgeOpen(false); setRequestedKnowledgeId(undefined) }} />}
+      {knowledgeOpen && <KnowledgeManager initialNodeId={requestedKnowledgeId} onClose={() => { setKnowledgeOpen(false); setRequestedKnowledgeId(undefined); void refresh() }} />}
       {conflict && <div className="notes-conflict-backdrop" role="presentation">
         <section className="notes-conflict" role="dialog" aria-modal="true" aria-labelledby="notes-conflict-title">
           <header><AlertTriangle size={18} /><div><h2 id="notes-conflict-title">외부 변경과 충돌했습니다</h2><p>다른 편집기에서 이 파일을 변경했습니다. 두 버전을 비교한 뒤 보존할 내용을 선택하세요.</p></div></header>

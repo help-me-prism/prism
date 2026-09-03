@@ -13,6 +13,8 @@ const profilePath = path.join(temporaryRoot, 'profile')
 const externalUrlLog = path.join(temporaryRoot, 'external-urls.log')
 const paperPath = path.join(libraryPath, 'papers', 'test.0001')
 const notePath = path.join(paperPath, 'test.0001.md')
+const linkedPaperPath = path.join(libraryPath, 'papers', '2401.01234')
+const linkedNotePath = path.join(linkedPaperPath, '2401.01234.md')
 const initialNote = `---
 type: paper
 title: "Editor fixture"
@@ -33,9 +35,11 @@ Related: [[Concepts/Score matching]]
 `
 await fs.mkdir(path.join(libraryPath, '.prism'), { recursive: true })
 await fs.mkdir(paperPath, { recursive: true })
+await fs.mkdir(linkedPaperPath, { recursive: true })
 await fs.mkdir(path.join(libraryPath, '.prism', 'anchors'), { recursive: true })
 await fs.mkdir(path.join(paperPath, 'figures'), { recursive: true })
 await fs.writeFile(notePath, initialNote, 'utf8')
+await fs.writeFile(linkedNotePath, '# Linked paper fixture\n', 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
   { id: 'heading-p1-introduction', type: 'heading', page: 1, source: 'Introduction' },
   { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
@@ -45,6 +49,8 @@ await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json')
 await fs.writeFile(path.join(paperPath, 'figures', 'figure-p4-1.json'), JSON.stringify({ figureId: 'figure-p4-1', paperId: 'test.0001', page: 4, caption: 'Overview of the reverse diffusion process.' }, null, 2), 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'library.json'), JSON.stringify([{
   arxivId: 'test.0001', title: 'Editor fixture', authors: ['Prism'], summary: 'Fixture', published: '2026-09-02', updated: '2026-09-02', categories: ['cs.HC'], pdfUrl: '', absUrl: '', pdfPath: path.join(paperPath, 'original.pdf'), notePath, translationPath: path.join(paperPath, 'translation.ko.json'), downloadedAt: Date.now(),
+}, {
+  arxivId: '2401.01234', title: 'Linked Paper Fixture', authors: ['Second Author'], summary: 'A searchable linked paper.', published: '2024-01-03', updated: '2024-01-03', categories: ['cs.AI'], pdfUrl: '', absUrl: '', pdfPath: path.join(linkedPaperPath, 'original.pdf'), notePath: linkedNotePath, translationPath: path.join(linkedPaperPath, 'translation.ko.json'), downloadedAt: Date.now() - 1,
 }], null, 2), 'utf8')
 
 const electron = spawn(electronPath, [`--remote-debugging-port=${port}`, `--user-data-dir=${profilePath}`, '.'], {
@@ -122,7 +128,7 @@ async function replaceEditor(connection, content, selector = '.cm-content') {
 }
 
 async function pressKey(connection, key, code, modifiers = 0) {
-  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'End' ? 35 : 0
+  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'Tab' ? 9 : key === 'End' ? 35 : 0
   const eventKey = key.length === 1 && (modifiers & 8) ? key.toUpperCase() : key
   await connection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
   await connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
@@ -729,6 +735,25 @@ try {
   await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 닫기"]').click()`)
   await sleep(200)
   assert(!await notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-manager'))`), 'The knowledge manager did not close.')
+
+  await notesConnection.evaluate(`document.querySelector('button[aria-label="노트 링크 찾기"]').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.notes-link-picker input[aria-label="노트 링크 검색"]'))`), 'The paper-note link picker did not open.')
+  await notesConnection.evaluate(`(() => { const input = document.querySelector('.notes-link-picker input'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, '2401.01234'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.notes-link-picker')?.textContent.includes('Linked Paper Fixture')`), 'Searching by arXiv ID did not find the library paper.')
+  const paperLinkPickerScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  const paperLinkPickerScreenshotPath = path.resolve('tmp/ui/notes-paper-link-picker.png')
+  await fs.writeFile(paperLinkPickerScreenshotPath, Buffer.from(paperLinkPickerScreenshot.data, 'base64'))
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-link-picker > div > button')].find((button) => button.textContent.includes('Linked Paper Fixture')).click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('[[papers/2401.01234/2401.01234|Linked Paper Fixture]]'), 'Clicking an arXiv search result did not save a portable paper link.')
+
+  await notesConnection.evaluate(`document.querySelector('.cm-content').focus()`)
+  await pressKey(notesConnection, 'End', 'End', process.platform === 'darwin' ? 4 : 2)
+  await notesConnection.send('Input.insertText', { text: '\n\n[[새로운 즉시' })
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.wiki-link-menu')?.textContent.includes('새로운 즉시 개념')`), 'Typing [[ did not autocomplete a knowledge note inside a paper note.')
+  await pressKey(notesConnection, 'Tab', 'Tab')
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('[[Concepts/새로운 즉시 개념|새로운 즉시 개념]]'), 'Tab did not insert and save the selected knowledge-note link.')
+  await replaceEditor(notesConnection, initialNote)
+  await waitFor(async () => await fs.readFile(notePath, 'utf8') === initialNote, 'Restoring the paper-note link fixture did not preserve exact Markdown.')
 
   const backlinks = await mainConnection.evaluate(`window.prism.listEvidenceBacklinks({ paperId: 'test.0001', anchorId: 'equation-p2-3', type: 'equation', page: 2, label: '수식1' })`)
   assert(backlinks.length === 1 && backlinks[0].title === 'Score matching 근거 주장', `Evidence backlink lookup did not return only the promoted note: ${JSON.stringify(backlinks)}`)
