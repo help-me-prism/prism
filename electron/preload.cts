@@ -8,6 +8,9 @@ function subscribe(channel: string, callback: (payload: unknown) => void) {
 
 contextBridge.exposeInMainWorld('prism', {
   listProviders: () => ipcRenderer.invoke('providers:list'),
+  loginProvider: (provider: unknown) => ipcRenderer.invoke('provider:login', provider),
+  logoutProvider: (provider: unknown) => ipcRenderer.invoke('provider:logout', provider),
+  onProviderAuthData: (callback: (event: unknown) => void) => subscribe('provider:auth:data', callback),
   loadSessions: () => ipcRenderer.invoke('sessions:load'),
   saveSessions: (sessions: unknown) => ipcRenderer.invoke('sessions:save', sessions),
   getSettings: () => ipcRenderer.invoke('settings:get'),

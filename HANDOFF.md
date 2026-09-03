@@ -367,7 +367,56 @@ npm run start:fast
 - 관련 커밋: `e4d9653`, `c823035`, `1fe71dc`, `baa33e7`
 - 검증: `npm run build`, `scripts/smoke-notes-ui.mjs`; 실제 캡처 `tmp/ui/notes-paper-link-picker.png`, `notes-relation-model.png`, `notes-slash-relation-command.png`, `notes-slash-relation-picker.png`, `notes-empty-local-graph.png` 확인.
 
-## 10. 다음 대화에 전달할 시작 프롬프트 예시
+## 10. 2026-09-03 앱 내 CLI 인증 UX (`feature/chat-cli-auth`)
+
+작업 브랜치: `feature/chat-cli-auth` (AI Chat 담당 영역)
+
+### 해결한 문제
+
+- `npm start`(터미널)에서는 CLI가 잡히지만 DMG/EXE로 실행하면 PATH가 `/usr/bin:/bin:/usr/sbin:/sbin` 수준으로 제한되어 Codex/Claude CLI를 실행할 수 없던 문제. codex가 `#!/usr/bin/env node` 스크립트이므로 `node` 경로가 PATH에 없으면 모든 CLI 호출이 실패했다.
+- 앱 내부에서 Codex/Claude 로그인·로그아웃 UX가 전혀 없던 문제.
+- Claude는 CLI 존재 여부만 확인하고 실제 로그인 상태를 확인하지 않던 문제.
+
+### 변경 파일과 내용
+
+| 파일 | 변경 |
+| --- | --- |
+| `electron/main.ts` | `buildCliEnv()` 추가 — Homebrew, nvm, volta, nodenv 경로를 PATH에 보강. `spawnCli()`와 `providerInfo()` 모두 enriched env 사용. `provider:login` / `provider:logout` IPC 핸들러 추가. Codex는 `login`/`logout`, Claude는 `auth login`/`auth logout` 서브커맨드 사용. 동시 실행 방지(`activeAuthProcesses` Map), 창 닫힘 시 좀비 프로세스 정리 포함. Claude `auth status` JSON 파싱으로 실제 로그인 상태와 이메일 표시. |
+| `electron/preload.cts` | `loginProvider`, `logoutProvider`, `onProviderAuthData` 3개 IPC API 추가 |
+| `src/vite-env.d.ts` | `ProviderAuthEvent` 타입, `Window.prism`에 3개 메서드 타입 추가 |
+| `src/App.tsx` | `authInProgress`/`authMessage` 상태 관리, `loginProvider()`/`logoutProvider()` 함수, 설정 다이얼로그에 로그인/로그아웃 버튼 UI, CLI stdout 실시간 표시 |
+| `src/styles.css` | `provider-auth-actions`, `provider-auth-btn`, `provider-auth-waiting`, `provider-auth-message` CSS 추가 |
+| `.gitignore` | `CLAUDE.md` 추가 |
+
+### 동작 흐름
+
+1. 설정(⚙) → AI CLI 연결 섹션에서 각 CLI의 로그인 상태를 표시한다.
+2. 로그인 안 된 CLI 옆에 보라색 "로그인" 버튼이 표시된다. 클릭하면 `codex login` 또는 `claude auth login`을 실행해 외부 브라우저에서 OAuth 인증을 진행한다.
+3. 로그인 중 CLI stdout이 앱 설정 화면에 실시간으로 표시된다 (로컬 서버 URL 등).
+4. 브라우저에서 인증 완료 → CLI 프로세스 종료 → `providerInfo()` 재호출 → 상태가 "연결됨"으로 갱신된다.
+5. 로그인된 CLI 옆에는 "로그아웃" 버튼이 표시된다. 클릭하면 `codex logout` 또는 `claude auth logout`을 실행한다.
+6. Claude는 로그인된 이메일도 함께 표시한다 (예: `연결됨 · user@example.com`).
+
+### `buildCliEnv()` PATH 보강 대상
+
+| 경로 | 대상 |
+| --- | --- |
+| `/opt/homebrew/bin` | Homebrew (Apple Silicon) |
+| `/usr/local/bin` | Homebrew (Intel) |
+| `~/.nvm/versions/node/<latest>/bin` | nvm (디렉토리 스캔으로 최신 버전 선택) |
+| `~/.volta/bin` | Volta |
+| `~/.nodenv/shims` | nodenv |
+
+### 검증
+
+- `npm run build` 성공
+- `npm run test:ui` smoke 통과
+- `codex logout` → 앱에서 "로그인" 버튼 → 브라우저 OAuth → 상태 "연결됨" 전환 확인
+- `claude auth status` JSON 파싱, `loggedIn: true/false` 분기 확인
+- DMG 패키징 후 실제 macOS에서 Codex 로그인/로그아웃 테스트 완료
+- 엣지 케이스 18건 코드 리뷰 완료 (크리티컬 버그 없음)
+
+## 11. 다음 대화에 전달할 시작 프롬프트 예시
 
 연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
 

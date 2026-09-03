@@ -56,9 +56,14 @@ type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; 
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 
+type ProviderAuthEvent = { provider: ProviderId; text: string }
+
 interface Window {
   prism: {
     listProviders: () => Promise<ProviderInfo[]>
+    loginProvider: (provider: ProviderId) => Promise<{ success: boolean; message: string }>
+    logoutProvider: (provider: ProviderId) => Promise<{ success: boolean; message: string }>
+    onProviderAuthData: (callback: (event: ProviderAuthEvent) => void) => () => void
     loadSessions: () => Promise<ChatSession[]>
     saveSessions: (sessions: ChatSession[]) => Promise<boolean>
     getSettings: () => Promise<AppSettings>

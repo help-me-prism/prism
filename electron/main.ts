@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
-import { accessSync, constants as fsConstants, promises as fs, readFileSync } from 'node:fs'
+import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -36,6 +36,7 @@ function normalizePdfControls(value: string) {
 const activeChats = new Map<string, ActiveChat>()
 const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; messageId: string }>()
 const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
+const activeAuthProcesses = new Map<string, ChildProcessWithoutNullStreams>()
 
 function findCli(name: string): string | null {
   const override = process.env[`PRISM_${name.toUpperCase()}_PATH`]
@@ -65,11 +66,45 @@ function findCli(name: string): string | null {
   return null
 }
 
+function buildCliEnv(): NodeJS.ProcessEnv {
+  if (process.platform === 'win32') return { ...process.env }
+  const home = app.getPath('home')
+  // DMG/Finder 실행 시 PATH가 /usr/bin:/bin:/usr/sbin:/sbin 수준으로 제한됨.
+  // codex/claude 가 #!/usr/bin/env node 스크립트이므로 node 경로를 PATH에 직접 포함.
+  const extra: string[] = [
+    '/opt/homebrew/bin',   // Homebrew (Apple Silicon)
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',      // Homebrew (Intel) / nvm system
+    '/usr/bin',
+    '/bin',
+  ]
+  // nvm 기본 버전 bin 폴더 추가 — alias가 'lts/*' 등 심볼릭일 수 있으므로 실제 디렉토리 탐색
+  try {
+    const nvmDir = path.join(home, '.nvm', 'versions', 'node')
+    const nvmVersions = readdirSync(nvmDir)
+      .filter((d) => d.startsWith('v'))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+    if (nvmVersions.length) extra.unshift(path.join(nvmDir, nvmVersions[0], 'bin'))
+  } catch { /* nvm 없음 */ }
+  // volta
+  const voltaBin = path.join(home, '.volta', 'bin')
+  try { accessSync(voltaBin, fsConstants.X_OK); extra.unshift(voltaBin) } catch { /* volta 없음 */ }
+  // nodenv
+  const nodenvShims = path.join(home, '.nodenv', 'shims')
+  try { accessSync(nodenvShims, fsConstants.X_OK); extra.unshift(nodenvShims) } catch { /* nodenv 없음 */ }
+
+  const current = process.env.PATH ?? ''
+  const merged = [...extra, ...current.split(':')].filter(Boolean)
+  const deduped = [...new Set(merged)]
+  return { ...process.env, PATH: deduped.join(':') }
+}
+
 function spawnCli(executable: string, args: string[], options: SpawnOptionsWithoutStdio): ChildProcessWithoutNullStreams {
+  const env = options.env ?? buildCliEnv()
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable)) {
-    return spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${executable}"`, ...args], { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
+    return spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${executable}"`, ...args], { ...options, env, stdio: ['pipe', 'pipe', 'pipe'] })
   }
-  return spawn(executable, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
+  return spawn(executable, args, { ...options, env, stdio: ['pipe', 'pipe', 'pipe'] })
 }
 
 function safeSend(sender: WebContents, channel: string, payload: unknown) {
@@ -92,16 +127,31 @@ function codexModels() {
 }
 
 function providerInfo() {
+  const cliEnv = buildCliEnv()
   const codexExecutable = findCli('codex')
-  const codexLogin = codexExecutable ? spawnSync(codexExecutable, ['login', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true }) : undefined
+  const codexLogin = codexExecutable ? spawnSync(codexExecutable, ['login', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true, env: cliEnv }) : undefined
   const codexAvailable = Boolean(codexExecutable && codexLogin?.status === 0)
   const codexStatus = !codexExecutable ? 'CLI를 찾지 못했습니다'
     : codexLogin?.status === 0 ? '연결됨'
       : codexLogin?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
-  const claudeAvailable = Boolean(findCli('claude'))
+  const claudeExecutable = findCli('claude')
+  const claudeAuth = claudeExecutable ? spawnSync(claudeExecutable, ['auth', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true, env: cliEnv }) : undefined
+  let claudeAvailable = false
+  let claudeStatus = 'Claude CLI를 찾지 못했습니다'
+  if (claudeExecutable) {
+    if (claudeAuth?.status === 0) {
+      try {
+        const info = JSON.parse(claudeAuth.stdout) as { loggedIn?: boolean; email?: string }
+        claudeAvailable = info.loggedIn === true
+        claudeStatus = claudeAvailable ? `연결됨${info.email ? ` · ${info.email}` : ''}` : 'CLI 설치됨 · 로그인 필요'
+      } catch { claudeStatus = '로그인 상태 확인 실패' }
+    } else {
+      claudeStatus = claudeAuth?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
+    }
+  }
   return [
     { id: 'codex', name: 'Codex', available: codexAvailable, status: codexStatus, models: codexModels() },
-    { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeAvailable ? '연결됨' : 'Claude CLI 설치 필요', models: [
+    { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeStatus, models: [
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
       { id: 'haiku', name: 'Claude Haiku', description: '빠르고 효율적인 응답' },
@@ -649,6 +699,52 @@ async function checkMcpAnchorRequest() {
 }
 
 ipcMain.handle('providers:list', () => providerInfo())
+
+ipcMain.handle('provider:login', (event, providerId: unknown) => {
+  if (providerId !== 'codex' && providerId !== 'claude') throw new Error('지원하지 않는 CLI입니다.')
+  const key = String(providerId)
+  // 이미 로그인 진행 중이면 중복 실행 방지
+  if (activeAuthProcesses.has(key)) return { success: false, message: '이미 로그인이 진행 중입니다.' }
+  const executable = findCli(key)
+  if (!executable) return { success: false, message: 'CLI를 찾지 못했습니다. 먼저 설치해 주세요.' }
+  return new Promise<{ success: boolean; message: string }>((resolve) => {
+    const loginArgs = key === 'claude' ? ['auth', 'login'] : ['login']
+    const child = spawnCli(executable, loginArgs, { windowsHide: true })
+    activeAuthProcesses.set(key, child)
+    let output = ''
+    const collect = (chunk: Buffer) => {
+      const text = chunk.toString()
+      output += text
+      safeSend(event.sender, 'provider:auth:data', { provider: providerId, text })
+    }
+    child.stdout.on('data', collect)
+    child.stderr.on('data', collect)
+    const cleanup = () => { activeAuthProcesses.delete(key) }
+    child.on('close', (code) => { cleanup(); resolve({ success: code === 0, message: output.trim() || (code === 0 ? '로그인 완료' : '로그인에 실패했습니다.') }) })
+    child.on('error', (err) => { cleanup(); resolve({ success: false, message: err.message }) })
+    // 창이 닫히면 로그인 프로세스도 정리
+    event.sender.once('destroyed', () => { cleanup(); child.kill() })
+  })
+})
+
+ipcMain.handle('provider:logout', (_event, providerId: unknown) => {
+  if (providerId !== 'codex' && providerId !== 'claude') throw new Error('지원하지 않는 CLI입니다.')
+  const key = String(providerId)
+  // 로그인 진행 중이면 먼저 종료
+  const existing = activeAuthProcesses.get(key)
+  if (existing) { existing.kill(); activeAuthProcesses.delete(key) }
+  const executable = findCli(key)
+  if (!executable) return { success: false, message: 'CLI를 찾지 못했습니다.' }
+  return new Promise<{ success: boolean; message: string }>((resolve) => {
+    const logoutArgs = key === 'claude' ? ['auth', 'logout'] : ['logout']
+    const child = spawnCli(executable, logoutArgs, { windowsHide: true })
+    let output = ''
+    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.on('close', (code) => resolve({ success: code === 0, message: output.trim() || (code === 0 ? '로그아웃 완료' : '로그아웃에 실패했습니다.') }))
+    child.on('error', (err) => resolve({ success: false, message: err.message }))
+  })
+})
 ipcMain.handle('sessions:load', () => loadSessions())
 ipcMain.handle('sessions:save', (_event, sessions: unknown) => saveSessions(sessions))
 ipcMain.handle('settings:get', () => readSettings())
