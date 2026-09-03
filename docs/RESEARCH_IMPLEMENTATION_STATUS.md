@@ -88,6 +88,17 @@ Windows에서는 portable EXE를 새로 만들고 패키지 안의 renderer가 �
 
 설계안의 Phase 1~5와 1차 구현 완료 기준은 코드 및 로컬 회귀 기준으로 완료됐다. 이후 작업은 실제 macOS 배포 검증, 대규모 Vault 성능, 더 다양한 PDF corpus, 코드 서명처럼 운영·품질 범위를 확장하는 후속 단계다.
 
+## 연구 DB v2 (2026-09-03, `feat/research-db`)
+
+| 범위 | 상태 | 검증 근거 |
+| --- | --- | --- |
+| 논문 노트 = Paper 노드, 시작 시 마이그레이션, 템플릿 적용 다운로드 | 완료 | `npm run test:notes-ui`(픽스처에 `prism_id`), `npm run test:mcp` |
+| 4노드 온톨로지, 새 관계 집합, Claim 스코프·경고, `projects` 필드 | 완료 | `notes-relation-model.png`, `notes-typed-relations.png`, `shared/contracts/relations.md` |
+| Reader 우클릭 캡처, 채팅 답변 저장, 링크 스텁 | 완료 | `scripts/test-capture.mjs`, `research-reader-capture.png`, 스모크 v2 구간 |
+| 정리 대기열, 메모 승격, 스텁 병합, Concept 정의 비교 표 | 완료 | `scripts/test-curation.mjs`, `notes-curation-queue.png`, 스모크 v2 구간 |
+| 모델 제안(별도 CLI 설정, 검토 대기 전용, 거절 기억) | 완료(가짜 CLI 검증) | `scripts/test-knowledge-ai.mjs`; 실제 Codex/Claude CLI로의 end-to-end는 사용자 환경에서 확인 필요 |
+| 연결 패널(백링크·관계·인용), 로컬 그래프 필터·2홉, 인용 캐시 | 완료 | `scripts/test-citations.mjs`, `notes-context-panel.png`, `research-local-graph.png` |
+
 ## 작업 규칙
 
 각 알파벳 묶음은 필요하면 더 작은 계약/기능 커밋으로 나눈다. 기능 커밋 전후에 담당 영역 테스트를 실행하고, 비단순 UI는 `tmp/ui` 캡처를 직접 확인한다. 온라인 push와 배포는 사용자가 명시적으로 요청할 때만 수행한다.
