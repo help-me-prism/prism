@@ -169,6 +169,32 @@ try {
   await sleep(150)
   assert(await evaluate(`document.querySelector('.composer-editor')?.textContent`) === '한글', 'Korean IME composition was interrupted by a controlled-editor rerender.')
   await evaluate(`(() => { const editor = document.querySelector('.composer-editor'); editor.textContent = ''; editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return true })()`)
+  await evaluate(`(() => {
+    const editor = document.querySelector('.composer-editor')
+    const anchor = document.createElement('span')
+    anchor.dataset.placementId = 'ime-anchor'
+    anchor.contentEditable = 'false'
+    anchor.textContent = '문장1'
+    const caret = document.createTextNode('\u200B')
+    editor.replaceChildren(anchor, caret)
+    const range = document.createRange()
+    range.setStart(caret, 1)
+    range.collapse(true)
+    const selection = getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    editor.focus()
+    editor.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    caret.data = '\u200B한'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '한', inputType: 'insertCompositionText', isComposing: true }))
+    caret.data = '\u200B한글'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '글', inputType: 'insertCompositionText', isComposing: true }))
+    editor.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한글' }))
+    return true
+  })()`)
+  await sleep(150)
+  assert(await evaluate(`document.querySelector('.composer-editor')?.textContent.replaceAll('\u200B', '').endsWith('한글')`) === true, 'Korean IME composition failed immediately after an inline reference.')
+  await evaluate(`(() => { const editor = document.querySelector('.composer-editor'); editor.textContent = ''; editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return true })()`)
   await evaluate(`(() => { const pane = document.querySelector('.messages'); pane.scrollTop = 0; pane.dispatchEvent(new Event('scroll', { bubbles: true })); return true })()`)
   await sleep(100)
   assert(await evaluate(`Boolean(document.querySelector('.jump-latest'))`), 'Scrolling up did not pause chat follow mode.')
