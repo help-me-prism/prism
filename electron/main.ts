@@ -7,6 +7,16 @@ import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
+import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
+import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
+import { applyTemplateSections, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
+import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
+import { listKnowledgeDataViews } from './knowledgeViews.js'
+import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
+import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
+import { suggestKnowledge } from './knowledgeSuggestions.js'
+import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -82,10 +92,15 @@ function codexModels() {
 }
 
 function providerInfo() {
-  const codexAvailable = Boolean(findCli('codex'))
+  const codexExecutable = findCli('codex')
+  const codexLogin = codexExecutable ? spawnSync(codexExecutable, ['login', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true }) : undefined
+  const codexAvailable = Boolean(codexExecutable && codexLogin?.status === 0)
+  const codexStatus = !codexExecutable ? 'CLI를 찾지 못했습니다'
+    : codexLogin?.status === 0 ? '연결됨'
+      : codexLogin?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
   const claudeAvailable = Boolean(findCli('claude'))
   return [
-    { id: 'codex', name: 'Codex', available: codexAvailable, status: codexAvailable ? '연결됨' : 'CLI를 찾지 못했습니다', models: codexModels() },
+    { id: 'codex', name: 'Codex', available: codexAvailable, status: codexStatus, models: codexModels() },
     { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeAvailable ? '연결됨' : 'Claude CLI 설치 필요', models: [
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
@@ -582,6 +597,8 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
 
 let mainWindow: BrowserWindow | undefined
 let notesWindow: BrowserWindow | undefined
+let mcpAnchorRequestId = ''
+let mcpAnchorTimer: NodeJS.Timeout | undefined
 
 function loadRenderer(window: BrowserWindow, view?: string) {
   const devUrl = process.env.VITE_DEV_SERVER_URL
@@ -595,6 +612,7 @@ function createWindow() {
   const initialHeight = testSize ? Math.max(680, Number(testSize[2])) : 920
   const window = new BrowserWindow({
     width: initialWidth, height: initialHeight, minWidth: 1040, minHeight: 680, backgroundColor: '#f5f3ee', titleBarStyle: 'hidden',
+    icon: path.join(__dirname, '../dist/icon.png'),
     titleBarOverlay: process.platform === 'win32' ? { color: '#f5f3ee', symbolColor: '#4a4945', height: 42 } : false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
@@ -611,11 +629,23 @@ function openNotesWindow() {
   if (notesWindow && !notesWindow.isDestroyed()) { notesWindow.show(); notesWindow.focus(); return true }
   notesWindow = new BrowserWindow({
     width: 980, height: 780, minWidth: 700, minHeight: 520, backgroundColor: '#f5f3ee', title: 'Prism Notes',
+    icon: path.join(__dirname, '../dist/icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
   notesWindow.on('closed', () => { notesWindow = undefined })
   loadRenderer(notesWindow, 'notes')
   return true
+}
+
+async function checkMcpAnchorRequest() {
+  const settings = await readSettings(); if (!settings.libraryPath) return
+  const request = await readMcpOpenAnchorRequest(settings.libraryPath)
+  if (!request || request.requestId === mcpAnchorRequestId) return
+  mcpAnchorRequestId = request.requestId
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  const notify = () => mainWindow?.webContents.send('evidence:open-requested', { paperId: request.paperId, anchorId: request.anchorId, type: request.type, page: request.page, label: request.label })
+  if (mainWindow?.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', notify); else notify()
+  mainWindow?.show(); mainWindow?.focus()
 }
 
 ipcMain.handle('providers:list', () => providerInfo())
@@ -678,13 +708,181 @@ ipcMain.handle('notes:open', () => openNotesWindow())
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return fs.readFile(record.notePath, 'utf8')
+  return readNoteSnapshot(record.notePath)
 })
-ipcMain.handle('paper:note:save', async (_event, arxivId: string, content: string) => {
-  if (typeof content !== 'string' || content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
+ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteSaveRequest) => {
+  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
+  if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
+  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
+  if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  await fs.writeFile(record.notePath, content, 'utf8')
+  return saveNoteSnapshot(record.notePath, request)
+})
+ipcMain.handle('templates:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listTemplates(settings.libraryPath)
+})
+ipcMain.handle('templates:save', async (_event, request: TemplateSaveRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.name !== 'string' || typeof request.content !== 'string' || request.name.length > 200 || request.content.length > 2_000_000) throw new Error('템플릿 데이터가 올바르지 않습니다.')
+  if (request.id !== undefined && (typeof request.id !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.id))) throw new Error('템플릿 ID가 올바르지 않습니다.')
+  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('템플릿 버전이 올바르지 않습니다.')
+  return saveTemplate(settings.libraryPath, request)
+})
+ipcMain.handle('templates:delete', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return deleteTemplate(settings.libraryPath, String(id))
+})
+ipcMain.handle('templates:set-default', async (_event, nodeType: KnowledgeNodeType, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return setDefaultTemplate(settings.libraryPath, nodeType, String(id))
+})
+ipcMain.handle('templates:set-favorite', async (_event, id: string, favorite: boolean) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(id) || typeof favorite !== 'boolean') throw new Error('템플릿 즐겨찾기 정보가 올바르지 않습니다.')
+  return setFavoriteTemplate(settings.libraryPath, id, favorite)
+})
+ipcMain.handle('knowledge:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeNodes(settings.libraryPath)
+})
+ipcMain.handle('knowledge:search', async (_event, query: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return searchKnowledge(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:search', async (_event, query: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return searchResearchKnowledge(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:context', async (_event, query: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return retrieveResearchContext(settings.libraryPath, String(query))
+})
+ipcMain.handle('research:index:rebuild', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return rebuildResearchIndex(settings.libraryPath)
+})
+ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  return suggestKnowledge(settings.libraryPath, nodeId)
+})
+ipcMain.handle('knowledge:views', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeDataViews(settings.libraryPath)
+})
+ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpenRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const node = (await listKnowledgeNodes(settings.libraryPath)).find((item) => item.id === request.nodeId)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  const uri = buildObsidianOpenUri(settings.libraryPath, node.relativePath, { heading: request.heading, blockId: request.blockId })
+  if (process.env.PRISM_TEST_EXTERNAL_URL_LOG) await fs.appendFile(process.env.PRISM_TEST_EXTERNAL_URL_LOG, `${uri}\n`, 'utf8')
+  else await shell.openExternal(uri)
+  return true
+})
+ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables)))) throw new Error('지식 노트 정보가 올바르지 않습니다.')
+  return createKnowledgeNode(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:apply-template-sections', async (_event, request: ApplyTemplateSectionsRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId) || typeof request.templateId !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.templateId) || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('템플릿 섹션 추가 정보가 올바르지 않습니다.')
+  return applyTemplateSections(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:read', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return readKnowledgeNode(settings.libraryPath, String(id))
+})
+ipcMain.handle('knowledge:save', async (_event, id: string, request: NoteSaveRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000 || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('지식 노트 저장 정보가 올바르지 않습니다.')
+  return saveKnowledgeNode(settings.libraryPath, String(id), request)
+})
+ipcMain.handle('knowledge:update-properties', async (_event, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!patch || typeof patch !== 'object' || typeof expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(expectedRevision)) throw new Error('속성 변경 정보가 올바르지 않습니다.')
+  return updateKnowledgeProperties(settings.libraryPath, String(id), patch, expectedRevision)
+})
+ipcMain.handle('knowledge:delete', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return deleteKnowledgeNode(settings.libraryPath, String(id))
+})
+ipcMain.handle('knowledge:backlinks', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  return listKnowledgeBacklinks(settings.libraryPath, id)
+})
+ipcMain.handle('knowledge:evidence:copy', async (_event, request: KnowledgeEvidenceCopyRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return copyKnowledgeEvidence(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeRelations(settings.libraryPath, String(id))
+})
+ipcMain.handle('knowledge:relations:create', async (_event, request: KnowledgeRelationCreateRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return createKnowledgeRelation(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:relations:update', async (_event, request: KnowledgeRelationUpdateRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return updateKnowledgeRelation(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:relations:delete', async (_event, request: KnowledgeRelationDeleteRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return deleteKnowledgeRelation(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:relations:review', async (_event, request: KnowledgeRelationReviewRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return reviewKnowledgeRelation(settings.libraryPath, request)
+})
+ipcMain.handle('evidence:list', async () => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listEvidenceAnchors(settings.libraryPath, await readLibrary())
+})
+ipcMain.handle('evidence:open', async (_event, anchor: { paperId?: unknown; anchorId?: unknown; type?: unknown; page?: unknown; label?: unknown }) => {
+  const validTypes = new Set(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
+  if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId)
+    || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300
+    || typeof anchor.type !== 'string' || !validTypes.has(anchor.type)
+    || !Number.isInteger(anchor.page) || Number(anchor.page) < 1 || Number(anchor.page) > 100_000
+    || typeof anchor.label !== 'string' || anchor.label.length < 1 || anchor.label.length > 300) throw new Error('PDF 근거 위치가 올바르지 않습니다.')
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send('evidence:open-requested', anchor)
+  return true
+})
+ipcMain.handle('evidence:backlinks', async (_event, anchor: { paperId?: unknown; anchorId?: unknown }) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId) || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300) throw new Error('PDF 근거 위치가 올바르지 않습니다.')
+  return listEvidenceBacklinks(settings.libraryPath, anchor.paperId, anchor.anchorId)
+})
+ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  await readKnowledgeNode(settings.libraryPath, id)
+  openNotesWindow()
+  const notify = () => notesWindow?.webContents.send('knowledge:open-requested', id)
+  if (notesWindow?.webContents.isLoading()) notesWindow.webContents.once('did-finish-load', notify); else notify()
+  notesWindow?.show(); notesWindow?.focus()
   return true
 })
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
@@ -709,16 +907,22 @@ ipcMain.handle('translation:read', async (_event, arxivId: string) => {
 })
 ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: TranslationSegment[]) => {
   if (!Array.isArray(anchors) || anchors.length > 20_000) throw new Error('anchor 데이터가 올바르지 않습니다.')
+  const settings = await readSettings()
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   const data = {
     version: 1, paperId: arxivId, generatedAt: new Date().toISOString(),
     anchors: anchors.map((segment) => ({
       id: segment.id, type: segment.kind, page: segment.page,
-      source: segment.source, itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
+      source: segment.source, sourceHash: createHash('sha256').update(segment.source).digest('hex'), itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
     })),
   }
   await fs.writeFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), JSON.stringify(data, null, 2), 'utf8')
+  if (settings.libraryPath) {
+    const directory = path.join(settings.libraryPath, '.prism', 'anchors')
+    await fs.mkdir(directory, { recursive: true })
+    await fs.writeFile(path.join(directory, `${arxivId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160)}.json`), JSON.stringify(data, null, 2), 'utf8')
+  }
   return true
 })
 ipcMain.handle('translation:start', async (event, arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => {
@@ -751,7 +955,12 @@ ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {
   active.process?.kill(); activeChats.delete(sessionId); return true
 })
 
-app.whenReady().then(() => { createWindow(); app.on('activate', () => { if (!mainWindow) createWindow() }) })
+app.whenReady().then(() => {
+  createWindow(); mcpAnchorTimer = setInterval(() => void checkMcpAnchorRequest().catch((reason) => console.error('MCP anchor request:', reason)), 800)
+  void checkMcpAnchorRequest().catch((reason) => console.error('MCP anchor request:', reason))
+  app.on('activate', () => { if (!mainWindow) createWindow() })
+})
+app.on('before-quit', () => { if (mcpAnchorTimer) { clearInterval(mcpAnchorTimer); mcpAnchorTimer = undefined } })
 app.on('window-all-closed', () => {
   for (const active of activeChats.values()) active.process?.kill()
   for (const child of translationJobs.values()) child.kill()

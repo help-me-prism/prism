@@ -19,6 +19,8 @@ const suggestions = [
   '처음 읽는 사람을 위한 배경지식을 설명해줘',
 ]
 
+const composerCaretSentinel = '\u200B'
+
 let sequence = 0
 function uniqueId(prefix: string) {
   sequence += 1
@@ -99,11 +101,12 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
+  const composingRef = useRef(false)
   function editorSnapshot() {
     const root = editorRef.current; if (!root) return { text: '', anchors: [] as ContextAnchor[] }
     const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor])); let value = ''; const placed: ContextAnchor[] = []
     const walk = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) { value += node.textContent ?? ''; return }
+      if (node.nodeType === Node.TEXT_NODE) { value += (node.textContent ?? '').replaceAll(composerCaretSentinel, ''); return }
       if (!(node instanceof HTMLElement)) return
       const placementId = node.dataset.placementId
       if (placementId) { const anchor = byPlacement.get(placementId); if (anchor) placed.push({ ...anchor, placementId, textOffset: value.length }); return }
@@ -123,11 +126,12 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     if (!root || !selection?.rangeCount || !selection.focusNode || !root.contains(selection.focusNode)) return
     const range = document.createRange(); range.selectNodeContents(root); range.setEnd(selection.focusNode, selection.focusOffset)
     const wrapper = document.createElement('div'); wrapper.append(range.cloneContents()); wrapper.querySelectorAll('[data-placement-id]').forEach((node) => node.remove()); wrapper.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
-    onCaretChange((wrapper.textContent ?? '').length)
+    onCaretChange((wrapper.textContent ?? '').replaceAll(composerCaretSentinel, '').length)
   }
 
   useEffect(() => {
     const root = editorRef.current; if (!root) return
+    if (composingRef.current) return
     const snapshot = editorSnapshot(); const sameAnchors = snapshot.anchors.length === anchors.length && snapshot.anchors.every((anchor, index) => placementKey(anchor) === placementKey(anchors[index]) && anchor.textOffset === anchors[index].textOffset)
     if (snapshot.text !== text || !sameAnchors) {
       root.replaceChildren(); const ordered = anchors.map((anchor, index) => ({ anchor, index })).sort((a, b) => (a.anchor.textOffset ?? 0) - (b.anchor.textOffset ?? 0) || a.index - b.index); let cursor = 0
@@ -138,18 +142,21 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
         const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
         const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
-        chip.append(symbol, label, paper); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper); cursor = offset
+        chip.append(symbol, label, paper); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
       }
       if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
     }
     if (focusPlacementId && lastFocusedPlacementRef.current !== focusPlacementId) {
       const token = root.querySelector(`[data-placement-id="${CSS.escape(focusPlacementId)}"]`); if (!token) return
-      const range = document.createRange(); range.setStartAfter(token); range.collapse(true); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); root.focus()
+      const range = document.createRange(); const caretNode = token.nextSibling
+      if (caretNode?.nodeType === Node.TEXT_NODE && caretNode.textContent?.startsWith(composerCaretSentinel)) range.setStart(caretNode, 1)
+      else range.setStartAfter(token)
+      range.collapse(true); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); root.focus()
       const anchor = anchors.find((item) => placementKey(item) === focusPlacementId); lastFocusedPlacementRef.current = focusPlacementId; onCaretChange(anchor?.textOffset ?? text.length)
     }
   }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
-  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={() => { readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
 }
 
 function App() {
@@ -396,6 +403,7 @@ function App() {
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (tagSuggestions.length) {
       if (event.key === 'ArrowDown') { event.preventDefault(); setTagSuggestionIndex((index) => (index + 1) % tagSuggestions.length); return }
       if (event.key === 'ArrowUp') { event.preventDefault(); setTagSuggestionIndex((index) => (index - 1 + tagSuggestions.length) % tagSuggestions.length); return }
@@ -444,6 +452,8 @@ function App() {
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
 
+  useEffect(() => window.prism.onOpenEvidenceAnchor((anchor) => navigateAnchor({ ...anchor, paperTitle: '', source: '' })), [])
+
   useEffect(() => {
     if (!input.includes('@')) return
     const timeout = window.setTimeout(() => consumeReferences(input, true), 450)
@@ -455,7 +465,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="titlebar">
-        <div className="brand"><span className="brand-mark">P</span><span>Prism</span></div>
+        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><span>Prism</span></div>
         <div className="document-title"><FileText size={14} /><span>{activeSession.title}</span></div>
       </header>
 

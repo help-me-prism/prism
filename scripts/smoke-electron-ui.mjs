@@ -57,6 +57,14 @@ async function evaluate(expression) {
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.text)
   return response.result.value
 }
+async function waitFor(expression, message, timeout = 8_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (await evaluate(expression)) return
+    await sleep(100)
+  }
+  throw new Error(message)
+}
 async function press(key, keyCode) {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
@@ -86,7 +94,7 @@ try {
     socket.addEventListener('error', reject, { once: true })
   })
   await send('Runtime.enable')
-  await sleep(250)
+  await waitFor(`Boolean(document.querySelector('[role="dialog"]')) || Boolean(document.querySelector('.fatal-error'))`, 'The initial renderer state did not settle.')
 
   const initial = await evaluate(`(() => ({
     dialog: document.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby'),
@@ -147,6 +155,46 @@ try {
   assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-table'))`), 'The table reference was not rendered inline with a type icon.')
   const placedUserText = await evaluate(`[...document.querySelectorAll('.message.user .message-body')].find((body) => body.querySelector('.type-equation'))?.textContent`)
   assert(placedUserText.indexOf('수식2') < placedUserText.indexOf('수식과') && placedUserText.indexOf('표1') < placedUserText.indexOf('표의'), `Placed references did not remain at their sentence offsets: ${placedUserText}`)
+  await evaluate(`(() => {
+    const editor = document.querySelector('.composer-editor')
+    editor.focus()
+    editor.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    editor.textContent = '한'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '한', inputType: 'insertCompositionText', isComposing: true }))
+    editor.textContent = '한글'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '글', inputType: 'insertCompositionText', isComposing: true }))
+    editor.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한글' }))
+    return true
+  })()`)
+  await sleep(150)
+  assert(await evaluate(`document.querySelector('.composer-editor')?.textContent`) === '한글', 'Korean IME composition was interrupted by a controlled-editor rerender.')
+  await evaluate(`(() => { const editor = document.querySelector('.composer-editor'); editor.textContent = ''; editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return true })()`)
+  await evaluate(`(() => {
+    const editor = document.querySelector('.composer-editor')
+    const anchor = document.createElement('span')
+    anchor.dataset.placementId = 'ime-anchor'
+    anchor.contentEditable = 'false'
+    anchor.textContent = '문장1'
+    const caret = document.createTextNode('\u200B')
+    editor.replaceChildren(anchor, caret)
+    const range = document.createRange()
+    range.setStart(caret, 1)
+    range.collapse(true)
+    const selection = getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    editor.focus()
+    editor.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    caret.data = '\u200B한'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '한', inputType: 'insertCompositionText', isComposing: true }))
+    caret.data = '\u200B한글'
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: '글', inputType: 'insertCompositionText', isComposing: true }))
+    editor.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한글' }))
+    return true
+  })()`)
+  await sleep(150)
+  assert(await evaluate(`document.querySelector('.composer-editor')?.textContent.replaceAll('\u200B', '').endsWith('한글')`) === true, 'Korean IME composition failed immediately after an inline reference.')
+  await evaluate(`(() => { const editor = document.querySelector('.composer-editor'); editor.textContent = ''; editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })); return true })()`)
   await evaluate(`(() => { const pane = document.querySelector('.messages'); pane.scrollTop = 0; pane.dispatchEvent(new Event('scroll', { bubbles: true })); return true })()`)
   await sleep(100)
   assert(await evaluate(`Boolean(document.querySelector('.jump-latest'))`), 'Scrolling up did not pause chat follow mode.')
@@ -159,7 +207,7 @@ try {
 
   assert(exceptions.length === 0, `Renderer exceptions were reported: ${exceptions.join('; ')}`)
   assert(securityWarnings.length === 0, 'Electron reported an insecure Content Security Policy.')
-  process.stdout.write('Electron UI smoke passed: onboarding, settings, trash, Markdown, inline references, and paused follow mode.\n')
+  process.stdout.write('Electron UI smoke passed: onboarding, settings, trash, Markdown, inline references, Korean IME, and paused follow mode.\n')
 } finally {
   socket?.close()
   electron.kill()
