@@ -182,6 +182,8 @@ function App() {
   const [focusPlacementId, setFocusPlacementId] = useState<string>()
   const [deletedSession, setDeletedSession] = useState<{ session: ChatSession; index: number }>()
   const [followChat, setFollowChat] = useState(true)
+  const [authInProgress, setAuthInProgress] = useState<ProviderId | null>(null)
+  const [authMessage, setAuthMessage] = useState('')
   const messagesRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -260,6 +262,12 @@ function App() {
       }
     })
     return () => { offEvent(); offDone(); offError() }
+  }, [])
+
+  useEffect(() => {
+    return window.prism.onProviderAuthData((event) => {
+      setAuthMessage((prev) => prev + (event as ProviderAuthEvent).text)
+    })
   }, [])
 
   useEffect(() => {
@@ -344,6 +352,30 @@ function App() {
   async function refreshProviders() {
     try { setProviders(await window.prism.listProviders()) }
     catch (reason) { if (activeSession) setErrors((current) => ({ ...current, [activeSession.id]: String(reason) })) }
+  }
+
+  async function loginProvider(provider: ProviderId) {
+    setAuthInProgress(provider)
+    setAuthMessage('')
+    try {
+      const result = await window.prism.loginProvider(provider)
+      setAuthMessage(result.message)
+      if (result.success) await refreshProviders()
+    } finally {
+      setAuthInProgress(null)
+    }
+  }
+
+  async function logoutProvider(provider: ProviderId) {
+    setAuthInProgress(provider)
+    setAuthMessage('')
+    try {
+      const result = await window.prism.logoutProvider(provider)
+      setAuthMessage(result.message)
+      if (result.success) await refreshProviders()
+    } finally {
+      setAuthInProgress(null)
+    }
   }
 
   function changeProvider(provider: ProviderId) {
@@ -554,8 +586,22 @@ function App() {
       </div>
       {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
         <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
-        <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>터미널에서 로그인한 로컬 CLI를 사용합니다.</small></div><button onClick={() => void refreshProviders()}><RefreshCw size={14} /> 다시 확인</button></div>
-          <div className="provider-list">{providers.map((provider) => <div key={provider.id}><span className={`status-dot ${provider.available ? 'online' : ''}`} /><div><strong>{provider.name}</strong><small>{provider.status}</small></div><span>{provider.available ? '사용 가능' : '설치 또는 로그인 필요'}</span></div>)}</div>
+        <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>Codex 또는 Claude CLI로 채팅과 번역을 사용합니다.</small></div><button onClick={() => void refreshProviders()} disabled={authInProgress !== null}><RefreshCw size={14} /> 다시 확인</button></div>
+          <div className="provider-list">{providers.map((provider) => (
+            <div key={provider.id}>
+              <span className={`status-dot ${provider.available ? 'online' : ''}`} />
+              <div><strong>{provider.name}</strong><small>{authInProgress === provider.id ? '브라우저에서 로그인을 완료해 주세요…' : provider.status}</small></div>
+              <div className="provider-auth-actions">
+                {provider.available
+                  ? <button className="provider-auth-btn" onClick={() => void logoutProvider(provider.id)} disabled={authInProgress !== null}>로그아웃</button>
+                  : authInProgress === provider.id
+                    ? <span className="provider-auth-waiting">로그인 중…</span>
+                    : <button className="provider-auth-btn provider-auth-btn--login" onClick={() => void loginProvider(provider.id)} disabled={authInProgress !== null}>로그인</button>
+                }
+              </div>
+            </div>
+          ))}</div>
+          {authMessage && <p className="provider-auth-message">{authMessage}</p>}
         </div>
         <div className="settings-section"><strong>라이브러리</strong><p>논문 PDF, 번역, 피겨와 Markdown 노트는 선택한 로컬 폴더에 저장됩니다.</p><button className="settings-action" onClick={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }}><FolderOpen size={15} /> 라이브러리 폴더 변경</button></div>
         <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
