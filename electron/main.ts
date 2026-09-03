@@ -81,7 +81,9 @@ function buildCliEnv(): NodeJS.ProcessEnv {
   // nvm 기본 버전 bin 폴더 추가 — alias가 'lts/*' 등 심볼릭일 수 있으므로 실제 디렉토리 탐색
   try {
     const nvmDir = path.join(home, '.nvm', 'versions', 'node')
-    const nvmVersions = readdirSync(nvmDir).filter((d) => d.startsWith('v')).sort().reverse()
+    const nvmVersions = readdirSync(nvmDir)
+      .filter((d) => d.startsWith('v'))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
     if (nvmVersions.length) extra.unshift(path.join(nvmDir, nvmVersions[0], 'bin'))
   } catch { /* nvm 없음 */ }
   // volta
