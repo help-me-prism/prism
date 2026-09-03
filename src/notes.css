@@ -361,3 +361,16 @@
   .local-graph-center, .local-graph-node { width: min(130px, 31%); padding: 7px; }
   .knowledge-data-views > div { grid-template-columns: 1fr; }
 }
+
+/* Claim scope and project properties */
+.knowledge-scope { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.knowledge-property-text { flex: 1 1 150px; display: flex; flex-direction: column; gap: 3px; color: #847e75; font-size: 7px; font-weight: 700; }
+.knowledge-property-text input { height: 27px; padding: 0 8px; border: 1px solid #d4cec4; border-radius: 12px; outline: 0; background: #fff; color: #5c5750; font-size: 8px; }
+.knowledge-property-text input:focus { border-color: #9d8cc9; }
+.knowledge-scope-warning { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; padding: 9px 11px; border: 1px solid #e7c98a; border-radius: 9px; background: #fff8e8; color: #6b5420; }
+.knowledge-scope-warning strong { display: block; font-size: 9px; }
+.knowledge-scope-warning p { margin: 2px 0 0; font-size: 8px; }
+.knowledge-scope-warning footer { display: flex; gap: 6px; }
+.knowledge-scope-warning footer button { height: 26px; padding: 0 9px; border: 1px solid #d9c7a0; border-radius: 12px; background: #fff; color: #6b5420; font-size: 8px; cursor: pointer; }
+.knowledge-scope-warning footer button.primary { border-color: #b3542f; background: #b3542f; color: #fff; }
+.relation-auto-toggle { margin-left: auto; height: 20px; padding: 0 7px; border: 1px solid #d3ccdf; border-radius: 10px; background: #fff; color: #6f6878; font-size: 7px; cursor: pointer; }

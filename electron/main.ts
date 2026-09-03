@@ -17,6 +17,7 @@ import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
+import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -826,9 +827,26 @@ ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteS
   if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
   if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
   if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
+  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return saveNoteSnapshot(record.notePath, request)
+  const result = await saveNoteSnapshot(record.notePath, request)
+  if (result.saved && request.createStubs) {
+    const settings = await readSettings()
+    const stubs = settings.libraryPath ? await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) : []
+    return { ...result, stubs }
+  }
+  return result
+})
+ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperId !== 'string' || (request.kind !== 'evidence' && request.kind !== 'chat')) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  if (request.kind === 'evidence' && (typeof request.anchorId !== 'string' || request.anchorId.length < 1 || request.anchorId.length > 300 || (request.memo !== undefined && (typeof request.memo !== 'string' || request.memo.length > 4_000)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  if (request.kind === 'chat' && (typeof request.question !== 'string' || typeof request.answer !== 'string' || request.answer.length > 200_000 || typeof request.provider !== 'string' || typeof request.model !== 'string' || (request.anchors !== undefined && !Array.isArray(request.anchors)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === request.paperId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return captureToPaperNote(settings.libraryPath, { arxivId: record.arxivId, title: record.title, pdfPath: record.pdfPath, notePath: record.notePath }, request)
 })
 ipcMain.handle('templates:list', async () => {
   const settings = await readSettings()
@@ -920,7 +938,10 @@ ipcMain.handle('knowledge:save', async (_event, id: string, request: NoteSaveReq
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000 || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('지식 노트 저장 정보가 올바르지 않습니다.')
-  return saveKnowledgeNode(settings.libraryPath, String(id), request)
+  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('지식 노트 저장 옵션이 올바르지 않습니다.')
+  const result = await saveKnowledgeNode(settings.libraryPath, String(id), request)
+  if (result.saved && request.createStubs) return { ...result, stubs: await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) }
+  return result
 })
 ipcMain.handle('knowledge:update-properties', async (_event, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => {
   const settings = await readSettings()

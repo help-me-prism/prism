@@ -174,6 +174,7 @@ function App() {
   const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
+  const [noteSaved, setNoteSaved] = useState<Record<string, string>>({})
   const [paperContextOpen, setPaperContextOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
@@ -483,6 +484,19 @@ function App() {
 
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
+  async function saveAnswerToNote(message: ChatMessage) {
+    if (!activeSession) return
+    const index = activeSession.messages.findIndex((item) => item.id === message.id)
+    const question = activeSession.messages.slice(0, Math.max(0, index)).reverse().find((item) => item.role === 'user')
+    // Prefer the paper being read; fall back to the chat context paper or the paper the question referenced.
+    const paperId = workspaceState.activePaperId ?? contextPaperIds[0] ?? question?.anchors?.[0]?.paperId
+    if (!paperId) { setErrors((current) => ({ ...current, [activeSession.id]: '저장할 논문이 없습니다. 논문을 열거나 컨텍스트 논문을 선택하세요.' })); return }
+    try {
+      await window.prism.capturePaperNote({ kind: 'chat', paperId, question: question ? withoutReferences(question.text) : '', answer: message.text, provider: activeSession.provider, model: activeSession.model, anchors: (question?.anchors ?? []).map((anchor) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, label: anchor.label, page: anchor.page })) })
+      const paper = workspaceState.library.find((item) => item.arxivId === paperId)
+      setNoteSaved((current) => ({ ...current, [message.id]: `'${paper?.title ?? paperId}' 노트에 저장됨` }))
+    } catch (reason) { setErrors((current) => ({ ...current, [activeSession.id]: reason instanceof Error ? reason.message : String(reason) })) }
+  }
 
   useEffect(() => window.prism.onOpenEvidenceAnchor((anchor) => navigateAnchor({ ...anchor, paperTitle: '', source: '' })), [])
 
@@ -563,6 +577,7 @@ function App() {
                   {message.role === 'user' && message.anchors?.length && !message.anchors.some((anchor) => typeof anchor.textOffset === 'number') ? <span className="inline-message-anchors">{message.anchors.map((anchor) => <AnchorChip key={placementKey(anchor)} anchor={anchor} onNavigate={navigateAnchor} />)}</span> : null}
                   {message.text ? <MessageContent text={message.role === 'user' && !message.anchors?.some((anchor) => typeof anchor.textOffset === 'number') ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
                 </div>
+                {message.role === 'assistant' && message.text && !(isRunning && message === activeSession.messages.at(-1)) && <div className="message-actions"><button aria-label="AI 답변을 논문 노트에 저장" title="현재 논문 노트의 Notes 섹션에 AI 출처가 표시된 답변으로 저장" onClick={() => void saveAnswerToNote(message)}><StickyNote size={12} /> 노트에 저장</button>{noteSaved[message.id] && <span role="status">{noteSaved[message.id]}</span>}</div>}
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}

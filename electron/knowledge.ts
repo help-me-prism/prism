@@ -8,6 +8,8 @@ import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templ
 export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
 export type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
+export type ClaimOrigin = 'paper' | 'mine'
+export type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
 export type KnowledgeNodeRecord = {
   id: string
   title: string
@@ -23,11 +25,17 @@ export type KnowledgeNodeRecord = {
   revision: string
   modifiedAt: number
   arxivId?: string
+  claimOrigin?: ClaimOrigin
+  evidenceKind?: EvidenceKind
+  scopeDomain?: string
+  scopeRegime?: string
+  scopeAssumptions?: string[]
+  projects?: string[]
 }
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
-export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
@@ -36,6 +44,8 @@ const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as Knowle
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
+const claimOrigins = new Set<ClaimOrigin>(['paper', 'mine'])
+const evidenceKinds = new Set<EvidenceKind>(['theory', 'experiment', 'anecdote', 'idea'])
 const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
 const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
@@ -45,6 +55,30 @@ function field(source: string, key: string) {
   const raw = source.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim()
   if (!raw) return undefined
   try { return JSON.parse(raw) as string } catch { return raw.replace(/^['"]|['"]$/g, '') }
+}
+function unquote(value: string) { const trimmed = value.trim(); try { return String(JSON.parse(trimmed)) } catch { return trimmed.replace(/^['"]|['"]$/g, '') } }
+/** Reads a YAML list written either as a flow list `[a, b]` or as indented `- item` lines. */
+function listField(source: string, key: string) {
+  const lines = source.split(/\r?\n/)
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  if (index < 0) return undefined
+  const rest = lines[index].slice(key.length + 1).trim()
+  if (rest.startsWith('[')) return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  if (rest) return [unquote(rest)]
+  const items: string[] = []
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) { const match = lines[cursor].match(/^\s+-\s*(.*)$/); if (!match) break; items.push(unquote(match[1])) }
+  return items.filter(Boolean)
+}
+/** Replaces or removes one frontmatter field, including a block list that follows it. Empty values remove the key. */
+function setFrontmatterField(body: string, key: string, value: string | string[] | undefined) {
+  const lines = body.split(/\r?\n/)
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  let end = index + 1
+  if (index >= 0) while (end < lines.length && /^\s+-\s/.test(lines[end])) end += 1
+  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length)
+  const rendered = empty ? [] : [Array.isArray(value) ? `${key}: [${value.map((item) => JSON.stringify(item)).join(', ')}]` : `${key}: ${/^[a-z_]+$/.test(value) ? value : JSON.stringify(value)}`]
+  if (index >= 0) lines.splice(index, end - index, ...rendered); else lines.push(...rendered)
+  return lines.join('\n')
 }
 function parseNode(source: string, fallbackPaperId?: string) {
   const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
@@ -58,7 +92,13 @@ function parseNode(source: string, fallbackPaperId?: string) {
   const readingStatus = field(frontmatter[1], 'reading_status') as KnowledgeReadingStatus
   const importance = field(frontmatter[1], 'importance') as KnowledgeLevel
   const confidence = field(frontmatter[1], 'confidence') as KnowledgeLevel
+  const claimOrigin = field(frontmatter[1], 'claim_origin') as ClaimOrigin
+  const evidenceKind = field(frontmatter[1], 'evidence_kind') as EvidenceKind
   return {
+    claimOrigin: nodeType === 'claim' ? claimOrigins.has(claimOrigin) ? claimOrigin : 'paper' : undefined,
+    evidenceKind: evidenceKinds.has(evidenceKind) ? evidenceKind : undefined,
+    scopeDomain: field(frontmatter[1], 'scope_domain'), scopeRegime: field(frontmatter[1], 'scope_regime'),
+    scopeAssumptions: listField(frontmatter[1], 'scope_assumptions'), projects: listField(frontmatter[1], 'projects'),
     id, title, nodeType,
     status: statuses.has(status) ? status : 'developing' as KnowledgeStatus,
     readingStatus: nodeType === 'paper' ? readingStatuses.has(readingStatus) ? readingStatus : 'to_read' : undefined,
@@ -69,18 +109,14 @@ function parseNode(source: string, fallbackPaperId?: string) {
   }
 }
 function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
-  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
+  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}${input.nodeType === 'claim' ? 'claim_origin: paper\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
 }
-function updateFrontmatter(source: string, patch: KnowledgePropertyPatch) {
+function updateFrontmatter(source: string, fields: Array<[string, string | string[] | undefined]>) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) throw new Error('지식 노트의 YAML frontmatter를 찾을 수 없습니다.')
   let body = match[1]
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue
-    const line = new RegExp(`^${key}:.*$`, 'm')
-    body = line.test(body) ? body.replace(line, `${key}: ${value}`) : `${body}\n${key}: ${value}`
-  }
-  return source.replace(match[0], `---\n${body}\n---`)
+  for (const [key, value] of fields) body = setFrontmatterField(body, key, value)
+  return source.replace(match[0], () => `---\n${body}\n---`)
 }
 export function paperNodeId(arxivId: string) { return `paper-${arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 76)}` }
 function migratedPaperNote(source: string, folderName: string) {
@@ -298,17 +334,27 @@ export async function updateKnowledgeProperties(libraryPath: string, id: string,
   if (patch.readingStatus !== undefined && !readingStatuses.has(patch.readingStatus)) throw new Error('읽기 상태 값이 올바르지 않습니다.')
   if (patch.importance !== undefined && !levels.has(patch.importance)) throw new Error('중요도 값이 올바르지 않습니다.')
   if (patch.confidence !== undefined && !levels.has(patch.confidence)) throw new Error('확신도 값이 올바르지 않습니다.')
-  const allowed: KnowledgePropertyPatch = {}
-  if (patch.status !== undefined) allowed.status = patch.status
-  if (patch.readingStatus !== undefined) allowed.readingStatus = patch.readingStatus
-  if (patch.importance !== undefined) allowed.importance = patch.importance
-  if (patch.confidence !== undefined) allowed.confidence = patch.confidence
+  if (patch.claimOrigin !== undefined && !claimOrigins.has(patch.claimOrigin)) throw new Error('주장 출처 값이 올바르지 않습니다.')
+  if (patch.evidenceKind !== undefined && patch.evidenceKind !== '' && !evidenceKinds.has(patch.evidenceKind)) throw new Error('근거 종류 값이 올바르지 않습니다.')
+  const text = (value: unknown, limit: number) => { if (typeof value !== 'string' || value.length > limit) throw new Error('속성 값이 너무 길거나 올바르지 않습니다.'); return value.trim() }
+  const list = (value: unknown) => { if (!Array.isArray(value) || value.length > 20) throw new Error('목록 속성이 올바르지 않습니다.'); return value.map((item) => text(item, 120)).filter(Boolean) }
   const node = await findNode(libraryPath, id)
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
   if (patch.readingStatus !== undefined && node.parsed.nodeType !== 'paper') throw new Error('Paper 노트에서만 읽기 상태를 바꿀 수 있습니다.')
-  const frontmatterPatch = { ...allowed } as Record<string, string | undefined>
-  if (allowed.readingStatus !== undefined) { frontmatterPatch.reading_status = allowed.readingStatus; delete frontmatterPatch.readingStatus }
-  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, frontmatterPatch), expectedRevision })
+  const claimOnly = [patch.claimOrigin, patch.evidenceKind, patch.scopeDomain, patch.scopeRegime, patch.scopeAssumptions].some((value) => value !== undefined)
+  if (claimOnly && node.parsed.nodeType !== 'claim') throw new Error('Claim 노트에서만 주장 속성을 바꿀 수 있습니다.')
+  const fields: Array<[string, string | string[] | undefined]> = []
+  if (patch.status !== undefined) fields.push(['status', patch.status])
+  if (patch.readingStatus !== undefined) fields.push(['reading_status', patch.readingStatus])
+  if (patch.importance !== undefined) fields.push(['importance', patch.importance])
+  if (patch.confidence !== undefined) fields.push(['confidence', patch.confidence])
+  if (patch.claimOrigin !== undefined) fields.push(['claim_origin', patch.claimOrigin])
+  if (patch.evidenceKind !== undefined) fields.push(['evidence_kind', patch.evidenceKind])
+  if (patch.scopeDomain !== undefined) fields.push(['scope_domain', text(patch.scopeDomain, 200)])
+  if (patch.scopeRegime !== undefined) fields.push(['scope_regime', text(patch.scopeRegime, 200)])
+  if (patch.scopeAssumptions !== undefined) fields.push(['scope_assumptions', list(patch.scopeAssumptions)])
+  if (patch.projects !== undefined) fields.push(['projects', list(patch.projects)])
+  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, fields), expectedRevision })
 }
 
 export async function deleteKnowledgeNode(libraryPath: string, id: string) {

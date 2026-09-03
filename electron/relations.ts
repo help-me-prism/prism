@@ -4,7 +4,7 @@ import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
 import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 
-export type KnowledgeRelationType = 'discusses' | 'presents' | 'supports' | 'contradicts' | 'extends' | 'uses' | 'explains' | 'evidence_for' | 'derived_from' | 'raises' | 'related'
+export type KnowledgeRelationType = 'defines' | 'uses' | 'supports' | 'contradicts' | 'extends' | 'raises' | 'answers' | 'mentions' | 'discusses' | 'presents' | 'explains' | 'evidence_for' | 'derived_from' | 'related'
 export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
 export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; createdAt: string }
 export type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
@@ -13,9 +13,9 @@ export type KnowledgeRelationUpdateRequest = { id: string; type: KnowledgeRelati
 export type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 
-const relationTypes = new Set<KnowledgeRelationType>(['discusses', 'presents', 'supports', 'contradicts', 'extends', 'uses', 'explains', 'evidence_for', 'derived_from', 'raises', 'related'])
+const relationTypes = new Set<KnowledgeRelationType>(['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers', 'mentions', 'discusses', 'presents', 'explains', 'evidence_for', 'derived_from', 'related'])
 const evidenceTypes = new Set<RelationEvidenceAnchor['type']>(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
-const relationLabels: Record<KnowledgeRelationType, string> = { discusses: '다룸', presents: '제시함', supports: '지지함', contradicts: '반박함', extends: '확장함', uses: '사용함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', raises: '질문을 제기함', related: '관련' }
+const relationLabels: Record<KnowledgeRelationType, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문을 제기함', answers: '답함', mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련' }
 const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const relationIdPattern = /^relation-[a-f0-9-]{20,80}$/
 

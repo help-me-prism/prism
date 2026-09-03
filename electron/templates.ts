@@ -12,8 +12,8 @@ const nodeTypes = new Set<KnowledgeNodeType>(['paper', 'concept', 'claim', 'insi
 const nodeTypeOrder: Record<KnowledgeNodeType, number> = { paper: 0, concept: 1, claim: 2, insight: 3, question: 4, project: 5 }
 const initialTemplates: Array<{ id: string; name: string; nodeType: KnowledgeNodeType; content: string }> = [
   { id: 'paper-deep-review', name: 'Paper - Deep review', nodeType: 'paper', content: '# {{title}}\n\n## 한 문장 요약\n\n## 이 논문을 읽는 이유\n\n## 핵심 주장\n\n## 방법\n\n## 주요 근거\n\n## 한계와 의문\n\n## 내 아이디어\n\n## 관련 개념과 논문\n' },
-  { id: 'concept-overview', name: 'Concept - Overview', nodeType: 'concept', content: '# {{title}}\n\n## 정의\n\n## 직관\n\n## 수식과 표현\n\n## 관련 주장\n\n## 출처\n' },
-  { id: 'claim-evidence-review', name: 'Claim - Evidence review', nodeType: 'claim', content: '# {{title}}\n\n## 주장\n\n## 지지 근거\n\n## 반박 근거\n\n## 판단과 확신도\n\n## 열린 질문\n' },
+  { id: 'concept-overview', name: 'Concept - Overview', nodeType: 'concept', content: '# {{title}}\n\n## 정의 비교\n\n| 논문 | 이 논문의 정의 | 차이점 |\n| --- | --- | --- |\n|  |  |  |\n\n## 직관\n\n## 수식과 표현\n\n## 관련 주장\n' },
+  { id: 'claim-evidence-review', name: 'Claim - Evidence review', nodeType: 'claim', content: '# {{title}}\n\n## 주장\n\n## 스코프와 가정\n\n## 지지 근거\n\n## 반박 근거\n\n## 판단과 확신도\n\n## 열린 질문\n' },
   { id: 'insight-research-note', name: 'Insight - Research note', nodeType: 'insight', content: '# {{title}}\n\n## 아이디어\n\n## 출발한 근거\n\n## 연결되는 개념\n\n## 검증 방법\n' },
   { id: 'question-investigation', name: 'Question - Investigation', nodeType: 'question', content: '# {{title}}\n\n## 질문\n\n## 질문이 생긴 배경\n\n## 현재 근거\n\n## 다음 조사\n\n## 답변 초안\n' },
   { id: 'project-research-context', name: 'Project - Research context', nodeType: 'project', content: '# {{title}}\n\n## 연구 목표\n\n## 현재 가설\n\n## 사용하는 개념\n\n## 핵심 주장과 근거\n\n## 열린 질문\n\n## 다음 행동\n' },

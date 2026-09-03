@@ -96,7 +96,7 @@ export default function NotesWindow() {
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { noteRef.current = note }, [note])
   useEffect(() => {
-    const flush = () => { void saveCurrentNote() }
+    const flush = () => { void saveCurrentNote(false, true) }
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
   }, [])
@@ -108,17 +108,18 @@ export default function NotesWindow() {
     return () => { disposed = true }
   }, [activeId])
 
-  async function saveCurrentNote(force = false) {
+  async function saveCurrentNote(force = false, createStubs = false) {
     const paperId = activeIdRef.current
     if (!paperId || !dirtyRef.current) return true
     if (conflict && !force) return false
     const content = noteRef.current
     try {
-      const result = await window.prism.savePaperNote(paperId, { content, expectedRevision: revisionRef.current, force })
+      const result = await window.prism.savePaperNote(paperId, { content, expectedRevision: revisionRef.current, force, createStubs })
       if (!result.saved) { setConflict(result.conflict); setNotice(''); setSaved(false); return false }
       revisionRef.current = result.snapshot.revision
       setConflict(undefined)
       if (activeIdRef.current === paperId && noteRef.current === content) { dirtyRef.current = false; setSaved(true); if (force) setNotice('내 편집본으로 안전하게 저장했습니다.') }
+      if (result.stubs?.length) { setKnowledgeNodes(await window.prism.listKnowledgeNodes()); setNotice(`[[링크]]에서 새 Concept ${result.stubs.length}개를 Inbox에 만들었습니다: ${result.stubs.join(', ')}`) }
       return true
     } catch (reason) { setError(String(reason)); return false }
   }
@@ -154,7 +155,7 @@ export default function NotesWindow() {
 
   async function selectPaper(paperId: string) {
     if (paperId === activeIdRef.current) return
-    if (await saveCurrentNote()) setActiveId(paperId)
+    if (await saveCurrentNote(false, true)) setActiveId(paperId)
   }
 
   function updateNote(value: string) {
@@ -220,7 +221,7 @@ export default function NotesWindow() {
         </div>
         {linkOpen && <section className="notes-link-picker" aria-label="노트 링크 찾기"><header><div><Search size={13} /><input autoFocus aria-label="노트 링크 검색" value={linkQuery} onChange={(event) => setLinkQuery(event.target.value)} placeholder="논문명, arXiv ID, Concept, Claim 검색" /></div><button aria-label="노트 링크 찾기 닫기" onClick={() => setLinkOpen(false)}><X size={13} /></button></header><div>{filteredWikiLinks.length ? filteredWikiLinks.map((option) => <button key={option.id} onClick={() => insertWikiLink(option)}><span><small>{option.description}</small><strong>{option.label}</strong><i>{option.target}</i></span><Link2 size={13} /></button>) : <p>일치하는 논문이나 지식 노트가 없습니다.</p>}</div><footer><span><kbd>[[</kbd> 입력 후 검색</span><span><kbd>↑↓</kbd> 선택</span><span><kbd>Tab</kbd> 삽입</span></footer></section>}
         <div className={`notes-document mode-${mode}`}>
-          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote()} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} wikiLinks={wikiLinks} slashActions={['link']} onSlashAction={() => setLinkOpen(true)} />
+          <MarkdownEditor ref={editorRef} key={active.arxivId} value={note} onChange={updateNote} onBlur={() => void saveCurrentNote(false, true)} disabled={!loaded} liveEdit={mode === 'live'} label={`${active.title} Markdown 노트`} wikiLinks={wikiLinks} slashActions={['link']} onSlashAction={() => setLinkOpen(true)} />
           {mode !== 'live' && <MarkdownPreview content={note} />}
         </div>
       </> : <div className="notes-empty"><StickyNote size={36} /><h1>논문 노트를 선택하세요</h1><p>라이브러리에 저장된 Markdown 파일을 별도 창에서 편집합니다.</p></div>}

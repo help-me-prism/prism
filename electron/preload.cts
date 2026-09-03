@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('prism', {
   openNotes: () => ipcRenderer.invoke('notes:open'),
   readPaperNote: (arxivId: string) => ipcRenderer.invoke('paper:note:read', arxivId),
   savePaperNote: (arxivId: string, request: unknown) => ipcRenderer.invoke('paper:note:save', arxivId, request),
+  capturePaperNote: (request: unknown) => ipcRenderer.invoke('paper:note:capture', request),
   listTemplates: () => ipcRenderer.invoke('templates:list'),
   saveTemplate: (request: unknown) => ipcRenderer.invoke('templates:save', request),
   deleteTemplate: (id: string) => ipcRenderer.invoke('templates:delete', id),

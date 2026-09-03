@@ -15,6 +15,7 @@
     "start:fast": "electron .",
     "mcp": "npm run build && node dist-electron/mcpServer.js",
     "test:mcp": "npm run build && node scripts/test-knowledge-mcp.mjs",
+    "test:capture": "npm run build && node scripts/test-capture.mjs",
     "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
     "test:notes-ui": "npm run build && node scripts/test-vault-compatibility.mjs && node scripts/smoke-notes-ui.mjs",
