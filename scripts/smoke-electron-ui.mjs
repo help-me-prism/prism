@@ -57,6 +57,14 @@ async function evaluate(expression) {
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.text)
   return response.result.value
 }
+async function waitFor(expression, message, timeout = 8_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (await evaluate(expression)) return
+    await sleep(100)
+  }
+  throw new Error(message)
+}
 async function press(key, keyCode) {
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code: key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode })
@@ -86,7 +94,7 @@ try {
     socket.addEventListener('error', reject, { once: true })
   })
   await send('Runtime.enable')
-  await sleep(250)
+  await waitFor(`Boolean(document.querySelector('[role="dialog"]')) || Boolean(document.querySelector('.fatal-error'))`, 'The initial renderer state did not settle.')
 
   const initial = await evaluate(`(() => ({
     dialog: document.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby'),
