@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('prism', {
   suggestKnowledge: (nodeId: string) => ipcRenderer.invoke('research:suggest', nodeId),
   listKnowledgeDataViews: () => ipcRenderer.invoke('knowledge:views'),
   listCurationQueue: () => ipcRenderer.invoke('knowledge:curation:list'),
+  listPaperCitations: (arxivId: string, options?: unknown) => ipcRenderer.invoke('paper:citations', arxivId, options),
   runModelSuggestions: (paperNodeId: string) => ipcRenderer.invoke('research:suggest:model', paperNodeId),
   reviewModelSuggestion: (request: unknown) => ipcRenderer.invoke('research:suggest:model:review', request),
   promoteMemo: (request: unknown) => ipcRenderer.invoke('knowledge:curation:promote-memo', request),

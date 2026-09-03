@@ -20,6 +20,7 @@ import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
+import { listPaperCitations } from './citations.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -356,12 +357,26 @@ async function writeSettings(patch: Partial<AppSettings>) {
 }
 
 function libraryIndexPath(libraryPath: string) { return path.join(libraryPath, '.prism', 'library.json') }
+/** library.json stores absolute paths; when the folder was moved, copied, or synced to another machine, rebase them under the current library. */
+function rebasePaperRecord(libraryPath: string, record: PaperRecord): PaperRecord {
+  const inside = (candidate: string | undefined) => Boolean(candidate) && !path.relative(libraryPath, candidate!).startsWith('..') && !path.isAbsolute(path.relative(libraryPath, candidate!))
+  if (inside(record.pdfPath) && inside(record.notePath)) return record
+  const safeId = record.arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_')
+  const paperDir = path.join(libraryPath, 'papers', safeId)
+  return {
+    ...record,
+    pdfPath: inside(record.pdfPath) ? record.pdfPath : path.join(paperDir, path.basename(record.pdfPath || 'original.pdf')),
+    notePath: inside(record.notePath) ? record.notePath : path.join(paperDir, path.basename(record.notePath || `${safeId}.md`)),
+    translationPath: inside(record.translationPath) ? record.translationPath : path.join(paperDir, path.basename(record.translationPath || 'translation.ko.json')),
+    sourcePath: record.sourcePath ? inside(record.sourcePath) ? record.sourcePath : path.join(paperDir, path.basename(record.sourcePath)) : undefined,
+  }
+}
 async function readLibrary(): Promise<PaperRecord[]> {
   const settings = await readSettings()
   if (!settings.libraryPath) return []
   try {
     const value = JSON.parse(await fs.readFile(libraryIndexPath(settings.libraryPath), 'utf8'))
-    return Array.isArray(value) ? value : []
+    return Array.isArray(value) ? (value as PaperRecord[]).map((record) => rebasePaperRecord(settings.libraryPath!, record)) : []
   } catch { return [] }
 }
 async function writeLibrary(records: PaperRecord[]) {
@@ -923,6 +938,13 @@ ipcMain.handle('research:suggest:model:review', async (_event, request: ModelSug
   if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.id !== 'string' || !/^model-[a-f0-9]{16}$/.test(request.id) || (request.decision !== 'accepted' && request.decision !== 'rejected')) throw new Error('제안 검토 요청이 올바르지 않습니다.')
   await reviewModelSuggestion(settings.libraryPath, request)
   return true
+})
+ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { refresh?: boolean }) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  if (options !== undefined && (typeof options !== 'object' || options === null || (options.refresh !== undefined && typeof options.refresh !== 'boolean'))) throw new Error('인용 조회 옵션이 올바르지 않습니다.')
+  if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
+  return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
 })
 ipcMain.handle('knowledge:curation:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

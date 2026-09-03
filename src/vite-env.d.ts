@@ -32,6 +32,8 @@ type ModelSuggestionSummary = { paperNodeId: string; paperTitle: string; provide
 type ModelSuggestionReview = { paperNodeId: string; id: string; decision: 'accepted' | 'rejected' }
 type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; conceptSuggestions: CurationConceptSuggestion[]; modelRuns: ModelSuggestionSummary[]; total: number }
 type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; nodeType: 'claim' | 'question'; title: string }
+type CitationEntry = { arxivId?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
+type CitationLinks = { arxivId: string; fetchedAt: string; references: CitationEntry[]; citations: CitationEntry[]; stale: boolean; error?: string }
 type MergeConceptsRequest = { sourceId: string; targetId: string }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
@@ -109,6 +111,7 @@ interface Window {
     suggestKnowledge: (nodeId: string) => Promise<KnowledgeSuggestion[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
     listCurationQueue: () => Promise<CurationQueue>
+    listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
     reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>
     promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>

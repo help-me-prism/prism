@@ -81,6 +81,10 @@ export default function KnowledgeManager({ onClose, initialNodeId, initialView }
   const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [graphOpen, setGraphOpen] = useState(false)
+  const [graphHops, setGraphHops] = useState<1 | 2>(1)
+  const [graphTypes, setGraphTypes] = useState<Set<KnowledgeNodeType>>(() => new Set(['paper', 'concept', 'claim', 'question', 'insight', 'project']))
+  const [graphRelationTypes, setGraphRelationTypes] = useState<Set<KnowledgeRelationType>>(() => new Set())
+  const [secondHop, setSecondHop] = useState<Array<{ parentId: string; relation: KnowledgeRelationView }>>([])
   const [dataViewOpen, setDataViewOpen] = useState(false)
   const [dataViews, setDataViews] = useState<KnowledgeDataViews>({ projects: [], unansweredQuestions: [], unsupportedClaims: [], projectContexts: [], conflictingPapers: [] })
   const [viewsLoading, setViewsLoading] = useState(false)
@@ -97,6 +101,25 @@ export default function KnowledgeManager({ onClose, initialNodeId, initialView }
   const compatibleTemplates = useMemo(() => templates.filter((template) => template.nodeType === newType).sort((left, right) => Number(right.isFavorite) - Number(left.isFavorite) || (right.lastUsedAt ?? 0) - (left.lastUsedAt ?? 0) || Number(right.isDefault) - Number(left.isDefault) || left.name.localeCompare(right.name)), [templates, newType])
   const activeTemplates = useMemo(() => templates.filter((template) => template.nodeType === active?.nodeType), [templates, active?.nodeType])
   const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
+  const graphEdges = useMemo(() => relations.filter((item) => graphTypes.has(item.other.nodeType) && (graphRelationTypes.size === 0 || graphRelationTypes.has(item.type))), [relations, graphTypes, graphRelationTypes])
+  const graphEdgeKey = graphEdges.map((item) => item.id).join(',')
+  useEffect(() => {
+    if (!graphOpen || graphHops !== 2 || !active) { setSecondHop([]); return }
+    let disposed = false
+    void (async () => {
+      const results: Array<{ parentId: string; relation: KnowledgeRelationView }> = []; const seen = new Set<string>([active.id, ...graphEdges.map((item) => item.other.id)])
+      for (const edge of graphEdges) {
+        try {
+          for (const relation of await window.prism.listKnowledgeRelations(edge.other.id)) {
+            if (seen.has(relation.other.id) || relation.reviewStatus !== 'approved' || relation.type === 'mentions' || !graphTypes.has(relation.other.nodeType)) continue
+            seen.add(relation.other.id); results.push({ parentId: edge.other.id, relation })
+          }
+        } catch { /* a neighbour may have been deleted meanwhile */ }
+      }
+      if (!disposed) setSecondHop(results.slice(0, 36))
+    })()
+    return () => { disposed = true }
+  }, [graphOpen, graphHops, active?.id, graphEdgeKey, graphTypes])
   const matchingNodes = useMemo(() => {
     const query = linkQuery.trim().toLocaleLowerCase()
     return nodes.filter((node) => node.id !== activeId && active && (linkRelationType === 'none' || relationTypesFor(active, node).includes(linkRelationType)) && (!query || `${node.title} ${node.nodeType} ${node.relativePath}`.toLocaleLowerCase().includes(query))).slice(0, 60)
@@ -429,8 +452,22 @@ export default function KnowledgeManager({ onClose, initialNodeId, initialView }
             {promoting && <section className="evidence-promote" role="dialog" aria-modal="true" aria-labelledby="evidence-promote-title"><header><div><Sparkles size={15} /><span><h4 id="evidence-promote-title">근거를 지식 노트로 승격</h4><p>원래 PDF 근거와 출처 노트 링크를 그대로 유지합니다.</p></span></div><button aria-label="근거 승격 닫기" onClick={() => setPromoting(undefined)}><X size={14} /></button></header><div><label><span>노트 유형</span><select aria-label="승격 노트 유형" value={promotionType} onChange={(event) => setPromotionType(event.target.value as typeof promotionType)}><option value="claim">Claim</option><option value="question">Question</option></select></label><label><span>제목</span><input autoFocus aria-label="승격 노트 제목" value={promotionTitle} onChange={(event) => setPromotionTitle(event.target.value)} /></label></div><footer><button onClick={() => setPromoting(undefined)}>취소</button><button className="primary" onClick={() => void promote()}>승격하기</button></footer></section>}
             {suggestionsOpen && <section className="knowledge-suggestions" role="dialog" aria-modal="true" aria-labelledby="knowledge-suggestions-title"><header><div><Sparkles size={15} /><span><h4 id="knowledge-suggestions-title">AI 연구 제안</h4><p>로컬 지식과 승인된 관계를 분석했으며, 관계는 직접 검토해야 확정됩니다.</p></span></div><button aria-label="AI 연구 제안 닫기" onClick={() => setSuggestionsOpen(false)}><X size={14} /></button></header><div>{suggestionsLoading ? <p className="suggestions-empty">로컬 지식 그래프를 분석하는 중…</p> : suggestions.length ? suggestions.map((suggestion) => <article key={suggestion.id} className={`suggestion-${suggestion.kind}`}><header><span>{suggestionLabels[suggestion.kind]}</span><em>{Math.round(suggestion.confidence * 100)}%</em></header><strong>{suggestion.target ? `${suggestion.source.title} → ${suggestion.target.title}` : suggestion.source.title}</strong><p>{suggestion.reason}</p><footer>{suggestion.proposedRelation && suggestion.target ? <button onClick={() => void addSuggestedRelation(suggestion)}><Sparkles size={11} /> 검토에 추가</button> : <button onClick={() => void openNode(suggestion.source.id)}><ExternalLink size={11} /> 노트 열기</button>}</footer></article>) : <p className="suggestions-empty">지금 검토할 연구 제안이 없습니다.</p>}</div></section>}
             {graphOpen && <section className="knowledge-local-graph" role="dialog" aria-modal="true" aria-labelledby="knowledge-local-graph-title">
-              <header><div><Network size={15} /><span><h4 id="knowledge-local-graph-title">로컬 관계 그래프</h4><p>현재 노트와 직접 연결된 관계만 보여줍니다.</p></span></div><button aria-label="로컬 관계 그래프 닫기" onClick={() => setGraphOpen(false)}><X size={14} /></button></header>
-              <div className={`local-graph-canvas${relations.length ? '' : ' is-empty'}`}><svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">{relations.map((item, index) => { const angle = Math.PI * 2 * index / relations.length - Math.PI / 2; const x = 50 + Math.cos(angle) * 34; const y = 50 + Math.sin(angle) * 32; return <g key={item.id}><line className={`status-${item.reviewStatus}`} x1="50" y1="50" x2={x} y2={y} /><text x={(50 + x) / 2} y={(50 + y) / 2 - 1}>{item.direction === 'outgoing' ? '→' : '←'} {relationLabels[item.type]}</text></g> })}</svg><div className="local-graph-center"><small>{typeLabels[active.nodeType]}</small><strong>{active.title}</strong></div>{relations.map((item, index) => { const angle = Math.PI * 2 * index / relations.length - Math.PI / 2; return <button key={item.id} className={`local-graph-node status-${item.reviewStatus}`} style={{ left: `${50 + Math.cos(angle) * 34}%`, top: `${50 + Math.sin(angle) * 32}%` }} onClick={() => void openNode(item.other.id)}><small>{typeLabels[item.other.nodeType]}</small><strong>{item.other.title}</strong><span>{item.creator === 'ai' ? 'AI · ' : ''}{item.reviewStatus === 'pending' ? '검토 필요' : relationLabels[item.type]}</span></button> })}{!relations.length && <div className="local-graph-empty"><Network size={22} /><strong>아직 연결된 관계가 없습니다</strong><p>관계 버튼 또는 <kbd>/관계</kbd> 명령으로 첫 연결을 만드세요.</p><button onClick={() => { setGraphOpen(false); openRelationPicker() }}>관계 추가</button></div>}</div>
+              <header><div><Network size={15} /><span><h4 id="knowledge-local-graph-title">로컬 관계 그래프</h4><p>{graphHops === 2 ? '현재 노트에서 두 단계까지 승인된 관계를 보여줍니다.' : '현재 노트와 직접 연결된 관계만 보여줍니다.'}</p></span></div><button aria-label="로컬 관계 그래프 닫기" onClick={() => setGraphOpen(false)}><X size={14} /></button></header>
+              <nav className="local-graph-filters" aria-label="그래프 필터">
+                <div>{(['paper', 'concept', 'claim', 'question'] as KnowledgeNodeType[]).map((type) => <button key={type} className={graphTypes.has(type) ? 'active' : ''} aria-pressed={graphTypes.has(type)} onClick={() => setGraphTypes((current) => { const next = new Set(current); if (next.has(type)) next.delete(type); else next.add(type); return next })}>{typeLabels[type]}</button>)}</div>
+                <div>{primaryRelationTypes.map((type) => <button key={type} className={graphRelationTypes.has(type) ? 'active' : ''} aria-pressed={graphRelationTypes.has(type)} onClick={() => setGraphRelationTypes((current) => { const next = new Set(current); if (next.has(type)) next.delete(type); else next.add(type); return next })}>{relationLabels[type]}</button>)}</div>
+                <div><button className={graphHops === 2 ? 'active' : ''} aria-pressed={graphHops === 2} onClick={() => setGraphHops(graphHops === 2 ? 1 : 2)}>2홉</button><button className={showAutoRelations ? 'active' : ''} aria-pressed={showAutoRelations} onClick={() => setShowAutoRelations((value) => !value)}>자동 관계</button></div>
+              </nav>
+              <div className={`local-graph-canvas${graphEdges.length ? '' : ' is-empty'}`}>
+                <svg aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {graphEdges.map((item, index) => { const point = ringPoint(index, graphEdges.length, 30, 28); return <g key={item.id}><line className={`status-${item.reviewStatus}`} x1="50" y1="50" x2={point.x} y2={point.y} /><text x={(50 + point.x) / 2} y={(50 + point.y) / 2 - 1}>{item.direction === 'outgoing' ? '→' : '←'} {relationLabels[item.type]}</text></g> })}
+                  {secondHop.map((entry, index) => { const parentIndex = graphEdges.findIndex((item) => item.other.id === entry.parentId); if (parentIndex < 0) return null; const parent = ringPoint(parentIndex, graphEdges.length, 30, 28); const point = outerPoint(parentIndex, graphEdges.length, index, secondHop); return <g key={`${entry.parentId}-${entry.relation.id}`} className="hop-2"><line x1={parent.x} y1={parent.y} x2={point.x} y2={point.y} /><text x={(parent.x + point.x) / 2} y={(parent.y + point.y) / 2 - 1}>{relationLabels[entry.relation.type]}</text></g> })}
+                </svg>
+                <div className="local-graph-center"><small>{typeLabels[active.nodeType]}</small><strong>{active.title}</strong></div>
+                {graphEdges.map((item, index) => { const point = ringPoint(index, graphEdges.length, 30, 28); return <button key={item.id} className={`local-graph-node status-${item.reviewStatus}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} onClick={() => void openNode(item.other.id)}><small>{typeLabels[item.other.nodeType]}</small><strong>{item.other.title}</strong><span>{item.creator === 'ai' ? 'AI · ' : ''}{item.reviewStatus === 'pending' ? '검토 필요' : relationLabels[item.type]}</span></button> })}
+                {secondHop.map((entry, index) => { const parentIndex = graphEdges.findIndex((item) => item.other.id === entry.parentId); if (parentIndex < 0) return null; const point = outerPoint(parentIndex, graphEdges.length, index, secondHop); return <button key={`${entry.parentId}-${entry.relation.id}-node`} className="local-graph-node hop-2" style={{ left: `${point.x}%`, top: `${point.y}%` }} onClick={() => void openNode(entry.relation.other.id)}><small>{typeLabels[entry.relation.other.nodeType]}</small><strong>{entry.relation.other.title}</strong></button> })}
+                {!graphEdges.length && <div className="local-graph-empty"><Network size={22} /><strong>{relations.length ? '필터에 맞는 관계가 없습니다' : '아직 연결된 관계가 없습니다'}</strong><p>{relations.length ? '위의 유형·관계 필터를 조정하세요.' : <>관계 버튼 또는 <kbd>/관계</kbd> 명령으로 첫 연결을 만드세요.</>}</p>{!relations.length && <button onClick={() => { setGraphOpen(false); openRelationPicker() }}>관계 추가</button>}</div>}
+              </div>
             </section>}
           </> : <div className="knowledge-loading">노트를 불러오는 중…</div>}
         </main>
@@ -447,4 +484,18 @@ function PropertyText({ label, value, placeholder, onCommit }: { label: string; 
   useEffect(() => { setDraft(value) }, [value])
   const commit = () => { if (draft.trim() !== value.trim()) onCommit(draft.trim()) }
   return <label className="knowledge-property-text"><span>{label}</span><input aria-label={label} value={draft} placeholder={placeholder} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }} /></label>
+}
+
+function ringPoint(index: number, count: number, radiusX: number, radiusY: number) {
+  const angle = Math.PI * 2 * index / Math.max(count, 1) - Math.PI / 2
+  return { x: 50 + Math.cos(angle) * radiusX, y: 50 + Math.sin(angle) * radiusY }
+}
+// Second-hop nodes fan out around their parent's angle so a busy neighbour does not pile its links on one spot.
+function outerPoint(parentIndex: number, parentCount: number, index: number, all: Array<{ parentId: string }>) {
+  const siblings = all.filter((entry) => entry.parentId === all[index].parentId)
+  const position = siblings.indexOf(all[index])
+  const base = Math.PI * 2 * parentIndex / Math.max(parentCount, 1) - Math.PI / 2
+  const spread = Math.min(0.9, 0.35 * Math.max(siblings.length - 1, 0))
+  const angle = base - spread / 2 + (siblings.length > 1 ? spread * position / (siblings.length - 1) : 0)
+  return { x: 50 + Math.cos(angle) * 46, y: 50 + Math.sin(angle) * 44 }
 }
