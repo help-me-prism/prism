@@ -6,7 +6,16 @@ The Notes owner connects two stable knowledge nodes with a meaningful relation t
 
 ## Relation types
 
-`discusses`, `supports`, `contradicts`, `extends`, `uses`, `explains`, `evidence_for`, `derived_from`, `raises`, and `related` are the only stored values.
+`discusses`, `presents`, `supports`, `contradicts`, `extends`, and `related` are the primary values offered for new user relations. Existing Vaults may also contain the legacy values `uses`, `explains`, `evidence_for`, `derived_from`, and `raises`; Prism continues to read them but does not show them in the default picker.
+
+The default UI constrains primary values by endpoint semantics:
+
+- Paper → Paper: `related`
+- Paper → Concept: `discusses`
+- Paper → Claim: `presents`, `supports`, or `contradicts`
+- Claim → Claim: `supports`, `contradicts`, or `extends`
+- Concept → Concept: `related`
+- other pairs: `related`
 
 ## Record
 

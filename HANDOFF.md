@@ -355,7 +355,19 @@ npm run start:fast
 - 의미 있는 작업 단위가 끝날 때마다 `kys_enhanced` 브랜치에 로컬 커밋한다. `git push`와 온라인 macOS 빌드/업로드는 사용자가 명시적으로 요청할 때만 수행한다.
 - 사용자가 만든 파일이나 unrelated working-tree 변경은 덮어쓰지 않는다.
 
-## 9. 다음 대화에 전달할 시작 프롬프트 예시
+## 9. 2026-09-03 Notes 링크·관계 UX
+
+- Paper 노트 상단의 `링크` 버튼에서 논문명, arXiv ID, 저자와 지식 노드를 검색해 현재 커서에 Obsidian 호환 링크를 삽입한다.
+- Paper 노트에서도 `[[` 자동완성과 `Tab`/`Enter` 선택이 작동한다. 제목 직접 일치를 본문 간접 언급보다 우선해 엉뚱한 노드가 선택되지 않게 했다.
+- 새 관계 UI의 핵심 모델은 Paper→Paper `관련`, Paper→Concept `다룸`, Paper→Claim `제시·지지·반박`, Claim→Claim `지지·반박·확장`, Concept→Concept `관련`이다. 그 밖의 연결은 `관련`을 기본값으로 사용한다.
+- `presents`(`제시함`) 타입을 추가했다. 기존 Vault의 세부 관계 타입은 호환을 위해 계속 읽지만 기본 선택 UI에서는 숨긴다.
+- 관계 타입은 버튼으로 선택한다. `/관계`, `/지지`, `/반박`, `/링크`, `/근거`, `/그래프` 명령을 검색하고 `Tab` 또는 `Enter`로 실행할 수 있다.
+- 로컬 그래프는 관계 유무와 상관없이 노트 제목 영역에서 열 수 있다. 빈 그래프에서는 현재 노드와 첫 관계를 만드는 버튼을 표시한다.
+- 가벼운 필기는 별도 Note 노드로 만들지 않는다. 향후 Reader 채팅과 PDF 직접 필기는 Paper/앵커 주석에 자동 반영하고, 가치가 생긴 내용만 사용자 승인 후 Claim/Insight/Question으로 승격한다.
+- 관련 커밋: `e4d9653`, `c823035`, `1fe71dc`, `baa33e7`
+- 검증: `npm run build`, `scripts/smoke-notes-ui.mjs`; 실제 캡처 `tmp/ui/notes-paper-link-picker.png`, `notes-relation-model.png`, `notes-slash-relation-command.png`, `notes-slash-relation-picker.png`, `notes-empty-local-graph.png` 확인.
+
+## 10. 다음 대화에 전달할 시작 프롬프트 예시
 
 연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
 

@@ -75,28 +75,27 @@ Obsidian이 없어도 Prism의 작성, 편집, 검색, 연결, 그래프 기능�
 | Insight | 사용자의 해석, 연결, 가설 | DDPM 목적함수와 masked modeling 사이의 유사성 |
 | Question | 아직 해결하지 못한 연구 질문 | 시간 단계별 가중치가 생성 품질에 미치는 영향은 무엇인가? |
 | Project | 현재 연구 목적과 필요한 지식을 묶는 문맥 | Diffusion objective 개선 연구 |
-| Note | 논문 근거에 붙인 가벼운 개인 필기 | p.4 수식 3에 대한 해석 |
 
 Concept는 명사형 지식이고 Claim은 문장으로 검증할 수 있는 명제다. Insight는 사용자의 새로운 해석이므로 논문이 직접 주장한 내용과 구분한다.
+
+가벼운 개인 필기는 별도 `Note` 노드로 만들지 않고 Paper의 Markdown 본문이나 PDF 앵커에 붙인 주석으로 유지한다. 반복해서 참조되거나 독립적인 가치가 생겼을 때만 Claim, Insight, Question으로 승격한다. 이렇게 해야 그래프가 임시 메모로 과밀해지지 않는다.
 
 ### 4.2 관계 타입
 
 관계를 모두 `관련 있음`으로 저장하지 않고 의미를 제한된 집합으로 관리한다.
 
-| 내부 값 | 화면 표시 | 대표 연결 |
+| 내부 값 | 화면 표시 | 허용하는 핵심 연결 |
 | --- | --- | --- |
 | discusses | 다룸 | Paper → Concept |
-| supports | 지지함 | Paper/Evidence → Claim |
-| contradicts | 반박함 | Paper/Evidence → Claim |
-| extends | 확장함 | Paper/Claim/Insight → Claim |
-| uses | 사용함 | Paper/Project → Concept/Method |
-| explains | 설명함 | Figure/Equation/Note → Concept |
-| evidence_for | 근거임 | Sentence/Equation/Table/Figure → Claim/Insight |
-| derived_from | 출발함 | Insight/Question → Note/Evidence |
-| raises | 질문을 제기함 | Paper/Note/Claim → Question |
-| related | 기타 관련 | 명확한 타입이 없는 임시 연결 |
+| presents | 제시함 | Paper → Claim |
+| supports | 지지함 | Paper → Claim, Claim → Claim |
+| contradicts | 반박함 | Paper → Claim, Claim → Claim |
+| extends | 확장함 | Claim → Claim |
+| related | 관련 | Paper → Paper, Concept → Concept, 그 밖의 임시 연결 |
 
 관계에는 출발 노드, 대상 노드, 관계 타입, 생성자, 검토 상태, 근거 앵커와 생성 시각을 기록한다. AI 관계와 사용자 관계를 구분한다.
+
+새 관계 UI는 출발·대상 노드 조합에 맞는 위 관계만 보여준다. 예를 들어 Paper에서 `다룸`을 선택하면 Concept만, `제시함·지지함·반박함`을 선택하면 Claim만 검색된다. 기존 Vault 호환을 위해 과거의 `uses`, `explains`, `evidence_for`, `derived_from`, `raises` 값은 계속 읽지만 새 기본 UI에서는 노출하지 않는다.
 
 ### 4.3 PDF 근거 앵커
 
@@ -147,7 +146,7 @@ Prism Notes는 현재의 일반 textarea를 연구용 시각 편집기로 교체
 선택형 입력의 예:
 
 - 노드 종류: Paper / Concept / Claim / Insight / Question
-- 관계: 지지 / 반박 / 확장 / 설명 / 근거 / 관련
+- 관계: 관련 / 다룸 / 제시 / 지지 / 반박 / 확장
 - 읽기 상태: 읽을 예정 / 읽는 중 / 읽음 / 보류
 - 중요도: 낮음 / 보통 / 높음 / 핵심
 - 확신도: 낮음 / 중간 / 높음
@@ -159,12 +158,22 @@ Prism Notes는 현재의 일반 textarea를 연구용 시각 편집기로 교체
 ### 5.4 내부 링크 작성
 
 - `[[`를 입력하거나 `연결 추가` 버튼을 누르면 모든 지식 노드를 검색한다.
+- Paper 노트의 `링크` 버튼에서는 논문명, arXiv ID, 저자, Concept, Claim을 한 번에 검색하고 클릭해 삽입한다.
+- 자동완성 결과는 제목 일치, 제목 포함, ID·경로 일치, 본문 언급 순으로 정렬한다.
 - `@`를 입력하면 현재 또는 열린 논문의 문장, 수식, 표, 피겨를 검색한다.
 - 링크 생성 시 필요하면 관계 타입을 바로 선택한다.
 - 아직 존재하지 않는 Concept나 Claim은 검색 창에서 즉시 생성할 수 있다.
 - 링크에 마우스를 올리면 요약과 근거 수를 미리 보여준다.
 
-### 5.5 근거 카드
+### 5.5 슬래시 작업 명령
+
+- `/관계`: 현재 노드에서 가능한 관계와 대상 검색을 연다.
+- `/지지`, `/반박`: 관계 타입을 바로 선택하고 연결 가능한 Claim만 보여준다.
+- `/링크`, `/근거`, `/그래프`: 각각 지식 검색, PDF 근거 선택, 로컬 그래프를 연다.
+- 화살표 키로 후보를 이동하고 `Tab` 또는 `Enter`로 선택한다.
+- 관계 타입은 버튼으로도 바꿀 수 있으며, 슬래시 명령 문자열 자체는 Markdown에 저장하지 않는다.
+
+### 5.6 근거 카드
 
 PDF에서 문장, 수식, 표 또는 피겨를 선택하고 `필기 추가`를 누르면 현재 노트의 커서 위치에 근거 카드가 삽입된다.
 
@@ -395,6 +404,8 @@ AI는 Markdown 파일을 무차별적으로 전부 읽는 대신 그래프와 �
 - `create_note_draft(template_id)`
 
 읽기와 검색은 자동화할 수 있지만 새 관계 확정, 기존 필기 수정과 삭제는 사용자 승인을 요구한다. 특정 Obsidian AI 플러그인에 종속되지 않고 다양한 AI 도구가 같은 로컬 지식에 접근할 수 있는 구조를 목표로 한다.
+
+향후 논문 Reader의 채팅과 PDF 직접 필기는 동일한 PDF 앵커 계약을 사용한다. 채팅 질문·답변과 여백 필기는 먼저 Paper 본문 또는 앵커 주석으로 자동 반영하고, AI는 그중 재사용 가치가 있는 부분만 Claim, Insight, Question 승격 후보로 제안한다. 사용자 승인 전에는 독립 지식 노드나 관계를 자동 확정하지 않는다.
 
 ## 12. 구현 단계
 
