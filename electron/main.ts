@@ -132,10 +132,24 @@ function providerInfo() {
   const codexStatus = !codexExecutable ? 'CLI를 찾지 못했습니다'
     : codexLogin?.status === 0 ? '연결됨'
       : codexLogin?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
-  const claudeAvailable = Boolean(findCli('claude'))
+  const claudeExecutable = findCli('claude')
+  const claudeAuth = claudeExecutable ? spawnSync(claudeExecutable, ['auth', 'status'], { encoding: 'utf8', timeout: 7_000, windowsHide: true, env: cliEnv }) : undefined
+  let claudeAvailable = false
+  let claudeStatus = 'Claude CLI를 찾지 못했습니다'
+  if (claudeExecutable) {
+    if (claudeAuth?.status === 0) {
+      try {
+        const info = JSON.parse(claudeAuth.stdout) as { loggedIn?: boolean; email?: string }
+        claudeAvailable = info.loggedIn === true
+        claudeStatus = claudeAvailable ? `연결됨${info.email ? ` · ${info.email}` : ''}` : 'CLI 설치됨 · 로그인 필요'
+      } catch { claudeStatus = '로그인 상태 확인 실패' }
+    } else {
+      claudeStatus = claudeAuth?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
+    }
+  }
   return [
     { id: 'codex', name: 'Codex', available: codexAvailable, status: codexStatus, models: codexModels() },
-    { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeAvailable ? '연결됨' : 'Claude CLI 설치 필요', models: [
+    { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeStatus, models: [
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
       { id: 'haiku', name: 'Claude Haiku', description: '빠르고 효율적인 응답' },
@@ -692,7 +706,8 @@ ipcMain.handle('provider:login', (event, providerId: unknown) => {
   const executable = findCli(key)
   if (!executable) return { success: false, message: 'CLI를 찾지 못했습니다. 먼저 설치해 주세요.' }
   return new Promise<{ success: boolean; message: string }>((resolve) => {
-    const child = spawnCli(executable, ['login'], {})
+    const loginArgs = key === 'claude' ? ['auth', 'login'] : ['login']
+    const child = spawnCli(executable, loginArgs, { windowsHide: true })
     activeAuthProcesses.set(key, child)
     let output = ''
     const collect = (chunk: Buffer) => {
@@ -719,7 +734,8 @@ ipcMain.handle('provider:logout', (_event, providerId: unknown) => {
   const executable = findCli(key)
   if (!executable) return { success: false, message: 'CLI를 찾지 못했습니다.' }
   return new Promise<{ success: boolean; message: string }>((resolve) => {
-    const child = spawnCli(executable, ['logout'], {})
+    const logoutArgs = key === 'claude' ? ['auth', 'logout'] : ['logout']
+    const child = spawnCli(executable, logoutArgs, { windowsHide: true })
     let output = ''
     child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
     child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString() })
