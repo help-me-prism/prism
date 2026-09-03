@@ -12,7 +12,7 @@ import { listTemplates, markTemplateUsed } from './templates.js'
 type EmbeddedEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
 type OpenAnchorRequest = { version: 1; requestId: string; requestedAt: string; paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }
 
-const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
+const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const paperIdPattern = /^[a-zA-Z0-9._-]{1,160}$/
 const draftFolders = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' } as const
 const templateVariables = new Set(['title', 'date', 'authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])

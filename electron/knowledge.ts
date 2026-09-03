@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
+import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
+import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { atomicWriteFile } from './atomicFile.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
 export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
@@ -21,6 +22,7 @@ export type KnowledgeNodeRecord = {
   relativePath: string
   revision: string
   modifiedAt: number
+  arxivId?: string
 }
 export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
@@ -35,7 +37,7 @@ const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established',
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
 const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
-const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
+const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
 
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
@@ -44,10 +46,13 @@ function field(source: string, key: string) {
   if (!raw) return undefined
   try { return JSON.parse(raw) as string } catch { return raw.replace(/^['"]|['"]$/g, '') }
 }
-function parseNode(source: string) {
+function parseNode(source: string, fallbackPaperId?: string) {
   const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   if (!frontmatter) return undefined
-  const id = field(frontmatter[1], 'prism_id'); const title = field(frontmatter[1], 'title'); const nodeType = field(frontmatter[1], 'type') as KnowledgeNodeType
+  const nodeType = field(frontmatter[1], 'type') as KnowledgeNodeType
+  // Library paper notes are identified by their arXiv folder even before the migration writes prism_id into the file.
+  const id = field(frontmatter[1], 'prism_id') ?? (nodeType === 'paper' && fallbackPaperId ? paperNodeId(field(frontmatter[1], 'arxiv_id') ?? fallbackPaperId) : undefined)
+  const title = field(frontmatter[1], 'title') ?? (nodeType === 'paper' && fallbackPaperId ? source.slice(frontmatter[0].length).match(/^#\s+(.+?)\s*$/m)?.[1] : undefined)
   if (!id || !title || !nodeTypes.has(nodeType)) return undefined
   const status = field(frontmatter[1], 'status') as KnowledgeStatus
   const readingStatus = field(frontmatter[1], 'reading_status') as KnowledgeReadingStatus
@@ -60,6 +65,7 @@ function parseNode(source: string) {
     importance: levels.has(importance) ? importance : 'medium' as KnowledgeLevel,
     confidence: levels.has(confidence) ? confidence : 'medium' as KnowledgeLevel,
     templateId: field(frontmatter[1], 'template_id'),
+    arxivId: field(frontmatter[1], 'arxiv_id'),
   }
 }
 function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
@@ -76,28 +82,72 @@ function updateFrontmatter(source: string, patch: KnowledgePropertyPatch) {
   }
   return source.replace(match[0], `---\n${body}\n---`)
 }
-async function nodeFiles(libraryPath: string) {
+export function paperNodeId(arxivId: string) { return `paper-${arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 76)}` }
+function migratedPaperNote(source: string, folderName: string) {
+  // Library paper notes written before knowledge nodes existed lack prism_id; add the stable identity without touching the body.
+  const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  if (!frontmatter || field(frontmatter[1], 'type') !== 'paper' || field(frontmatter[1], 'prism_id')) return undefined
+  const arxivId = field(frontmatter[1], 'arxiv_id') ?? folderName
+  const additions = [`prism_id: ${JSON.stringify(paperNodeId(arxivId))}`]
+  if (!field(frontmatter[1], 'title')) { const heading = source.slice(frontmatter[0].length).match(/^#\s+(.+?)\s*$/m)?.[1]; additions.push(`title: ${JSON.stringify(heading ?? arxivId)}`) }
+  if (!/^reading_status:/m.test(frontmatter[1])) additions.push('reading_status: to_read')
+  const typeLine = frontmatter[1].match(/^type:[^\r\n]*/m)
+  if (!typeLine) return undefined
+  const body = frontmatter[1].replace(typeLine[0], `${typeLine[0]}\n${additions.join('\n')}`)
+  const start = frontmatter[0].indexOf(frontmatter[1])
+  return `${source.slice(0, start)}${body}${source.slice(start + frontmatter[1].length)}`
+}
+async function nodeEntries(libraryPath: string) {
   await listTemplates(libraryPath)
-  const results: string[] = []
+  const seen = new Set<string>(); const files: Array<{ filePath: string; paperFolder?: string }> = []
+  const push = (filePath: string, paperFolder?: string) => { const key = path.resolve(filePath).toLowerCase(); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
   for (const folder of Object.values(folderByType)) {
     const directory = path.join(libraryPath, folder)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) results.push(path.join(directory, entry.name))
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name))
   }
-  return results
+  const papersDirectory = path.join(libraryPath, 'papers')
+  let paperFolders: Dirent[] = []
+  try { paperFolders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { /* nothing downloaded yet */ }
+  for (const folder of paperFolders) {
+    if (!folder.isDirectory()) continue
+    const directory = path.join(papersDirectory, folder.name)
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), folder.name)
+  }
+  const entries: Array<{ filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }> = []
+  for (const { filePath, paperFolder } of files) {
+    const snapshot = await readNoteSnapshot(filePath)
+    const parsed = parseNode(snapshot.content, paperFolder)
+    if (parsed) entries.push({ filePath, snapshot, parsed })
+  }
+  return entries
+}
+
+/** Writes prism_id / reading_status into library paper notes that predate knowledge nodes. Listing never writes; call this from app startup. */
+export async function migratePaperNotes(libraryPath: string) {
+  const papersDirectory = path.join(libraryPath, 'papers')
+  let folders: Dirent[] = []
+  try { folders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { return 0 }
+  let migrated = 0
+  for (const folder of folders) {
+    if (!folder.isDirectory()) continue
+    const directory = path.join(papersDirectory, folder.name)
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
+      const filePath = path.join(directory, entry.name)
+      const next = migratedPaperNote(await fs.readFile(filePath, 'utf8'), folder.name)
+      if (next) { await atomicWriteFile(filePath, next); migrated += 1 }
+    }
+  }
+  return migrated
 }
 async function findNode(libraryPath: string, id: string) {
-  for (const filePath of await nodeFiles(libraryPath)) {
-    const snapshot = await readNoteSnapshot(filePath); const parsed = parseNode(snapshot.content)
-    if (parsed?.id === id) return { filePath, snapshot, parsed }
-  }
-  return undefined
+  return (await nodeEntries(libraryPath)).find((entry) => entry.parsed.id === id)
 }
 
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {
   const nodes: KnowledgeNodeRecord[] = []
-  for (const filePath of await nodeFiles(libraryPath)) {
-    const snapshot = await readNoteSnapshot(filePath); const parsed = parseNode(snapshot.content)
-    if (parsed) nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
+  for (const { filePath, snapshot, parsed } of await nodeEntries(libraryPath)) {
+    nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
 }

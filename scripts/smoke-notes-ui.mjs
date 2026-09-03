@@ -17,7 +17,9 @@ const linkedPaperPath = path.join(libraryPath, 'papers', '2401.01234')
 const linkedNotePath = path.join(linkedPaperPath, '2401.01234.md')
 const initialNote = `---
 type: paper
+prism_id: "paper-test.0001"
 title: "Editor fixture"
+reading_status: to_read
 ---
 
 # Research note
@@ -308,7 +310,9 @@ try {
   assert(await notesConnection.evaluate(`document.querySelectorAll('.cm-content').length`) === 1, 'The template editor remained mounted after closing.')
 
   await notesConnection.evaluate(`document.querySelector('button[aria-label="연구 지식 관리"]').click()`)
-  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-create'))`), 'The empty knowledge workspace did not show its creation form.')
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-heading h3')?.textContent.includes('Editor fixture'))`), 'The library paper note was not listed as a knowledge node.')
+  await notesConnection.evaluate(`document.querySelector('.knowledge-new').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.knowledge-create'))`), 'The knowledge workspace did not show its creation form.')
   assert(await notesConnection.evaluate(`document.querySelectorAll('select[aria-label="새 지식 노트 유형"] option').length`) === 6, 'The knowledge creator did not expose every supported node type.')
   await notesConnection.evaluate(`(() => { const select = document.querySelector('select[aria-label="새 지식 노트 유형"]'); const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; selectSetter.call(select, 'claim'); select.dispatchEvent(new Event('change', { bubbles: true })); const input = document.querySelector('input[aria-label="새 지식 노트 제목"]'); const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; inputSetter.call(input, '노이즈 예측은 score matching이다'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await sleep(150)
@@ -524,19 +528,19 @@ try {
   assert(hybridResults[0]?.node.id === createdTypes[1] && hybridResults[0].semanticScore > 0 && !conceptSearchText.includes('노이즈 제거 과정'), `Hybrid research search did not rank a semantically overlapping Concept without an exact phrase match: ${JSON.stringify(hybridResults.map((result) => ({ title: result.node.title, score: result.score, textScore: result.textScore, semanticScore: result.semanticScore })))}`)
   const researchIndexPath = path.join(libraryPath, '.prism', 'index', 'research-search-v1.json')
   const researchIndex = JSON.parse(await fs.readFile(researchIndexPath, 'utf8'))
-  assert(researchIndex.version === 1 && researchIndex.signature !== baselineIndex.signature && researchIndex.entries.length === 7 && researchIndex.entries.every((entry) => entry.vector.length === 384 && !path.isAbsolute(entry.relativePath) && !entry.relativePath.includes('\\')), 'The rebuildable research index did not refresh after Markdown changed or preserve portable local embeddings.')
+  assert(researchIndex.version === 1 && researchIndex.signature !== baselineIndex.signature && researchIndex.entries.length === 8 && researchIndex.entries.every((entry) => entry.vector.length === 384 && !path.isAbsolute(entry.relativePath) && !entry.relativePath.includes('\\')), 'The rebuildable research index did not refresh after Markdown changed or preserve portable local embeddings.')
   const rebuiltIndex = await notesConnection.evaluate(`window.prism.rebuildResearchIndex()`)
-  assert(rebuiltIndex.rebuilt && rebuiltIndex.nodeCount === 7 && rebuiltIndex.relativePath === '.prism/index/research-search-v1.json', 'Explicit research index rebuild did not report its derived artifact.')
+  assert(rebuiltIndex.rebuilt && rebuiltIndex.nodeCount === 8 && rebuiltIndex.relativePath === '.prism/index/research-search-v1.json', 'Explicit research index rebuild did not report its derived artifact.')
   await fs.writeFile(researchIndexPath, '{"version":1,"entries":"malformed"}', 'utf8')
   assert((await notesConnection.evaluate(`window.prism.searchResearchKnowledge('노이즈 제거 과정')`))[0]?.node.id === createdTypes[1], 'Research search did not rebuild a malformed derived index from source Markdown.')
-  assert(JSON.parse(await fs.readFile(researchIndexPath, 'utf8')).entries.length === 7, 'Malformed derived index data was not replaced by a valid rebuild.')
+  assert(JSON.parse(await fs.readFile(researchIndexPath, 'utf8')).entries.length === 8, 'Malformed derived index data was not replaced by a valid rebuild.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, '문서형 화면에서'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 1 && document.querySelector('.knowledge-manager-body > aside > div button i')?.textContent.includes('문서형 화면에서')`), 'Full-text knowledge search did not find the body-only phrase with context.')
   const searchScreenshot = await notesConnection.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const searchScreenshotPath = path.resolve('tmp/ui/notes-full-text-search.png')
   await fs.writeFile(searchScreenshotPath, Buffer.from(searchScreenshot.data, 'base64'))
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="지식 노트 검색"]'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); })()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 7`), 'Clearing knowledge search did not restore the complete node list.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.knowledge-manager-body > aside > div > button').length === 8`), 'Clearing knowledge search did not restore the complete node list.')
 
   const duplicateConceptId = await notesConnection.evaluate(`(async () => {
     const created = await window.prism.createKnowledgeNode({ nodeType: 'concept', title: 'Reverse diffusion process' });

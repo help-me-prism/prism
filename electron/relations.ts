@@ -16,7 +16,7 @@ export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' 
 const relationTypes = new Set<KnowledgeRelationType>(['discusses', 'presents', 'supports', 'contradicts', 'extends', 'uses', 'explains', 'evidence_for', 'derived_from', 'raises', 'related'])
 const evidenceTypes = new Set<RelationEvidenceAnchor['type']>(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
 const relationLabels: Record<KnowledgeRelationType, string> = { discusses: '다룸', presents: '제시함', supports: '지지함', contradicts: '반박함', extends: '확장함', uses: '사용함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', raises: '질문을 제기함', related: '관련' }
-const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
+const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const relationIdPattern = /^relation-[a-f0-9-]{20,80}$/
 
 function directory(libraryPath: string) { return path.join(libraryPath, '.prism', 'relations') }
