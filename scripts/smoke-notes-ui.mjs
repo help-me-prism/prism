@@ -269,6 +269,19 @@ try {
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('| 항목 | 내용 |'), 'The block menu did not insert a table.', 8000)
   assert(!(await fs.readFile(notePath, 'utf8')).includes('/표'), 'The slash command text stayed in the saved Markdown.')
 
+  // A table cell may contain an escaped pipe — Obsidian aliases inside tables depend on it.
+  await notesConnection.evaluate(`(async () => {
+    const snapshot = await window.prism.readKnowledgeNode('paper-test.0001');
+    const table = '\\n\\n| 논문 | 정의 |\\n| --- | --- |\\n| [[Concepts/Score matching\\\\|Score matching]] | 파이프가 들어간 셀 |\\n';
+    await window.prism.saveKnowledgeNode('paper-test.0001', { content: snapshot.content + table, expectedRevision: snapshot.revision });
+  })()`)
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.cm-rendered-table')].some((table) => table.textContent.includes('파이프가 들어간 셀'))`), 'The escaped-pipe table did not render.', 8000)
+  const escapedTable = await notesConnection.evaluate(`(() => {
+    const table = [...document.querySelectorAll('.cm-rendered-table')].find((item) => item.textContent.includes('파이프가 들어간 셀'))
+    return JSON.stringify({ cells: [...table.querySelectorAll('tr')].map((row) => row.children.length), alias: table.textContent.includes('Score matching') })
+  })()`)
+  assert(JSON.parse(escapedTable).cells.every((count) => count === 2) && JSON.parse(escapedTable).alias, `An escaped pipe split a table cell: ${escapedTable}`)
+
   // ---------- keyboard history and native paste ----------
   const undoModifier = process.platform === 'darwin' ? 4 : 2
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
@@ -391,7 +404,11 @@ try {
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`), 'The open note did not reload the externally captured memo.', 8000)
+  // CodeMirror only renders the visible slice, so scroll to where the capture landed.
+  await waitFor(async () => {
+    await notesConnection.evaluate(`(() => { const scroller = document.querySelector('.note-doc-scroll'); if (scroller) scroller.scrollTop = scroller.scrollHeight })()`)
+    return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
+  }, 'The open note did not reload the externally captured memo.', 10000)
 
   // ---------- curation queue: promote a memo into a claim ----------
   await notesConnection.evaluate(`document.querySelector('.notes-rail button[aria-label="정리 대기열"]').click()`)

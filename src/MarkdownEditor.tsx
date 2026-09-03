@@ -270,8 +270,18 @@ type RenderedBlock =
   | { type: 'code'; from: number; to: number; language: string; source: string }
   | { type: 'divider'; from: number; to: number }
 
+/** Splits a table row on unescaped pipes only: `\|` is a literal pipe, which Obsidian aliases inside tables rely on. */
 function tableCells(line: string) {
-  const cells = line.trim().split('|').map((cell) => cell.trim())
+  const cells: string[] = []
+  let current = ''
+  const text = line.trim()
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (character === '\\' && text[index + 1] === '|') { current += '|'; index += 1; continue }
+    if (character === '|') { cells.push(current.trim()); current = ''; continue }
+    current += character
+  }
+  cells.push(current.trim())
   if (!cells[0]) cells.shift()
   if (!cells.at(-1)) cells.pop()
   return cells
@@ -342,6 +352,13 @@ abstract class InteractiveRenderedBlock extends WidgetType {
   ignoreEvent() { return false }
 }
 
+/** Table cells are plain text in the rendered block, so show a link's alias rather than its target path. */
+function tableCellText(cell: string) {
+  return cell
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_match, target: string, alias?: string) => alias || target.split('/').at(-1) || target)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+}
+
 class RenderedTable extends InteractiveRenderedBlock {
   constructor(position: number, readonly rows: string[][]) { super(position) }
   eq(other: RenderedTable) { return this.position === other.position && JSON.stringify(this.rows) === JSON.stringify(other.rows) }
@@ -351,7 +368,7 @@ class RenderedTable extends InteractiveRenderedBlock {
     const table = document.createElement('table')
     this.rows.forEach((row, rowIndex) => {
       const tr = document.createElement('tr')
-      row.forEach((cell) => { const item = document.createElement(rowIndex === 0 ? 'th' : 'td'); item.textContent = cell; tr.append(item) })
+      row.forEach((cell) => { const item = document.createElement(rowIndex === 0 ? 'th' : 'td'); item.textContent = tableCellText(cell); tr.append(item) })
       table.append(tr)
     })
     wrapper.append(table); this.openSource(view, wrapper, '표'); return wrapper
