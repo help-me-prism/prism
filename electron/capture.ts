@@ -14,6 +14,36 @@ export type PaperCaptureRequest =
   | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
   | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
 export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+export type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: { paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
+
+/** Plain paragraphs written directly under an evidence card are reading memos; a memo already linked to a Claim or Question counts as promoted. */
+export function memosFor(paper: KnowledgeNodeRecord, content: string): CurationMemo[] {
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
+  const memos: CurationMemo[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const idMatch = lines[index].match(/^\^(evidence-[a-zA-Z0-9_-]+)\s*$/)
+    if (!idMatch) continue
+    const metaMatch = lines[index - 1]?.match(/^<!--\s*prism-evidence:([^\s]+)\s*-->$/)
+    let anchor: CurationMemo['anchor']; let anchorLabel = ''; let anchorSource = ''
+    if (metaMatch) {
+      try {
+        const value = JSON.parse(decodeURIComponent(metaMatch[1])) as { label?: string; source?: string; paperId?: string; anchorId?: string; type?: EvidenceAnchor['type']; page?: number }
+        anchorLabel = value.label ?? ''; anchorSource = value.source ?? ''
+        if (value.paperId && value.anchorId && value.type && Number.isInteger(value.page) && value.label) anchor = { paperId: value.paperId, anchorId: value.anchorId, type: value.type, page: Number(value.page), label: value.label }
+      } catch { /* ignore */ }
+    }
+    const paragraphs: string[] = []; let current: string[] = []
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const line = lines[cursor]
+      if (/^(#{1,6}\s|>|<!--|\^|\||```|---)/.test(line)) break
+      if (!line.trim()) { if (current.length) { paragraphs.push(current.join('\n')); current = [] } continue }
+      current.push(line)
+    }
+    if (current.length) paragraphs.push(current.join('\n'))
+    for (const memo of paragraphs) if (!/\[\[(Claims|Questions)\//i.test(memo)) memos.push({ paper, blockId: idMatch[1], anchorLabel, anchorSource, anchor, memo })
+  }
+  return memos
+}
 
 const typeLabels: Record<EvidenceAnchor['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
 

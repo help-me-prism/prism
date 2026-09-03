@@ -19,6 +19,7 @@ import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
+import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -26,7 +27,7 @@ type ProviderId = 'codex' | 'claude'
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
+type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
@@ -335,6 +336,8 @@ async function readSettings(): Promise<AppSettings> {
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
       autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate !== false,
+      knowledgeProvider: value.knowledgeProvider === 'claude' || value.knowledgeProvider === 'codex' ? value.knowledgeProvider : undefined,
+      knowledgeModel: typeof value.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(value.knowledgeModel) ? value.knowledgeModel : undefined,
     }
   } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
 }
@@ -766,6 +769,9 @@ ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
   if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
+  if (patch.knowledgeProvider === 'codex' || patch.knowledgeProvider === 'claude') safePatch.knowledgeProvider = patch.knowledgeProvider
+  else if (patch.knowledgeProvider === null || patch.knowledgeProvider === undefined && 'knowledgeProvider' in patch) safePatch.knowledgeProvider = undefined
+  if (typeof patch.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.knowledgeModel)) safePatch.knowledgeModel = patch.knowledgeModel
   return writeSettings(safePatch)
 })
 ipcMain.handle('workspace:choose', async (event) => {
@@ -903,6 +909,20 @@ ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return suggestKnowledge(settings.libraryPath, nodeId)
+})
+ipcMain.handle('research:suggest:model', async (_event, paperNodeId: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(paperNodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
+  const jobKey = `knowledge-${paperNodeId}-${Date.now()}`
+  return runModelSuggestions(settings.libraryPath, paperNodeId, provider, model, (prompt) => runTranslationCli(provider, model, prompt, jobKey))
+})
+ipcMain.handle('research:suggest:model:review', async (_event, request: ModelSuggestionReview) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.id !== 'string' || !/^model-[a-f0-9]{16}$/.test(request.id) || (request.decision !== 'accepted' && request.decision !== 'rejected')) throw new Error('제안 검토 요청이 올바르지 않습니다.')
+  await reviewModelSuggestion(settings.libraryPath, request)
+  return true
 })
 ipcMain.handle('knowledge:curation:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

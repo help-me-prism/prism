@@ -7,7 +7,7 @@ type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; ty
 type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[] }
 type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
+type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
 type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
@@ -24,10 +24,13 @@ type PaperCaptureRequest =
   | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
   | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
 type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
-type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: EvidenceAnchorRef; memo: string }
+type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: EvidenceAnchorRef; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 type CurationStub = { node: KnowledgeNodeRecord; backlinks: number; ready: boolean }
 type CurationPendingRelation = { relation: KnowledgeRelationRecord; source: KnowledgeNodeRecord; target: KnowledgeNodeRecord }
-type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; total: number }
+type CurationConceptSuggestion = { id: string; title: string; reason: string; status: 'pending' | 'accepted' | 'rejected'; paperNodeId: string; paperTitle: string }
+type ModelSuggestionSummary = { paperNodeId: string; paperTitle: string; provider: string; model: string; ranAt: string; relationsCreated: number; relationsSkipped: number; candidates: number; concepts: number }
+type ModelSuggestionReview = { paperNodeId: string; id: string; decision: 'accepted' | 'rejected' }
+type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; conceptSuggestions: CurationConceptSuggestion[]; modelRuns: ModelSuggestionSummary[]; total: number }
 type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; nodeType: 'claim' | 'question'; title: string }
 type MergeConceptsRequest = { sourceId: string; targetId: string }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
@@ -106,6 +109,8 @@ interface Window {
     suggestKnowledge: (nodeId: string) => Promise<KnowledgeSuggestion[]>
     listKnowledgeDataViews: () => Promise<KnowledgeDataViews>
     listCurationQueue: () => Promise<CurationQueue>
+    runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
+    reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>
     promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>
     mergeConcepts: (request: MergeConceptsRequest) => Promise<{ id: string }>
     openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>

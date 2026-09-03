@@ -415,3 +415,7 @@
 .curation-choices button small { color: #8b8590; font-size: 7px; }
 .curation-choices p { margin: 0; padding: 8px; color: #8a848f; font-size: 8px; }
 .curation-cancel { align-self: flex-start; }
+
+/* Model suggestions in the curation queue */
+.curation-runs { margin: 0; padding: 5px 10px; border: 1px dashed #d9d0ea; border-radius: 8px; color: #7d7784; font-size: 7.5px; }
+.curation-ai-hint { display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 9px; background: #efe9fb; color: #5a4d8a; font-size: 7.5px; }
