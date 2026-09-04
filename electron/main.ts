@@ -9,7 +9,7 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
@@ -17,6 +17,10 @@ import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
+import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
+import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
+import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
+import { listPaperCitations } from './citations.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -24,7 +28,7 @@ type ProviderId = 'codex' | 'claude'
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean }
+type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
@@ -333,6 +337,8 @@ async function readSettings(): Promise<AppSettings> {
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
       autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate !== false,
+      knowledgeProvider: value.knowledgeProvider === 'claude' || value.knowledgeProvider === 'codex' ? value.knowledgeProvider : undefined,
+      knowledgeModel: typeof value.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(value.knowledgeModel) ? value.knowledgeModel : undefined,
     }
   } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
 }
@@ -351,12 +357,26 @@ async function writeSettings(patch: Partial<AppSettings>) {
 }
 
 function libraryIndexPath(libraryPath: string) { return path.join(libraryPath, '.prism', 'library.json') }
+/** library.json stores absolute paths; when the folder was moved, copied, or synced to another machine, rebase them under the current library. */
+function rebasePaperRecord(libraryPath: string, record: PaperRecord): PaperRecord {
+  const inside = (candidate: string | undefined) => Boolean(candidate) && !path.relative(libraryPath, candidate!).startsWith('..') && !path.isAbsolute(path.relative(libraryPath, candidate!))
+  if (inside(record.pdfPath) && inside(record.notePath)) return record
+  const safeId = record.arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_')
+  const paperDir = path.join(libraryPath, 'papers', safeId)
+  return {
+    ...record,
+    pdfPath: inside(record.pdfPath) ? record.pdfPath : path.join(paperDir, path.basename(record.pdfPath || 'original.pdf')),
+    notePath: inside(record.notePath) ? record.notePath : path.join(paperDir, path.basename(record.notePath || `${safeId}.md`)),
+    translationPath: inside(record.translationPath) ? record.translationPath : path.join(paperDir, path.basename(record.translationPath || 'translation.ko.json')),
+    sourcePath: record.sourcePath ? inside(record.sourcePath) ? record.sourcePath : path.join(paperDir, path.basename(record.sourcePath)) : undefined,
+  }
+}
 async function readLibrary(): Promise<PaperRecord[]> {
   const settings = await readSettings()
   if (!settings.libraryPath) return []
   try {
     const value = JSON.parse(await fs.readFile(libraryIndexPath(settings.libraryPath), 'utf8'))
-    return Array.isArray(value) ? value : []
+    return Array.isArray(value) ? (value as PaperRecord[]).map((record) => rebasePaperRecord(settings.libraryPath!, record)) : []
   } catch { return [] }
 }
 async function writeLibrary(records: PaperRecord[]) {
@@ -471,8 +491,17 @@ async function paperAutocomplete(input: string) {
 }
 
 function yamlString(value: string) { return JSON.stringify(value.replace(/\r?\n/g, ' ')) }
-function paperMarkdown(paper: ArxivPaper, pdfFile: string) {
-  return `---\ntype: paper\narxiv_id: ${yamlString(paper.arxivId)}\ntitle: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\ntags: [paper, arxiv]\nrelated: []\n---\n\n# ${paper.title}\n\n> [!abstract]- Abstract\n> ${paper.summary.replace(/\n/g, '\n> ')}\n\n## Notes\n\n<!-- Prism annotations are stored as block-addressable notes below. -->\n\n## Connections\n\n- Related papers:\n- Concepts:\n`
+function paperMarkdown(paper: ArxivPaper, pdfFile: string, template?: { id: string; content: string }) {
+  const values: Record<string, string> = { title: paper.title, date: new Date().toISOString().slice(0, 10), authors: paper.authors.join(', '), year: paper.published.slice(0, 4), arxiv_id: paper.arxivId, doi: '', paper_link: paper.absUrl, current_project: '', selected_anchor: '' }
+  const abstract = `> [!abstract]- Abstract\n> ${paper.summary.replace(/\n/g, '\n> ')}`
+  let body: string
+  if (template) {
+    const filled = template.content.replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token).replace(/^\s+/, '')
+    // Keep the template's own heading; place the abstract right after it so the reading form follows.
+    body = /^#\s/.test(filled) ? filled.replace(/^(#[^\n]*\n)/, `$1\n${abstract}\n`) : `# ${paper.title}\n\n${abstract}\n\n${filled}`
+    if (!/^##\s+Notes\s*$/mi.test(body)) body = `${body.trimEnd()}\n\n## Notes\n`
+  } else body = `# ${paper.title}\n\n${abstract}\n\n## Notes\n`
+  return `---\ntype: paper\nprism_id: ${yamlString(paperNodeId(paper.arxivId))}\narxiv_id: ${yamlString(paper.arxivId)}\ntitle: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\nstatus: inbox\nreading_status: to_read\nimportance: medium\nconfidence: medium\ncreated_by: user\n${template ? `template_id: ${yamlString(template.id)}\n` : ''}created_at: ${yamlString(new Date().toISOString())}\ntags: [paper, arxiv]\n---\n\n${body.trimEnd()}\n`
 }
 
 async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
@@ -515,7 +544,9 @@ async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
     }
   } catch { /* source files are optional; PDF download remains usable */ }
   await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(paper, null, 2), 'utf8')
-  await fs.writeFile(notePath, paperMarkdown(paper, 'original.pdf'), 'utf8')
+  const templates = await listTemplates(settings.libraryPath).catch(() => [])
+  const template = templates.find((item) => item.nodeType === 'paper' && item.isDefault) ?? templates.find((item) => item.nodeType === 'paper')
+  await fs.writeFile(notePath, paperMarkdown(paper, 'original.pdf', template), 'utf8')
   const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now() }
   const library = await readLibrary()
   await writeLibrary([record, ...library])
@@ -678,7 +709,7 @@ function createWindow() {
 function openNotesWindow() {
   if (notesWindow && !notesWindow.isDestroyed()) { notesWindow.show(); notesWindow.focus(); return true }
   notesWindow = new BrowserWindow({
-    width: 980, height: 780, minWidth: 700, minHeight: 520, backgroundColor: '#f5f3ee', title: 'Prism Notes',
+    width: 1320, height: 860, minWidth: 900, minHeight: 560, backgroundColor: '#f5f3ee', title: 'Prism Notes',
     icon: path.join(__dirname, '../dist/icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
@@ -753,6 +784,9 @@ ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
   if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
+  if (patch.knowledgeProvider === 'codex' || patch.knowledgeProvider === 'claude') safePatch.knowledgeProvider = patch.knowledgeProvider
+  else if (patch.knowledgeProvider === null || patch.knowledgeProvider === undefined && 'knowledgeProvider' in patch) safePatch.knowledgeProvider = undefined
+  if (typeof patch.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.knowledgeModel)) safePatch.knowledgeModel = patch.knowledgeModel
   return writeSettings(safePatch)
 })
 ipcMain.handle('workspace:choose', async (event) => {
@@ -764,7 +798,11 @@ ipcMain.handle('workspace:choose', async (event) => {
   await fs.mkdir(path.join(libraryPath, '.prism'), { recursive: true })
   return writeSettings({ libraryPath })
 })
-ipcMain.handle('library:list', () => readLibrary())
+ipcMain.handle('library:list', async () => {
+  const settings = await readSettings()
+  if (settings.libraryPath) await migratePaperNotes(settings.libraryPath).catch(() => 0)
+  return readLibrary()
+})
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
 ipcMain.handle('paper:autocomplete', (_event, input: string) => paperAutocomplete(String(input)))
 ipcMain.handle('arxiv:open', (_event, arxivId: string) => {
@@ -801,6 +839,18 @@ ipcMain.handle('paper:figures', async (_event, arxivId: string) => {
   return paperFigures(record)
 })
 ipcMain.handle('notes:open', () => openNotesWindow())
+ipcMain.handle('reader:open', async (_event, arxivId?: string) => {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  const target = mainWindow
+  if (!target) return false
+  if (typeof arxivId === 'string' && arxivId) {
+    if (!/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+    const send = () => target.webContents.send('reader:open-paper', arxivId)
+    if (target.webContents.isLoading()) target.webContents.once('did-finish-load', send); else send()
+  }
+  target.show(); target.focus()
+  return true
+})
 ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
@@ -811,9 +861,26 @@ ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteS
   if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
   if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
   if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
+  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return saveNoteSnapshot(record.notePath, request)
+  const result = await saveNoteSnapshot(record.notePath, request)
+  if (result.saved && request.createStubs) {
+    const settings = await readSettings()
+    const stubs = settings.libraryPath ? await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) : []
+    return { ...result, stubs }
+  }
+  return result
+})
+ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperId !== 'string' || (request.kind !== 'evidence' && request.kind !== 'chat')) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  if (request.kind === 'evidence' && (typeof request.anchorId !== 'string' || request.anchorId.length < 1 || request.anchorId.length > 300 || (request.memo !== undefined && (typeof request.memo !== 'string' || request.memo.length > 4_000)) || (request.concept !== undefined && (typeof request.concept !== 'string' || request.concept.length > 200)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  if (request.kind === 'chat' && (typeof request.question !== 'string' || typeof request.answer !== 'string' || request.answer.length > 200_000 || typeof request.provider !== 'string' || typeof request.model !== 'string' || (request.anchors !== undefined && !Array.isArray(request.anchors)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === request.paperId)
+  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
+  return captureToPaperNote(settings.libraryPath, { arxivId: record.arxivId, title: record.title, pdfPath: record.pdfPath, notePath: record.notePath }, request)
 })
 ipcMain.handle('templates:list', async () => {
   const settings = await readSettings()
@@ -867,8 +934,50 @@ ipcMain.handle('research:index:rebuild', async () => {
 })
 ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  if (typeof nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return suggestKnowledge(settings.libraryPath, nodeId)
+})
+ipcMain.handle('research:suggest:model', async (_event, paperNodeId: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(paperNodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
+  const jobKey = `knowledge-${paperNodeId}-${Date.now()}`
+  return runModelSuggestions(settings.libraryPath, paperNodeId, provider, model, (prompt) => runTranslationCli(provider, model, prompt, jobKey))
+})
+ipcMain.handle('research:suggest:model:review', async (_event, request: ModelSuggestionReview) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.id !== 'string' || !/^model-[a-f0-9]{16}$/.test(request.id) || (request.decision !== 'accepted' && request.decision !== 'rejected')) throw new Error('제안 검토 요청이 올바르지 않습니다.')
+  await reviewModelSuggestion(settings.libraryPath, request)
+  return true
+})
+ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { refresh?: boolean }) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  if (options !== undefined && (typeof options !== 'object' || options === null || (options.refresh !== undefined && typeof options.refresh !== 'boolean'))) throw new Error('인용 조회 옵션이 올바르지 않습니다.')
+  if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
+  return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
+})
+ipcMain.handle('knowledge:stubs:ensure', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const snapshot = await readKnowledgeNode(settings.libraryPath, id)
+  return ensureLinkStubs(settings.libraryPath, snapshot.content)
+})
+ipcMain.handle('knowledge:curation:list', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listCurationQueue(settings.libraryPath)
+})
+ipcMain.handle('knowledge:curation:promote-memo', async (_event, request: PromoteMemoRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.blockId !== 'string' || !/^evidence-[a-zA-Z0-9_-]{1,100}$/.test(request.blockId)
+    || typeof request.memo !== 'string' || request.memo.length > 4_000 || (request.nodeType !== 'claim' && request.nodeType !== 'question') || typeof request.title !== 'string' || request.title.length > 300) throw new Error('승격 요청이 올바르지 않습니다.')
+  return promoteMemo(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:curation:merge-concepts', async (_event, request: MergeConceptsRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.sourceId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.sourceId) || typeof request.targetId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.targetId)) throw new Error('병합 요청이 올바르지 않습니다.')
+  return mergeConcepts(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:views', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -876,7 +985,7 @@ ipcMain.handle('knowledge:views', async () => {
 })
 ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpenRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   const node = (await listKnowledgeNodes(settings.libraryPath)).find((item) => item.id === request.nodeId)
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
   const uri = buildObsidianOpenUri(settings.libraryPath, node.relativePath, { heading: request.heading, blockId: request.blockId })
@@ -887,13 +996,13 @@ ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpe
 ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables)))) throw new Error('지식 노트 정보가 올바르지 않습니다.')
+  if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables))) || (request.status !== undefined && typeof request.status !== 'string')) throw new Error('지식 노트 정보가 올바르지 않습니다.')
   return createKnowledgeNode(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:apply-template-sections', async (_event, request: ApplyTemplateSectionsRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(request.nodeId) || typeof request.templateId !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.templateId) || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('템플릿 섹션 추가 정보가 올바르지 않습니다.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId) || typeof request.templateId !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.templateId) || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('템플릿 섹션 추가 정보가 올바르지 않습니다.')
   return applyTemplateSections(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:read', async (_event, id: string) => {
@@ -905,7 +1014,10 @@ ipcMain.handle('knowledge:save', async (_event, id: string, request: NoteSaveReq
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000 || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('지식 노트 저장 정보가 올바르지 않습니다.')
-  return saveKnowledgeNode(settings.libraryPath, String(id), request)
+  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('지식 노트 저장 옵션이 올바르지 않습니다.')
+  const result = await saveKnowledgeNode(settings.libraryPath, String(id), request)
+  if (result.saved && request.createStubs) return { ...result, stubs: await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) }
+  return result
 })
 ipcMain.handle('knowledge:update-properties', async (_event, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => {
   const settings = await readSettings()
@@ -921,7 +1033,7 @@ ipcMain.handle('knowledge:delete', async (_event, id: string) => {
 ipcMain.handle('knowledge:backlinks', async (_event, id: string) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   return listKnowledgeBacklinks(settings.libraryPath, id)
 })
 ipcMain.handle('knowledge:evidence:copy', async (_event, request: KnowledgeEvidenceCopyRequest) => {
@@ -973,7 +1085,7 @@ ipcMain.handle('evidence:backlinks', async (_event, anchor: { paperId?: unknown;
 ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof id !== 'string' || !/^[a-z]+-[a-f0-9-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   await readKnowledgeNode(settings.libraryPath, id)
   openNotesWindow()
   const notify = () => notesWindow?.webContents.send('knowledge:open-requested', id)

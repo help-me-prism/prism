@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
+import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
+import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { atomicWriteFile } from './atomicFile.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
 export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
 export type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
+export type ClaimOrigin = 'paper' | 'mine'
+export type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
 export type KnowledgeNodeRecord = {
   id: string
   title: string
@@ -21,11 +24,18 @@ export type KnowledgeNodeRecord = {
   relativePath: string
   revision: string
   modifiedAt: number
+  arxivId?: string
+  claimOrigin?: ClaimOrigin
+  evidenceKind?: EvidenceKind
+  scopeDomain?: string
+  scopeRegime?: string
+  scopeAssumptions?: string[]
+  projects?: string[]
 }
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string> }
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
-export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel }
+export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
@@ -34,8 +44,10 @@ const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as Knowle
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
+const claimOrigins = new Set<ClaimOrigin>(['paper', 'mine'])
+const evidenceKinds = new Set<EvidenceKind>(['theory', 'experiment', 'anecdote', 'idea'])
 const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_link', 'current_project', 'selected_anchor'])
-const nodeIdPattern = /^[a-z]+-[a-f0-9-]{6,80}$/
+const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
 
 function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
@@ -44,65 +56,139 @@ function field(source: string, key: string) {
   if (!raw) return undefined
   try { return JSON.parse(raw) as string } catch { return raw.replace(/^['"]|['"]$/g, '') }
 }
-function parseNode(source: string) {
+function unquote(value: string) { const trimmed = value.trim(); try { return String(JSON.parse(trimmed)) } catch { return trimmed.replace(/^['"]|['"]$/g, '') } }
+/** Reads a YAML list written either as a flow list `[a, b]` or as indented `- item` lines. */
+function listField(source: string, key: string) {
+  const lines = source.split(/\r?\n/)
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  if (index < 0) return undefined
+  const rest = lines[index].slice(key.length + 1).trim()
+  if (rest.startsWith('[')) return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  if (rest) return [unquote(rest)]
+  const items: string[] = []
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) { const match = lines[cursor].match(/^\s+-\s*(.*)$/); if (!match) break; items.push(unquote(match[1])) }
+  return items.filter(Boolean)
+}
+/** Replaces or removes one frontmatter field, including a block list that follows it. Empty values remove the key. */
+function setFrontmatterField(body: string, key: string, value: string | string[] | undefined) {
+  const lines = body.split(/\r?\n/)
+  const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+  let end = index + 1
+  if (index >= 0) while (end < lines.length && /^\s+-\s/.test(lines[end])) end += 1
+  const empty = value === undefined || value === '' || (Array.isArray(value) && !value.length)
+  const rendered = empty ? [] : [Array.isArray(value) ? `${key}: [${value.map((item) => JSON.stringify(item)).join(', ')}]` : `${key}: ${/^[a-z_]+$/.test(value) ? value : JSON.stringify(value)}`]
+  if (index >= 0) lines.splice(index, end - index, ...rendered); else lines.push(...rendered)
+  return lines.join('\n')
+}
+function parseNode(source: string, fallbackPaperId?: string) {
   const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
   if (!frontmatter) return undefined
-  const id = field(frontmatter[1], 'prism_id'); const title = field(frontmatter[1], 'title'); const nodeType = field(frontmatter[1], 'type') as KnowledgeNodeType
+  const nodeType = field(frontmatter[1], 'type') as KnowledgeNodeType
+  // Library paper notes are identified by their arXiv folder even before the migration writes prism_id into the file.
+  const id = field(frontmatter[1], 'prism_id') ?? (nodeType === 'paper' && fallbackPaperId ? paperNodeId(field(frontmatter[1], 'arxiv_id') ?? fallbackPaperId) : undefined)
+  const title = field(frontmatter[1], 'title') ?? (nodeType === 'paper' && fallbackPaperId ? source.slice(frontmatter[0].length).match(/^#\s+(.+?)\s*$/m)?.[1] : undefined)
   if (!id || !title || !nodeTypes.has(nodeType)) return undefined
   const status = field(frontmatter[1], 'status') as KnowledgeStatus
   const readingStatus = field(frontmatter[1], 'reading_status') as KnowledgeReadingStatus
   const importance = field(frontmatter[1], 'importance') as KnowledgeLevel
   const confidence = field(frontmatter[1], 'confidence') as KnowledgeLevel
+  const claimOrigin = field(frontmatter[1], 'claim_origin') as ClaimOrigin
+  const evidenceKind = field(frontmatter[1], 'evidence_kind') as EvidenceKind
   return {
+    claimOrigin: nodeType === 'claim' ? claimOrigins.has(claimOrigin) ? claimOrigin : 'paper' : undefined,
+    evidenceKind: evidenceKinds.has(evidenceKind) ? evidenceKind : undefined,
+    scopeDomain: field(frontmatter[1], 'scope_domain'), scopeRegime: field(frontmatter[1], 'scope_regime'),
+    scopeAssumptions: listField(frontmatter[1], 'scope_assumptions'), projects: listField(frontmatter[1], 'projects'),
     id, title, nodeType,
     status: statuses.has(status) ? status : 'developing' as KnowledgeStatus,
     readingStatus: nodeType === 'paper' ? readingStatuses.has(readingStatus) ? readingStatus : 'to_read' : undefined,
     importance: levels.has(importance) ? importance : 'medium' as KnowledgeLevel,
     confidence: levels.has(confidence) ? confidence : 'medium' as KnowledgeLevel,
     templateId: field(frontmatter[1], 'template_id'),
+    arxivId: field(frontmatter[1], 'arxiv_id') ?? (nodeType === 'paper' ? fallbackPaperId : undefined),
   }
 }
-function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string }) {
-  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: developing\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
+function nodeMarkdown(input: { id: string; title: string; nodeType: KnowledgeNodeType; templateId?: string; templateVersion?: string; body: string; status?: KnowledgeStatus }) {
+  return `---\ntype: ${input.nodeType}\nprism_id: ${JSON.stringify(input.id)}\ntitle: ${JSON.stringify(input.title)}\nstatus: ${input.status ?? 'developing'}\n${input.nodeType === 'paper' ? 'reading_status: to_read\n' : ''}${input.nodeType === 'claim' ? 'claim_origin: paper\n' : ''}importance: medium\nconfidence: medium\ncreated_by: user\ntemplate_id: ${JSON.stringify(input.templateId ?? '')}\ntemplate_version: ${JSON.stringify(input.templateVersion ?? '')}\ncreated_at: ${JSON.stringify(new Date().toISOString())}\n---\n\n${input.body.replace(/^\s+/, '')}`
 }
-function updateFrontmatter(source: string, patch: KnowledgePropertyPatch) {
+function updateFrontmatter(source: string, fields: Array<[string, string | string[] | undefined]>) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---/)
   if (!match) throw new Error('지식 노트의 YAML frontmatter를 찾을 수 없습니다.')
   let body = match[1]
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue
-    const line = new RegExp(`^${key}:.*$`, 'm')
-    body = line.test(body) ? body.replace(line, `${key}: ${value}`) : `${body}\n${key}: ${value}`
-  }
-  return source.replace(match[0], `---\n${body}\n---`)
+  for (const [key, value] of fields) body = setFrontmatterField(body, key, value)
+  return source.replace(match[0], () => `---\n${body}\n---`)
 }
-async function nodeFiles(libraryPath: string) {
+export function paperNodeId(arxivId: string) { return `paper-${arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 76)}` }
+function migratedPaperNote(source: string, folderName: string) {
+  // Library paper notes written before knowledge nodes existed lack prism_id; add the stable identity without touching the body.
+  const frontmatter = source.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  if (!frontmatter || field(frontmatter[1], 'type') !== 'paper' || field(frontmatter[1], 'prism_id')) return undefined
+  const arxivId = field(frontmatter[1], 'arxiv_id') ?? folderName
+  const additions = [`prism_id: ${JSON.stringify(paperNodeId(arxivId))}`]
+  if (!field(frontmatter[1], 'title')) { const heading = source.slice(frontmatter[0].length).match(/^#\s+(.+?)\s*$/m)?.[1]; additions.push(`title: ${JSON.stringify(heading ?? arxivId)}`) }
+  if (!/^reading_status:/m.test(frontmatter[1])) additions.push('reading_status: to_read')
+  const typeLine = frontmatter[1].match(/^type:[^\r\n]*/m)
+  if (!typeLine) return undefined
+  const body = frontmatter[1].replace(typeLine[0], `${typeLine[0]}\n${additions.join('\n')}`)
+  const start = frontmatter[0].indexOf(frontmatter[1])
+  return `${source.slice(0, start)}${body}${source.slice(start + frontmatter[1].length)}`
+}
+async function nodeEntries(libraryPath: string) {
   await listTemplates(libraryPath)
-  const results: string[] = []
+  const seen = new Set<string>(); const files: Array<{ filePath: string; paperFolder?: string }> = []
+  const push = (filePath: string, paperFolder?: string) => { const key = path.resolve(filePath).toLowerCase(); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
   for (const folder of Object.values(folderByType)) {
     const directory = path.join(libraryPath, folder)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) results.push(path.join(directory, entry.name))
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name))
   }
-  return results
+  const papersDirectory = path.join(libraryPath, 'papers')
+  let paperFolders: Dirent[] = []
+  try { paperFolders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { /* nothing downloaded yet */ }
+  for (const folder of paperFolders) {
+    if (!folder.isDirectory()) continue
+    const directory = path.join(papersDirectory, folder.name)
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), folder.name)
+  }
+  const entries: Array<{ filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }> = []
+  for (const { filePath, paperFolder } of files) {
+    const snapshot = await readNoteSnapshot(filePath)
+    const parsed = parseNode(snapshot.content, paperFolder)
+    if (parsed) entries.push({ filePath, snapshot, parsed })
+  }
+  return entries
+}
+
+/** Writes prism_id / reading_status into library paper notes that predate knowledge nodes. Listing never writes; call this from app startup. */
+export async function migratePaperNotes(libraryPath: string) {
+  const papersDirectory = path.join(libraryPath, 'papers')
+  let folders: Dirent[] = []
+  try { folders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { return 0 }
+  let migrated = 0
+  for (const folder of folders) {
+    if (!folder.isDirectory()) continue
+    const directory = path.join(papersDirectory, folder.name)
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
+      const filePath = path.join(directory, entry.name)
+      const next = migratedPaperNote(await fs.readFile(filePath, 'utf8'), folder.name)
+      if (next) { await atomicWriteFile(filePath, next); migrated += 1 }
+    }
+  }
+  return migrated
 }
 async function findNode(libraryPath: string, id: string) {
-  for (const filePath of await nodeFiles(libraryPath)) {
-    const snapshot = await readNoteSnapshot(filePath); const parsed = parseNode(snapshot.content)
-    if (parsed?.id === id) return { filePath, snapshot, parsed }
-  }
-  return undefined
+  return (await nodeEntries(libraryPath)).find((entry) => entry.parsed.id === id)
 }
 
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {
   const nodes: KnowledgeNodeRecord[] = []
-  for (const filePath of await nodeFiles(libraryPath)) {
-    const snapshot = await readNoteSnapshot(filePath); const parsed = parseNode(snapshot.content)
-    if (parsed) nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
+  for (const { filePath, snapshot, parsed } of await nodeEntries(libraryPath)) {
+    nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
   }
   return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
 }
 
-function evidenceBlock(source: string, blockId: string) {
+export function evidenceBlock(source: string, blockId: string) {
   const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n\\r?\\n|$)`))
   return match?.[1]
@@ -194,7 +280,8 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     values[key] = value
   }
   const body = (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
-  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body })
+  if (request.status !== undefined && !statuses.has(request.status)) throw new Error('상태 값이 올바르지 않습니다.')
+  const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body, status: request.status })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })
   if (template) await markTemplateUsed(libraryPath, template.id).catch(() => undefined)
   return { nodes: await listKnowledgeNodes(libraryPath), id }
@@ -248,17 +335,27 @@ export async function updateKnowledgeProperties(libraryPath: string, id: string,
   if (patch.readingStatus !== undefined && !readingStatuses.has(patch.readingStatus)) throw new Error('읽기 상태 값이 올바르지 않습니다.')
   if (patch.importance !== undefined && !levels.has(patch.importance)) throw new Error('중요도 값이 올바르지 않습니다.')
   if (patch.confidence !== undefined && !levels.has(patch.confidence)) throw new Error('확신도 값이 올바르지 않습니다.')
-  const allowed: KnowledgePropertyPatch = {}
-  if (patch.status !== undefined) allowed.status = patch.status
-  if (patch.readingStatus !== undefined) allowed.readingStatus = patch.readingStatus
-  if (patch.importance !== undefined) allowed.importance = patch.importance
-  if (patch.confidence !== undefined) allowed.confidence = patch.confidence
+  if (patch.claimOrigin !== undefined && !claimOrigins.has(patch.claimOrigin)) throw new Error('주장 출처 값이 올바르지 않습니다.')
+  if (patch.evidenceKind !== undefined && patch.evidenceKind !== '' && !evidenceKinds.has(patch.evidenceKind)) throw new Error('근거 종류 값이 올바르지 않습니다.')
+  const text = (value: unknown, limit: number) => { if (typeof value !== 'string' || value.length > limit) throw new Error('속성 값이 너무 길거나 올바르지 않습니다.'); return value.trim() }
+  const list = (value: unknown) => { if (!Array.isArray(value) || value.length > 20) throw new Error('목록 속성이 올바르지 않습니다.'); return value.map((item) => text(item, 120)).filter(Boolean) }
   const node = await findNode(libraryPath, id)
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
   if (patch.readingStatus !== undefined && node.parsed.nodeType !== 'paper') throw new Error('Paper 노트에서만 읽기 상태를 바꿀 수 있습니다.')
-  const frontmatterPatch = { ...allowed } as Record<string, string | undefined>
-  if (allowed.readingStatus !== undefined) { frontmatterPatch.reading_status = allowed.readingStatus; delete frontmatterPatch.readingStatus }
-  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, frontmatterPatch), expectedRevision })
+  const claimOnly = [patch.claimOrigin, patch.evidenceKind, patch.scopeDomain, patch.scopeRegime, patch.scopeAssumptions].some((value) => value !== undefined)
+  if (claimOnly && node.parsed.nodeType !== 'claim') throw new Error('Claim 노트에서만 주장 속성을 바꿀 수 있습니다.')
+  const fields: Array<[string, string | string[] | undefined]> = []
+  if (patch.status !== undefined) fields.push(['status', patch.status])
+  if (patch.readingStatus !== undefined) fields.push(['reading_status', patch.readingStatus])
+  if (patch.importance !== undefined) fields.push(['importance', patch.importance])
+  if (patch.confidence !== undefined) fields.push(['confidence', patch.confidence])
+  if (patch.claimOrigin !== undefined) fields.push(['claim_origin', patch.claimOrigin])
+  if (patch.evidenceKind !== undefined) fields.push(['evidence_kind', patch.evidenceKind])
+  if (patch.scopeDomain !== undefined) fields.push(['scope_domain', text(patch.scopeDomain, 200)])
+  if (patch.scopeRegime !== undefined) fields.push(['scope_regime', text(patch.scopeRegime, 200)])
+  if (patch.scopeAssumptions !== undefined) fields.push(['scope_assumptions', list(patch.scopeAssumptions)])
+  if (patch.projects !== undefined) fields.push(['projects', list(patch.projects)])
+  return saveNoteSnapshot(node.filePath, { content: updateFrontmatter(node.snapshot.content, fields), expectedRevision })
 }
 
 export async function deleteKnowledgeNode(libraryPath: string, id: string) {

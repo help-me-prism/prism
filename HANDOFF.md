@@ -1,8 +1,8 @@
 # Prism 개발 인수인계 노트
 
 마지막 정리: 2026-09-03
-작업 브랜치: `kys_enhanced`
-기능 구현 기준: 연구 지식 시스템 1차 완료 감사가 반영된 `kys_enhanced` HEAD
+작업 브랜치: `feat/research-db` (`main`에서 분기, 2026-09-03)
+기능 구현 기준: 연구 DB v2(읽기·정리 분리, 4노드 온톨로지, 대기열, 모델 제안, 인용 레이어)가 반영된 `feat/research-db` HEAD. 배경과 원칙은 `docs/RESEARCH_DB_V2.md`.
 
 이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
 
@@ -352,7 +352,8 @@ npm run start:fast
 - AI로 넘길 때 단순 문자열 `@문장36`만 보내지 말고 구조화된 anchor metadata를 함께 보낸다.
 - arXiv LaTeX가 있으면 우선 사용하되, 없거나 파싱/컴파일에 실패하면 PDF 기반 파이프라인을 유지한다.
 - 논문/노트 경로는 Windows/macOS 모두를 위해 Node `path` API와 라이브러리 상대 경로를 사용한다.
-- 의미 있는 작업 단위가 끝날 때마다 `kys_enhanced` 브랜치에 로컬 커밋한다. `git push`와 온라인 macOS 빌드/업로드는 사용자가 명시적으로 요청할 때만 수행한다.
+- 의미 있는 작업 단위가 끝날 때마다 현재 기능 브랜치(`feat/research-db`)에 로컬 커밋한다. `git push`와 온라인 macOS 빌드/업로드는 사용자가 명시적으로 요청할 때만 수행한다.
+- 테스트와 화면 캡처에는 실제 Vault 대신 사본이나 `PRISM_TEST_LIBRARY_PATH` 임시 폴더를 쓴다.
 - 사용자가 만든 파일이나 unrelated working-tree 변경은 덮어쓰지 않는다.
 
 ## 9. 2026-09-03 Notes 링크·관계 UX
@@ -416,7 +417,34 @@ npm run start:fast
 - DMG 패키징 후 실제 macOS에서 Codex 로그인/로그아웃 테스트 완료
 - 엣지 케이스 18건 코드 리뷰 완료 (크리티컬 버그 없음)
 
-## 11. 다음 대화에 전달할 시작 프롬프트 예시
+## 11. 2026-09-03 연구 DB v2 (`feat/research-db`)
+
+`docs/RESEARCH_DB_V2.md`에 설계 배경이 있다. 커밋 순서대로 요약한다.
+
+1. **논문 노트 통합** — `papers/<id>/<id>.md`가 곧 Paper 노드(`prism_id: paper-<arxivId>`)다. 목록은 폴더에서 ID를 유도하고, 앱 시작(`library:list`) 때 한 번 `prism_id`/`reading_status`를 써 넣는다. 다운로드 시 기본 Paper 템플릿을 적용한다. 노드 ID 검증은 arXiv ID를 허용한다.
+2. **온톨로지 축소** — 새 노드는 Paper/Concept/Claim/Question. Insight는 `claim_origin: mine`, Project는 `projects:` 필드. 관계는 `defines/uses`, `supports/contradicts/extends`, `raises/answers`, 자동 전용 `mentions`. Claim 스코프(`scope_domain/regime/assumptions`, `evidence_kind`)와 반박 시 스코프 경고. 기존 값은 계속 읽는다. `shared/contracts/relations.md`.
+3. **읽기 중 캡처** — Reader 우클릭 패널에서 한 줄 메모(+정의하는 Concept)를 논문 노트 `## Notes`에 담는다. 채팅 답변은 `[!ai]` callout으로 저장한다. 명시적 저장 시 미해결 `[[링크]]`는 inbox Concept 스텁이 된다. `shared/contracts/capture.md`, `electron/capture.ts`.
+4. **정리 대기열** — Notes 창 `정리` 버튼. AI 관계 승인, 스텁(백링크 수) 정리·병합·삭제, 메모 승격(Claim/Question, 근거·출처 유지, 논문 노트에 → 링크 표시), 근거 없는 Claim, 열린 Question. Concept 정의 비교 표. `shared/contracts/curation.md`, `electron/curation.ts`, `src/CurationQueue.tsx`.
+5. **모델 제안** — Reader 툴바 `지식 제안 CLI`(번역·채팅과 별도 설정). 읽음 표시 또는 `모델 제안` 버튼으로 실행. 결과는 전부 검토 대기(관계 pending, 메모 힌트, 새 Concept 제안). 거절은 `.prism/suggestions/`에 기억. `shared/contracts/model-suggestions.md`, `electron/knowledgeAi.ts`.
+6. **탐색** — Notes 창 오른쪽 `연결` 패널(백링크·승인 관계·인용 자동 레이어, 인용 행에서 `extends` 관계 생성). 로컬 그래프에 유형/관계 필터, 2홉, 자동 관계 토글. Semantic Scholar 캐시 `.prism/citations/`. `shared/contracts/citations.md`, `electron/citations.ts`.
+7. `library.json`의 절대 경로는 현재 라이브러리 아래로 재배치해 읽는다(폴더 이동·동기화 대비).
+
+검증: `npm run test:capture`(캡처·대기열·모델 파이프라인·인용, Electron 불필요), `npm run test:notes-ui`, `npm run test:mcp`, `node scripts/capture-research-ui.mjs <라이브러리 사본>`(화면 캡처, 실제 Vault에는 쓰지 말 것).
+
+주의: 화면 캡처 스크립트나 테스트에 실제 Vault를 넘기면 안 된다. 라이브러리 사본을 쓰되, 사본의 `library.json` 절대 경로는 7번 항목 덕분에 사본 아래로 재배치된다.
+
+## 12. 2026-09-03 Notes 화면 재구성
+
+노트 창을 볼트 작업 공간으로 다시 짰다. 배경과 규칙은 `docs/NOTES_WORKSPACE.md`.
+
+- 레일(리더·노트·정리·검색·연결·양식·폴더) + 노드 트리 + 탭 문서 + 상시 연결 패널 + 상태바의 4열 구조.
+- 지식 노드가 모달에서 나와 트리에 올라왔다. `KnowledgeManager.tsx`는 `NoteDocument.tsx`, `ConnectionsPanel.tsx`, `NotesWindow.tsx`로 나뉘었고 공통 라벨·관계 규칙은 `src/knowledgeModel.ts`에 있다.
+- Live Edit / 읽기 / 분할 모드를 없앴다. 본문은 항상 Live Edit이고, 블록 삽입은 `/`와 `블록 삽입` 버튼 하나로 합쳤다.
+- 속성은 접이식 표가 되었고 관계가 그 안의 행으로 들어간다. 검토 대기 AI 관계는 그 자리에서 승인·거절한다.
+- 리더 왕복이 보인다: 레일 첫 버튼과 논문 노트의 `리더에서 열기`(`reader:open` IPC).
+- 이 과정에서 실제 버그 세 개를 고쳤다. 자동 저장이 dirty를 먼저 지워 링크 스텁 스캔이 영영 실행되지 않던 문제, 스냅샷 로드 전 속성 변경이 조용히 무시되던 문제, 스텁이 두 번 쓰기로 만들어져 상태가 잠깐 어긋나던 문제.
+
+## 13. 다음 대화에 전달할 시작 프롬프트 예시
 
 연구 지식 시스템과 Markdown 편집기 작업을 시작할 때는 먼저 `docs/RESEARCH_KNOWLEDGE_SYSTEM.md`를 읽는다. 이 문서에는 Paper/Concept/Claim/Insight/Question 모델, PDF 근거 링크, 시각 편집기, 개인 템플릿, Obsidian 비종속 호환 구조와 단계별 구현 기준이 정리되어 있다.
 

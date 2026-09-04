@@ -12,10 +12,12 @@ export type NoteSaveRequest = {
   content: string
   expectedRevision?: string
   force?: boolean
+  /** Create empty Concept stubs for unresolved [[links]]; only sent on explicit saves, never from the autosave timer. */
+  createStubs?: boolean
 }
 
 export type NoteSaveResult =
-  | { saved: true; snapshot: NoteSnapshot }
+  | { saved: true; snapshot: NoteSnapshot; stubs?: string[] }
   | { saved: false; conflict: NoteSnapshot }
 
 function revisionOf(content: string) {
