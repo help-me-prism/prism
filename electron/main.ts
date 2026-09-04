@@ -9,9 +9,9 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
-import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
+import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
@@ -21,6 +21,7 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
+import { pruneEmptySections, readChatMessages, refreshPaperDigest } from './paperDigest.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -958,11 +959,35 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
   return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
 })
-ipcMain.handle('knowledge:stubs:ensure', async (_event, id: string) => {
+ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, options?: { useModel?: boolean }) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(paperNodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const messages = await readChatMessages(sessionsPath())
+  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  const useModel = options?.useModel !== false && Boolean(provider && model)
+  const runPrompt = useModel && provider && model
+    ? (prompt: string) => runTranslationCli(provider, model, prompt, `digest-${paperNodeId}-${Date.now()}`)
+    : undefined
+  return refreshPaperDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
+})
+ipcMain.handle('knowledge:prune-empty-sections', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const result = await pruneEmptySections(settings.libraryPath, id)
+  return { removed: result.removed }
+})
+ipcMain.handle('knowledge:links:sync', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   const snapshot = await readKnowledgeNode(settings.libraryPath, id)
-  return ensureLinkStubs(settings.libraryPath, snapshot.content)
+  const stubs = await ensureLinkStubs(settings.libraryPath, snapshot.content)
+  const relations = await syncLinkRelations(settings.libraryPath, id)
+  return { stubs, ...relations }
+})
+ipcMain.handle('knowledge:restore', async (_event, trashedRelativePath: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof trashedRelativePath !== 'string') throw new Error('복구할 항목이 올바르지 않습니다.')
+  return restoreKnowledgeNode(settings.libraryPath, trashedRelativePath)
 })
 ipcMain.handle('knowledge:curation:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

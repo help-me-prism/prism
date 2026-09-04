@@ -40,11 +40,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') !== 'off')
   const [pendingContradiction, setPendingContradiction] = useState<{ message: string; run: () => Promise<void> }>()
   const [suggesting, setSuggesting] = useState(false)
+  const [digesting, setDigesting] = useState(false)
+  const digestedRef = useRef<string | undefined>(undefined)
   const contentRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined); const nodeIdRef = useRef(node.id); const stubScanRef = useRef('')
   const editorRef = useRef<MarkdownEditorHandle>(null)
 
   const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
-  const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions')
+  const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.origin !== 'link')
+  const linked = relations.filter((item) => item.reviewStatus === 'approved' && item.origin === 'link')
   const pending = relations.filter((item) => item.reviewStatus === 'pending')
   const relationGroups = useMemo(() => {
     const groups = new Map<string, KnowledgeRelationView[]>()
@@ -99,10 +102,10 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (stubScanRef.current === contentRef.current) return
     stubScanRef.current = contentRef.current
     try {
-      const stubs = await window.prism.ensureLinkStubs(id)
+      const { stubs, added } = await window.prism.syncNoteLinks(id)
       if (stubs.length) onNotify(`[[링크]]에서 새 개념 ${stubs.length}개를 만들었습니다: ${stubs.join(', ')}`)
       if (stubs.length) await onReloadNodes()
-      await onReloadContext()
+      if (stubs.length || added) await onReloadContext(); else await onReloadContext()
     } catch { /* the note may have been deleted or renamed meanwhile */ }
   }
 
@@ -163,6 +166,33 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (patch.readingStatus === 'read') void runModelSuggestions()
     } catch (reason) { onNotify(String(reason), 'error') }
   }
+
+  /**
+   * Keeps the mechanical part of a paper note current. The deterministic pass costs nothing and runs when the
+   * note opens; the model pass is explicit because it spends the researcher's own CLI quota.
+   */
+  async function refreshDigest(useModel: boolean) {
+    if (node.nodeType !== 'paper' || digesting) return
+    setDigesting(true)
+    try {
+      const result = await window.prism.refreshPaperDigest(node.id, { useModel })
+      if (result.updated) {
+        const next = await window.prism.readKnowledgeNode(node.id)
+        if (nodeIdRef.current === node.id && !dirtyRef.current) {
+          revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+          setSnapshot(next); setContent(next.content); setSaved(true)
+        }
+      }
+      if (useModel) onNotify(result.updated ? `자동 정리를 갱신했습니다. 대화 ${result.chatMessages}건을 반영했습니다.` : '갱신할 내용이 없습니다.')
+    } catch (reason) { if (useModel) onNotify(String(reason), 'error') }
+    finally { setDigesting(false) }
+  }
+  // Opening a paper is the moment its note should already be written.
+  useEffect(() => {
+    if (node.nodeType !== 'paper' || !snapshot || digestedRef.current === node.id) return
+    digestedRef.current = node.id
+    void refreshDigest(false)
+  }, [node.id, node.nodeType, snapshot])
 
   async function runModelSuggestions() {
     if (node.nodeType !== 'paper' || suggesting) return
@@ -245,7 +275,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     } catch (reason) { onNotify(String(reason), 'error') }
   }
 
-  async function createLinkedNode(nodeType: 'concept' | 'claim', title: string) {
+  async function createLinkedNode(nodeType: 'concept' | 'claim', rawTitle: string) {
+    // A typed link may carry its folder ("Concepts/flow matching"); the note is named after the last segment.
+    const title = rawTitle.split('/').at(-1)?.trim() ?? rawTitle.trim()
+    if (!title) return undefined
+    const existing = nodes.find((item) => item.title.toLocaleLowerCase() === title.toLocaleLowerCase())
+    if (existing) return { id: existing.id, label: existing.title, target: nodePath(existing), description: typeLabels[existing.nodeType], preview: existing.preview, evidenceCount: existing.evidenceCount }
     try {
       const created = await window.prism.createKnowledgeNode({ nodeType, title })
       const next = created.nodes.find((item) => item.id === created.id)
@@ -253,6 +288,17 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (!next) return undefined
       return { id: next.id, label: next.title, target: nodePath(next), description: typeLabels[next.nodeType], preview: next.preview, evidenceCount: next.evidenceCount }
     } catch (reason) { onNotify(String(reason), 'error'); return undefined }
+  }
+  /** Follows a `[[link]]` in the body: same-name notes open, unresolved ones are created on the spot. */
+  function openWikiLink(target: string) {
+    const raw = target.replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
+    const base = raw.split('/').at(-1)
+    const match = nodes.find((item) => {
+      const itemPath = nodePath(item).toLocaleLowerCase()
+      return itemPath === raw || (!raw.includes('/') && itemPath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
+    })
+    if (match) { onOpenNode(match.id); return }
+    onNotify(`'${target}' 노트가 아직 없습니다. 저장하면 개념 노트로 만들어집니다.`)
   }
   async function insertLink(target: KnowledgeNodeRecord) {
     editorRef.current?.insertWikiLink({ id: target.id, label: target.title, target: nodePath(target), description: typeLabels[target.nodeType] })
@@ -269,6 +315,18 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       onNotify(result.addedHeadings.length ? `누락된 섹션 ${result.addedHeadings.length}개를 추가했습니다: ${result.addedHeadings.join(', ')}` : '이 양식의 섹션이 이미 모두 있습니다.')
     } catch (reason) { onNotify(String(reason), 'error') }
   }
+  /** Old templates leave a page of empty headings; clearing them is the difference between a note and a form. */
+  async function pruneSections() {
+    if (dirtyRef.current && !(await save())) return
+    try {
+      const result = await window.prism.pruneEmptySections(node.id)
+      if (!result.removed.length) { onNotify('비어 있는 섹션이 없습니다.'); return }
+      const next = await window.prism.readKnowledgeNode(node.id)
+      revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+      setSnapshot(next); setContent(next.content); setSaved(true)
+      onNotify(`빈 섹션 ${result.removed.length}개를 지웠습니다: ${result.removed.join(', ')}`)
+    } catch (reason) { onNotify(String(reason), 'error') }
+  }
   async function removeNode() {
     if (!deleteReady) { setDeleteReady(true); onNotify('한 번 더 누르면 이 노트를 휴지통으로 보냅니다.'); return }
     try { await window.prism.deleteKnowledgeNode(node.id); setMenuOpen(false); setDeleteReady(false); await onReloadNodes(); onNotify('노트를 휴지통으로 보냈습니다.') }
@@ -283,6 +341,13 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     openRelationPicker(type)
   }
   const availableRelationTypes = useMemo(() => primaryRelationTypes.filter((type) => nodes.some((other) => other.id !== node.id && relationTypesFor(node, other).includes(type))), [nodes, node])
+  /** Turning a plain link into a typed relation: pre-select the target so it is one click, not a search. */
+  function upgradeLink(item: KnowledgeRelationView) {
+    const target = nodes.find((candidate) => candidate.id === item.other.id)
+    const types = target ? relationTypesFor(node, target) : []
+    if (!target || !types.length) { onNotify('이 조합에는 지정할 관계 유형이 없습니다. 링크로 두어도 그래프에는 나타납니다.'); return }
+    setPicker({ kind: 'relation', query: target.title, type: types[0] })
+  }
   function openRelationPicker(type?: KnowledgeRelationType) {
     const next = type && availableRelationTypes.includes(type) ? type : availableRelationTypes[0]
     if (!next) { onNotify('이 노트에서 만들 수 있는 관계가 없습니다. 본문에서 [[링크]]로 연결하세요.'); return }
@@ -328,6 +393,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       </div>
       <div className="note-doc-actions">
         <span className={`note-save ${saved ? 'is-saved' : ''}`} role="status">{saved ? '저장됨' : '저장 중…'}</span>
+        {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
         <button className="ghost" title="본문에 다른 노트 링크를 넣습니다" onClick={() => setPicker({ kind: 'link', query: '' })}><Link2 size={13} /> 링크</button>
         <button className="ghost" title="PDF 문장·수식·표·피겨를 근거 카드로 넣습니다" onClick={() => setPicker({ kind: 'evidence', query: '' })}><Plus size={13} /> 근거</button>
@@ -335,6 +401,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
             <button role="menuitem" onClick={() => { setMenuOpen(false); void window.prism.openKnowledgeNodeInObsidian({ nodeId: node.id }).catch((reason) => onNotify(String(reason), 'error')) }}><ExternalLink size={12} /> Obsidian에서 열기</button>
+            {node.nodeType === 'paper' && <button role="menuitem" disabled={digesting} onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>}
+            <button role="menuitem" title="내용이 하나도 없는 제목만 지웁니다" onClick={() => { setMenuOpen(false); void pruneSections() }}><Trash2 size={12} /> 빈 양식 섹션 정리</button>
             {node.nodeType === 'paper' && <button role="menuitem" disabled={suggesting} onClick={() => { setMenuOpen(false); void runModelSuggestions() }}><Sparkles size={12} /> {suggesting ? '제안 중…' : '모델에게 관계 제안 받기'}</button>}
             {nodeTemplates.map((template) => <button key={template.id} role="menuitem" onClick={() => void applyTemplateSections(template.id)}>양식 적용 · {template.name}</button>)}
             <button role="menuitem" className={deleteReady ? 'danger' : ''} onClick={() => void removeNode()}><Trash2 size={12} /> {deleteReady ? '삭제 확인' : '휴지통으로 보내기'}</button>
@@ -356,6 +424,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
                   {items.map((item) => <span key={item.id} className="rel-chip"><button onClick={() => onOpenNode(item.other.id)}>{item.other.title}</button>{item.direction === 'outgoing' && <button className="rel-remove" aria-label={`${item.other.title} 관계 삭제`} onClick={() => void deleteRelation(item)}><X size={10} /></button>}</span>)}
                 </td></tr>
               })}
+              {linked.length > 0 && <tr className="prop-linked"><td title="본문에 적은 [[링크]]에서 자동으로 만들어집니다">링크</td><td className="prop-relations">
+                {linked.map((item) => <span key={item.id} className="rel-chip is-link">
+                  <button onClick={() => onOpenNode(item.other.id)}>{item.direction === 'incoming' ? '← ' : ''}{item.other.title}</button>
+                  {item.direction === 'outgoing' && <button className="rel-upgrade" title="이 링크에 관계 유형을 지정합니다" aria-label={`${item.other.title} 관계 지정`} onClick={() => upgradeLink(item)}>관계 지정</button>}
+                </span>)}
+              </td></tr>}
               {pending.length > 0 && <tr className="prop-pending"><td>검토 대기</td><td>
                 {pending.map((item) => <span key={item.id} className="rel-chip is-pending"><button onClick={() => onOpenNode(item.other.id)}>{relationLabels[item.type]} · {item.other.title}</button>{item.direction === 'outgoing' && <><button className="rel-approve" aria-label={`${item.other.title} 관계 승인`} onClick={() => void reviewRelation(item, 'approved')}><Check size={10} /></button><button className="rel-remove" aria-label={`${item.other.title} 관계 거절`} onClick={() => void reviewRelation(item, 'rejected')}><X size={10} /></button></>}</span>)}
               </td></tr>}
@@ -368,9 +442,9 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           <MarkdownEditor
             ref={editorRef} key={node.id} value={content} onChange={edit} onBlur={() => void settle()}
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
-            onCreateWikiLink={createLinkedNode} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
+            onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint"><button onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크 · <kbd>@</kbd> PDF 근거</span></p>
+          <p className="note-hint"><button onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span>{node.nodeType === 'paper' && <button className="note-digest-run" disabled={digesting} title="초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다" onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button>}</p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>

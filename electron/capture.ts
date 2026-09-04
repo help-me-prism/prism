@@ -46,6 +46,7 @@ export function memosFor(paper: KnowledgeNodeRecord, content: string): CurationM
 }
 
 const typeLabels: Record<EvidenceAnchor['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
+const vaultFolders = new Set(['papers', 'concepts', 'claims', 'questions', 'insights', 'projects', 'templates', 'assets', '00 inbox'])
 
 function blockIdFor(anchor: Pick<EvidenceAnchor, 'paperId' | 'anchorId'>) {
   const value = `${anchor.paperId}-${anchor.anchorId}`.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').slice(0, 90)
@@ -151,7 +152,7 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
  * Obsidian-style stubs: a `[[Concept]]` link whose target does not exist becomes an empty Concept note in `inbox`
  * status. Links are free; the note only gets written once the curation queue proves it is worth it.
  */
-export async function ensureLinkStubs(libraryPath: string, content: string) {
+export async function ensureLinkStubs(libraryPath: string, content: string): Promise<string[]> {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
   const targets = new Set<string>()
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
@@ -160,6 +161,8 @@ export async function ensureLinkStubs(libraryPath: string, content: string) {
     if (raw.includes('/') && !/^concepts\//i.test(raw)) continue
     const name = raw.split('/').at(-1)!.trim()
     if (name.length < 2 || name.length > 120 || /^[\d.v]+$/.test(name) || /[<>:"|?*]/.test(name)) continue
+    // A link that only names a vault folder ("[[Concepts]]") is navigation, not a concept.
+    if (vaultFolders.has(name.toLocaleLowerCase())) continue
     targets.add(name)
   }
   if (!targets.size) return []

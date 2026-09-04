@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, Search, Settings2, X } from 'lucide-react'
+import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, Plus, Search, Settings2, Trash2, Undo2, X } from 'lucide-react'
 import NoteDocument from './NoteDocument'
 import ConnectionsPanel from './ConnectionsPanel'
 import CurationQueue from './CurationQueue'
@@ -28,7 +28,8 @@ export default function NotesWindow() {
   const [collapsed, setCollapsed] = useState<Set<KnowledgeNodeType>>(() => new Set())
   const [creating, setCreating] = useState<{ nodeType: KnowledgeNodeType; title: string; templateId: string }>()
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'error' }>()
+  const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'error'; undo?: { label: string; run: () => void | Promise<void> } }>()
+  const [deleteReadyId, setDeleteReadyId] = useState<string>()
   const [curation, setCuration] = useState<CurationQueue>()
   const [relations, setRelations] = useState<KnowledgeRelationView[]>([])
   const [backlinks, setBacklinks] = useState<KnowledgeBacklink[]>([])
@@ -41,9 +42,10 @@ export default function NotesWindow() {
 
   const active = nodes.find((node) => node.id === activeId)
   const openNodes = openIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is KnowledgeNodeRecord => Boolean(node))
+  // The four primary folders always show, even when empty: the vault should tell you what kinds of notes exist.
   const grouped = useMemo(() => treeTypes
     .map((type) => ({ type, items: nodes.filter((node) => node.nodeType === type).sort((left, right) => left.title.localeCompare(right.title)) }))
-    .filter((group) => group.items.length), [nodes])
+    .filter((group) => group.items.length || creatableTypes.includes(group.type)), [nodes])
   const filtered = useMemo(() => {
     const text = query.trim().toLocaleLowerCase()
     if (!text) return undefined
@@ -51,8 +53,8 @@ export default function NotesWindow() {
   }, [nodes, query])
   const relationCount = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved').length, [relations])
 
-  function notify(text: string, tone: 'info' | 'error' = 'info') { setNotice({ text, tone }) }
-  useEffect(() => { if (!notice || notice.tone === 'error') return; const timer = window.setTimeout(() => setNotice(undefined), 6000); return () => window.clearTimeout(timer) }, [notice])
+  function notify(text: string, tone: 'info' | 'error' = 'info', undo?: { label: string; run: () => void | Promise<void> }) { setNotice({ text, tone, undo }) }
+  useEffect(() => { if (!notice || notice.tone === 'error') return; const timer = window.setTimeout(() => setNotice(undefined), notice.undo ? 12000 : 6000); return () => window.clearTimeout(timer) }, [notice])
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { nodesRef.current = nodes }, [nodes])
 
@@ -121,6 +123,32 @@ export default function NotesWindow() {
       setCreating(undefined); await reloadNodes(); openNode(result.id)
     } catch (reason) { notify(String(reason), 'error') }
   }
+  /** Deleting from the tree is one click, so it has to be one click back: the trash entry is kept for undo. */
+  async function deleteNode(target: KnowledgeNodeRecord) {
+    if (deleteReadyId !== target.id) {
+      setDeleteReadyId(target.id)
+      notify(`'${target.title}'을(를) 삭제하려면 한 번 더 누르세요.`)
+      window.setTimeout(() => setDeleteReadyId((current) => current === target.id ? undefined : current), 4000)
+      return
+    }
+    setDeleteReadyId(undefined)
+    try {
+      const result = await window.prism.deleteKnowledgeNode(target.id)
+      setNodes(result.nodes)
+      setOpenIds((current) => current.filter((id) => id !== target.id))
+      setActiveId((current) => current === target.id ? undefined : current)
+      await reloadCuration()
+      notify(`'${result.title}'을(를) 휴지통으로 보냈습니다.`, 'info', {
+        label: '실행 취소',
+        run: async () => {
+          try {
+            const restored = await window.prism.restoreKnowledgeNode(result.trashed)
+            setNodes(restored.nodes); setNotice(undefined); openNode(restored.id); await reloadCuration()
+          } catch (reason) { notify(String(reason), 'error') }
+        },
+      })
+    } catch (reason) { notify(String(reason), 'error') }
+  }
   async function runSearch() {
     const text = query.trim()
     if (!text) { setSearchResults(undefined); return }
@@ -143,13 +171,20 @@ export default function NotesWindow() {
     setCollapsed((current) => { const next = new Set(current); if (next.has(type)) next.delete(type); else next.add(type); return next })
   }
 
-  const treeRow = (node: KnowledgeNodeRecord, excerpt?: string) => <button
-    key={node.id} className={`tree-file${node.id === activeId && view === 'doc' ? ' active' : ''}${isStub(node) ? ' is-stub' : ''}`}
-    title={isStub(node) ? '링크만 있고 아직 정리하지 않은 개념입니다' : node.relativePath} onClick={() => openNode(node.id)}
-  >
-    <span>{node.title}</span>
-    {excerpt && <small>{excerpt}</small>}
-  </button>
+  const treeRow = (node: KnowledgeNodeRecord, excerpt?: string) => <div key={node.id} className={`tree-row${node.id === activeId && view === 'doc' ? ' active' : ''}`}>
+    <button
+      className={`tree-file${isStub(node) ? ' is-stub' : ''}`}
+      title={isStub(node) ? '링크만 있고 아직 정리하지 않은 개념입니다' : node.relativePath} onClick={() => openNode(node.id)}
+    >
+      <span>{node.title}</span>
+      {excerpt && <small>{excerpt}</small>}
+    </button>
+    <button
+      className={`tree-delete${deleteReadyId === node.id ? ' is-ready' : ''}`}
+      aria-label={`${node.title} 삭제`} title={deleteReadyId === node.id ? '한 번 더 누르면 휴지통으로' : '휴지통으로 보내기'}
+      onClick={(event) => { event.stopPropagation(); void deleteNode(node) }}
+    ><Trash2 size={11} /></button>
+  </div>
 
   return <main className={`notes-window${sideOpen ? ' has-side' : ''}`}>
     <nav className="notes-rail" aria-label="작업 영역">
@@ -199,13 +234,21 @@ export default function NotesWindow() {
             <div className="tree-folder is-static"><span>검색 결과</span><em>{filtered.length}</em></div>
             {filtered.length ? filtered.map((node) => treeRow(node)) : <p className="tree-empty">일치하는 제목이 없습니다. Enter를 누르면 본문까지 검색합니다.</p>}
           </div>
-            : grouped.length ? grouped.map((group) => <div className="tree-group" key={group.type}>
-              <button className="tree-folder" aria-expanded={!collapsed.has(group.type)} onClick={() => toggleGroup(group.type)}>
-                <i className={`kind-dot kind-${group.type}`} /><span>{typeFolders[group.type]}</span><em>{group.items.length}</em>
-              </button>
-              {!collapsed.has(group.type) && group.items.map((node) => treeRow(node))}
+            : libraryPath ? grouped.map((group) => <div className="tree-group" key={group.type}>
+              <div className="tree-folder-row">
+                <button className="tree-folder" aria-expanded={!collapsed.has(group.type)} onClick={() => toggleGroup(group.type)}>
+                  <i className={`kind-dot kind-${group.type}`} /><span>{typeFolders[group.type]}</span><em>{group.items.length}</em>
+                </button>
+                {creatableTypes.includes(group.type) && <button
+                  className="tree-add" aria-label={`${typeLabels[group.type]} 노트 추가`} title={`${typeLabels[group.type]} 노트 추가`}
+                  onClick={() => { setCollapsed((current) => { const next = new Set(current); next.delete(group.type); return next }); setCreating({ nodeType: group.type, title: query.trim(), templateId: '' }) }}
+                ><Plus size={12} /></button>}
+              </div>
+              {!collapsed.has(group.type) && (group.items.length
+                ? group.items.map((node) => treeRow(node))
+                : <p className="tree-folder-empty">{group.type === 'paper' ? '리더에서 논문을 저장하면 여기에 쌓입니다.' : '아직 없습니다. + 로 추가하세요.'}</p>)}
             </div>)
-              : <p className="tree-empty">{libraryPath ? '아직 노트가 없습니다. 리더에서 논문을 저장하거나 새 노트를 만드세요.' : '먼저 라이브러리 폴더를 선택하세요.'}</p>}
+              : <p className="tree-empty">먼저 라이브러리 폴더를 선택하세요.</p>}
       </div>
 
       {curation && curation.total > 0 && <button className="tree-queue" onClick={() => { setView('curation'); void reloadCuration() }}>
@@ -226,7 +269,9 @@ export default function NotesWindow() {
       </div>
 
       {notice && <div className={`notes-notice${notice.tone === 'error' ? ' is-error' : ''}`} role="status">
-        <span>{notice.text}</span><button aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X size={12} /></button>
+        <span>{notice.text}</span>
+        {notice.undo && <button className="notice-undo" onClick={() => void notice.undo?.run()}><Undo2 size={12} /> {notice.undo.label}</button>}
+        <button aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X size={12} /></button>
       </div>}
 
       {view === 'curation'

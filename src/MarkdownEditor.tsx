@@ -22,6 +22,7 @@ type MarkdownEditorProps = {
   wikiLinks?: WikiLinkOption[]
   evidenceLinks?: EvidenceLinkOption[]
   onCreateWikiLink?: (nodeType: 'concept' | 'claim', title: string) => Promise<WikiLinkOption | undefined>
+  onOpenWikiLink?: (target: string) => void
   slashActions?: MarkdownSlashAction[]
   onSlashAction?: (action: MarkdownSlashAction) => void
 }
@@ -623,7 +624,7 @@ function replaceWithBlock(view: EditorView, replace: { from: number; to: number 
   view.dispatch({ changes: { from: replace.from, to: replace.to, insert }, selection: { anchor: replace.from + insert.length }, scrollIntoView: true }); view.focus()
 }
 
-const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [], evidenceLinks = [], onCreateWikiLink, slashActions = [], onSlashAction }, ref) {
+const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor({ value, disabled = false, liveEdit = false, label, onChange, onBlur, wikiLinks = [], evidenceLinks = [], onCreateWikiLink, onOpenWikiLink, slashActions = [], onSlashAction }, ref) {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editable = useRef(new Compartment())
@@ -631,6 +632,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const onChangeRef = useRef(onChange)
   const onBlurRef = useRef(onBlur)
   const onSlashActionRef = useRef(onSlashAction)
+  const onOpenWikiLinkRef = useRef(onOpenWikiLink)
   const wikiLinksRef = useRef(wikiLinks)
   const syncingRef = useRef(false)
   const slashRef = useRef<SlashState | null>(null)
@@ -688,6 +690,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
   useEffect(() => { onBlurRef.current = onBlur }, [onBlur])
   useEffect(() => { onSlashActionRef.current = onSlashAction }, [onSlashAction])
+  useEffect(() => { onOpenWikiLinkRef.current = onOpenWikiLink }, [onOpenWikiLink])
   useEffect(() => { wikiLinksRef.current = wikiLinks }, [wikiLinks])
   useEffect(() => { slashRef.current = slash }, [slash])
   useLayoutEffect(() => { filteredRef.current = filteredCommands }, [filteredCommands])
@@ -804,6 +807,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             setHoverWiki({ option, top: markerBounds.bottom - hostBounds.top + 6, left: Math.min(markerBounds.left - hostBounds.left, Math.max(12, hostBounds.width - 280)) }); return false
           },
           mouseout: (event) => { if ((event.target as HTMLElement).closest?.('.cm-md-wikilink')) setHoverWiki(undefined); return false },
+          // A rendered link behaves like a link: click follows it, Alt+click puts the cursor in the text.
+          mousedown: (event) => {
+            if (event.altKey || event.button !== 0) return false
+            const marker = (event.target as HTMLElement).closest?.('.cm-md-wikilink') as HTMLElement | null
+            if (!marker || !onOpenWikiLinkRef.current) return false
+            const target = marker.textContent?.replace(/^\[\[|\]\]$/g, '').split('|')[0].split('#')[0].trim()
+            if (!target) return false
+            event.preventDefault(); setHoverWiki(undefined); onOpenWikiLinkRef.current(target)
+            return true
+          },
         }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !syncingRef.current) onChangeRef.current(update.state.doc.toString())

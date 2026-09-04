@@ -363,5 +363,22 @@ export async function deleteKnowledgeNode(libraryPath: string, id: string) {
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
   const target = path.join(libraryPath, '.prism', 'trash', 'knowledge', `${Date.now()}-${path.basename(node.filePath)}`)
   await fs.mkdir(path.dirname(target), { recursive: true }); await fs.rename(node.filePath, target)
-  return listKnowledgeNodes(libraryPath)
+  // The trash entry is what makes the delete undoable, so hand it back to the caller.
+  return { nodes: await listKnowledgeNodes(libraryPath), trashed: path.relative(libraryPath, target).split(path.sep).join('/'), title: node.parsed.title }
+}
+
+/** Puts a trashed note back where it came from. Deleting is a mistake people make, so it must be one click to undo. */
+export async function restoreKnowledgeNode(libraryPath: string, trashedRelativePath: string) {
+  if (!/^\.prism\/trash\/knowledge\/[^/\\]+\.md$/i.test(trashedRelativePath)) throw new Error('복구할 항목이 올바르지 않습니다.')
+  const source = path.join(libraryPath, ...trashedRelativePath.split('/'))
+  const content = await fs.readFile(source, 'utf8').catch(() => { throw new Error('휴지통에서 노트를 찾을 수 없습니다.') })
+  const parsed = parseNode(content)
+  if (!parsed) throw new Error('복구할 노트를 읽을 수 없습니다.')
+  const name = path.basename(source).replace(/^\d+-/, '')
+  const directory = path.join(libraryPath, folderByType[parsed.nodeType])
+  await fs.mkdir(directory, { recursive: true })
+  let target = path.join(directory, name); let suffix = 2
+  while (true) { try { await fs.access(target); target = path.join(directory, `${name.replace(/\.md$/i, '')} ${suffix}.md`); suffix += 1 } catch { break } }
+  await fs.rename(source, target)
+  return { nodes: await listKnowledgeNodes(libraryPath), id: parsed.id }
 }

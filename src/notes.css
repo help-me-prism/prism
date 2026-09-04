@@ -510,3 +510,34 @@
 /* A full-width active-line band reads as an artifact in a document view. */
 .note-body .cm-activeLine { background: transparent; }
 .note-body .cm-activeLineGutter { background: transparent; }
+
+/* Tree rows: add and delete without leaving the list */
+.tree-folder-row { display: flex; align-items: center; }
+.tree-folder-row .tree-folder { flex: 1; }
+.tree-add { width: 22px; height: 22px; margin-right: 8px; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #b0aaa0; cursor: pointer; }
+.tree-folder-row:hover .tree-add, .tree-add:focus-visible { color: #6a5896; background: #eae6de; }
+.tree-folder-empty { margin: 2px 12px 6px 28px; color: #b5afa5; font-size: 9px; }
+.tree-row { display: flex; align-items: center; }
+.tree-row .tree-file { flex: 1; min-width: 0; }
+.tree-row.active { background: #e8e2f5; box-shadow: inset 2px 0 0 #7760aa; }
+.tree-row.active .tree-file { background: transparent; color: #4b3f73; }
+.tree-row:hover { background: #eae6de; }
+.tree-delete { width: 20px; height: 20px; margin-right: 8px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: transparent; cursor: pointer; }
+.tree-row:hover .tree-delete { color: #b0aaa0; }
+.tree-delete:hover { color: #a4503f; background: #f6e9e5; }
+.tree-delete.is-ready { color: #fff !important; background: #b3542f; }
+.notice-undo { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid currentColor; border-radius: 11px; background: transparent; color: inherit; font-size: 9px; cursor: pointer; }
+
+/* A plain [[link]] is a real edge, drawn lighter than a typed relation */
+.graph-edge.link { stroke: #ded8ce; stroke-dasharray: 4 3; }
+.rel-chip.is-link { border-style: dashed; }
+.rel-chip.is-link > button:first-child { color: #6f695f; }
+.rel-upgrade { padding: 3px 7px; border: 0; border-left: 1px dashed #ddd8ce; background: transparent; color: #6a5896; font-size: 9px; cursor: pointer; }
+.rel-upgrade:hover { background: #f5f1fb; }
+.prop-linked td:first-child { color: #a09a90; }
+
+/* Auto-written sections: visible as machine text, never mistaken for your own writing */
+.note-digesting { color: #6a5896; font-size: 9.5px; }
+.note-digest-run { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px dashed #cfc8bd; border-radius: 12px; background: transparent; color: #857f76; font-size: 9.5px; cursor: pointer; }
+.note-digest-run:hover:not(:disabled) { border-color: #b3a6d6; color: #6a5896; }
+.note-digest-run:disabled { opacity: .5; cursor: default; }

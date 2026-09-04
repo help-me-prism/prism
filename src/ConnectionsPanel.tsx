@@ -24,7 +24,8 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   const [hops, setHops] = useState<1 | 2>(1)
   const [showCitations, setShowCitations] = useState(false)
   const [secondHop, setSecondHop] = useState<Hop2[]>([])
-  const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
+  // Link relations belong in the graph: they are what the researcher actually wrote in the note.
+  const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && (item.origin === 'link' || item.type !== 'mentions')), [relations])
   const edgeKey = approved.map((item) => item.id).join(',')
 
   useEffect(() => {
@@ -74,7 +75,8 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
             {primary.map((entry, index) => {
               const point = ring(index, primary.length, 62)
               const contra = entry.kind === 'manual' && entry.item.type === 'contradicts'
-              return <path key={`edge-${index}`} className={`graph-edge${contra ? ' contra' : ''}${entry.kind === 'citation' ? ' auto' : ''}`} d={`M160 118 L ${point.x} ${point.y}`} />
+              const link = entry.kind === 'manual' && entry.item.origin === 'link'
+              return <path key={`edge-${index}`} className={`graph-edge${contra ? ' contra' : ''}${link ? ' link' : ''}${entry.kind === 'citation' ? ' auto' : ''}`} d={`M160 118 L ${point.x} ${point.y}`} />
             })}
             {secondHop.map((entry, index) => {
               const parentIndex = primary.findIndex((item) => item.kind === 'manual' && item.item.other.id === entry.parentId)
@@ -99,7 +101,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
               return <g key={`node-${index}`} className={`graph-node kind-${target.nodeType}${entry.kind === 'citation' ? ' auto' : ''}`} onClick={() => onOpenNode(target.id)}>
                 <circle cx={point.x} cy={point.y} r="6.5" />
                 <text x={point.x} y={point.y + (point.y > 118 ? 15 : -10)}>{label}</text>
-                <title>{entry.kind === 'manual' ? `${entry.item.direction === 'outgoing' ? '→' : '←'} ${relationLabels[entry.item.type]} · ${target.title}` : `인용 관계 · ${target.title}`}</title>
+                <title>{entry.kind === 'manual' ? `${entry.item.direction === 'outgoing' ? '→' : '←'} ${entry.item.origin === 'link' ? '링크' : relationLabels[entry.item.type]} · ${target.title}` : `인용 관계 · ${target.title}`}</title>
               </g>
             })}
             <g className={`graph-node is-center kind-${node.nodeType}`}>

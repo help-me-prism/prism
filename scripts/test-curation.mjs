@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { captureToPaperNote } from '../dist-electron/capture.js'
 import { listCurationQueue, mergeConcepts, promoteMemo } from '../dist-electron/curation.js'
-import { listKnowledgeNodes, migratePaperNotes, readKnowledgeNode } from '../dist-electron/knowledge.js'
-import { createKnowledgeRelation, listKnowledgeRelationRecords } from '../dist-electron/relations.js'
+import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, migratePaperNotes, readKnowledgeNode, restoreKnowledgeNode, saveKnowledgeNode } from '../dist-electron/knowledge.js'
+import { createKnowledgeRelation, listKnowledgeRelationRecords, syncLinkRelations } from '../dist-electron/relations.js'
 
 // The curation queue and its decisions (promote, merge, approve) run on plain Markdown in a throwaway vault.
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-curation-test-'))
@@ -82,7 +82,43 @@ try {
   assert((await fs.readdir(path.join(root, '.prism', 'trash', 'knowledge'))).some((name) => name.endsWith('Denoising.md')), 'The merged stub was not moved to trash.')
   queue = await listCurationQueue(root)
   assert(!queue.stubs.some((stub) => stub.node.title === 'Denoising'), 'The merged stub remained in the queue.')
-  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, memo promotion with evidence and back-marking, and stub merging with link and sidecar repointing.\n')
+  // Writing a [[link]] is enough to put an edge in the graph; a typed relation replaces it; deleting the link removes it.
+  const alpha = (await listKnowledgeNodes(root)).find((node) => node.id === 'paper-test.0001')
+  const question = (await listKnowledgeNodes(root)).find((node) => node.id === 'question-ffffffff')
+  const beforeLink = await readKnowledgeNode(root, alpha.id)
+  const blocksBefore = beforeLink.content.split('> [!abstract] 관계').length
+  await saveKnowledgeNode(root, alpha.id, { content: `${beforeLink.content}\n\n관련 질문: [[Questions/Open question]]\n`, expectedRevision: beforeLink.revision })
+  assert((await syncLinkRelations(root, alpha.id)).added >= 1, 'Writing a [[link]] did not add a relation.')
+  let linkRelations = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link' && relation.targetId === question.id)
+  assert(linkRelations.length === 1 && linkRelations[0].sourceId === alpha.id && linkRelations[0].reviewStatus === 'approved', `A [[link]] did not become a relation: ${JSON.stringify(linkRelations)}`)
+  assert.equal((await readKnowledgeNode(root, alpha.id)).content.split('> [!abstract] 관계').length, blocksBefore, 'A link relation wrote a redundant relation block into the note.')
+  assert.equal((await syncLinkRelations(root, alpha.id)).added, 0, 'Re-syncing duplicated the link relation.')
+  // A concept that already carries a typed relation is not downgraded to a plain link.
+  assert(!(await listKnowledgeRelationRecords(root)).some((relation) => relation.origin === 'link' && relation.targetId === 'concept-aaaaaaaa'), 'A typed relation was shadowed by a link relation.')
+
+  const beforeUpgrade = await readKnowledgeNode(root, alpha.id)
+  await createKnowledgeRelation(root, { sourceId: alpha.id, targetId: question.id, type: 'raises', creator: 'user', expectedRevision: beforeUpgrade.revision })
+  linkRelations = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link' && relation.targetId === question.id)
+  assert.equal(linkRelations.length, 0, 'A typed relation did not replace the plain link relation.')
+  assert.equal((await syncLinkRelations(root, alpha.id)).added, 0, 'The link relation came back after it was upgraded.')
+
+  const withoutLink = await readKnowledgeNode(root, alpha.id)
+  await saveKnowledgeNode(root, alpha.id, { content: withoutLink.content.replace('관련 질문: [[Questions/Open question]]', '관련 질문 없음'), expectedRevision: withoutLink.revision })
+  await syncLinkRelations(root, alpha.id)
+  const stillTyped = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.sourceId === alpha.id && relation.targetId === question.id)
+  assert(stillTyped.length === 1 && stillTyped[0].type === 'raises', 'Removing the link should not remove the typed relation the researcher approved.')
+
+  // Deleting a note is undoable: the trash entry restores it to its folder.
+  const disposable = await createKnowledgeNode(root, { nodeType: 'question', title: '지울 질문' })
+  const removed = await deleteKnowledgeNode(root, disposable.id)
+  assert(removed.trashed.startsWith('.prism/trash/knowledge/') && removed.title === '지울 질문', `Deleting did not report a restorable trash entry: ${JSON.stringify(removed)}`)
+  await assert.rejects(fs.access(path.join(root, 'Questions', '지울 질문.md')))
+  const restored = await restoreKnowledgeNode(root, removed.trashed)
+  assert.equal(restored.id, disposable.id)
+  assert((await fs.stat(path.join(root, 'Questions', '지울 질문.md'))).isFile(), 'Undo did not put the note back in its folder.')
+  await assert.rejects(restoreKnowledgeNode(root, '../outside.md'), /올바르지/)
+
+  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges with typed upgrades, and undoable deletion.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }
