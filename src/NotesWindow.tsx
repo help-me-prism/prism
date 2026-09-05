@@ -201,17 +201,18 @@ export default function NotesWindow() {
   </div>
 
   return <main className={`notes-window${sideOpen ? ' has-side' : ''}`}>
+    {/* Six unlabelled glyphs are six guesses. The words are short enough to fit next to them. */}
     <nav className="notes-rail" aria-label="작업 영역">
-      <button aria-label="논문 리더" title="논문 리더 창으로" onClick={() => void window.prism.openPaperInReader()}><BookOpen size={17} /></button>
-      <button aria-label="노트" title="노트" aria-pressed={view === 'doc'} onClick={() => setView('doc')}><NotebookPen size={17} /></button>
+      <button aria-label="논문 리더" title="논문 리더 창으로" onClick={() => void window.prism.openPaperInReader()}><BookOpen size={17} /><b>리더</b></button>
+      <button aria-label="노트" title="노트" aria-pressed={view === 'doc'} onClick={() => setView('doc')}><NotebookPen size={17} /><b>노트</b></button>
       <button aria-label="정리 대기열" title="정리 대기열" aria-pressed={view === 'curation'} onClick={() => { setView('curation'); void reloadCuration() }}>
-        <Inbox size={17} />{curation?.total ? <em>{curation.total}</em> : null}
+        <Inbox size={17} />{curation?.total ? <em>{curation.total}</em> : null}<b>정리</b>
       </button>
-      <button aria-label="검색" title="볼트 검색" onClick={() => searchRef.current?.focus()}><Search size={17} /></button>
+      <button aria-label="검색" title="볼트 검색" onClick={() => searchRef.current?.focus()}><Search size={17} /><b>검색</b></button>
       <span className="rail-spacer" />
-      <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><Network size={17} /></button>
-      <button aria-label="노트 양식" title="노트 양식" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={17} /></button>
-      <button aria-label="라이브러리 폴더" title="라이브러리 폴더 선택" onClick={() => void chooseLibrary()}><Settings2 size={17} /></button>
+      <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><Network size={17} /><b>연결</b></button>
+      <button aria-label="노트 양식" title="노트 양식" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={17} /><b>양식</b></button>
+      <button aria-label="라이브러리 폴더" title="라이브러리 폴더 선택" onClick={() => void chooseLibrary()}><Settings2 size={17} /><b>볼트</b></button>
     </nav>
 
     <aside className="notes-tree" aria-label="볼트">
@@ -298,9 +299,7 @@ export default function NotesWindow() {
             contextKey={`${relations.length}:${backlinks.length}`}
           />
           : <div className="notes-blank">
-            <NotebookPen size={30} />
-            <h1>노트를 선택하세요</h1>
-            <p>왼쪽 트리에서 논문·개념·주장·질문 노트를 엽니다. 리더에서 문장을 우클릭해 담은 메모는 해당 논문 노트에 쌓입니다.</p>
+            <p>왼쪽에서 노트를 열거나</p>
             <div className="blank-actions">
               <button onClick={() => void window.prism.openPaperInReader()}><BookOpen size={13} /> 리더 열기</button>
               <button onClick={() => setCreating({ nodeType: 'concept', title: '', templateId: '' })}><FilePlus2 size={13} /> 새 노트</button>
@@ -310,17 +309,15 @@ export default function NotesWindow() {
 
     {sideOpen && <ConnectionsPanel
       node={view === 'doc' ? active : undefined} relations={relations} backlinks={backlinks} citations={citations}
-      citationsLoading={citationsLoading} pendingCount={curation?.total ?? 0} onOpenNode={openNode}
+      citationsLoading={citationsLoading} onOpenNode={openNode}
       onRefreshCitations={() => void reloadContext(true)} onAddCitationRelation={addCitationRelation}
-      onOpenCuration={() => { setView('curation'); void reloadCuration() }}
     />}
 
     <footer className="notes-status">
       <span>{libraryPath ? libraryPath.split(/[\\/]/).filter(Boolean).at(-1) : '라이브러리 없음'}</span>
       <span>노드 {nodes.length}</span>
       {active && <span>이 노트 · 관계 {relationCount} · 백링크 {backlinks.length}</span>}
-      <span className="status-push">{curation?.total ? `정리 대기 ${curation.total}` : '정리 완료'}</span>
-      <span>markdown</span>
+      <span className="status-push">markdown</span>
     </footer>
 
     {templatesOpen && <TemplateManager onClose={() => { setTemplatesOpen(false); void reloadNodes() }} />}

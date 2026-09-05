@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Inbox, RefreshCw } from 'lucide-react'
+import { ExternalLink, RefreshCw } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
 
 type Hop2 = { parentId: string; relation: KnowledgeRelationView }
@@ -9,17 +9,15 @@ type Hop2 = { parentId: string; relation: KnowledgeRelationView }
  * The manual graph and the citation layer are drawn separately on purpose — approved edges must never be
  * buried under thousands of citations.
  */
-export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, pendingCount, onOpenNode, onRefreshCitations, onAddCitationRelation, onOpenCuration }: {
+export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, onOpenNode, onRefreshCitations, onAddCitationRelation }: {
   node?: KnowledgeNodeRecord
   relations: KnowledgeRelationView[]
   backlinks: KnowledgeBacklink[]
   citations?: CitationLinks
   citationsLoading: boolean
-  pendingCount: number
   onOpenNode: (id: string) => void
   onRefreshCitations: () => void
   onAddCitationRelation: (entry: CitationEntry, direction: 'references' | 'citations') => void
-  onOpenCuration: () => void
 }) {
   const [hops, setHops] = useState<1 | 2>(1)
   const [showCitations, setShowCitations] = useState(false)
@@ -60,8 +58,11 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   }
   const primary = [...approved.map((item) => ({ kind: 'manual' as const, item })), ...citationNeighbours.map((item) => ({ kind: 'citation' as const, item }))]
 
+  // A panel of headings over empty boxes reads as broken. Every section here appears only once it has
+  // something to show; with nothing open the panel is a single line instead of four hollow ones.
   return <aside className="notes-side" aria-label="연결">
-    <section className="side-sec side-graph">
+    {!node && <p className="side-idle">노트를 열면 연결·백링크가 여기에 표시됩니다.</p>}
+    {node && <section className="side-sec side-graph">
       <header>
         <span>연결 그래프{hops === 2 ? ' · 2홉' : ''}</span>
         <div className="side-chips">
@@ -115,18 +116,18 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
           {(['paper', 'concept', 'claim', 'question'] as KnowledgeNodeType[]).map((type) => <span key={type}><i className={`kind-dot kind-${type}`} />{typeLabels[type]}</span>)}
           <span><i className="kind-dot is-contra" />반박</span>
         </div>
-      </> : <p className="side-empty">노트를 열면 연결 그래프가 표시됩니다.</p>}
-    </section>
+      </> : null}
+    </section>}
 
-    <section className="side-sec side-links">
+    {backlinks.length > 0 && <section className="side-sec side-links">
       <header><span>백링크</span><small>{backlinks.length}</small></header>
       <div className="side-list">
-        {backlinks.length ? backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>
+        {backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>
           <span className="side-row-title"><i className={`kind-dot kind-${item.nodeType}`} />{item.title}</span>
           <small>{item.excerpt}</small>
-        </button>) : <p className="side-empty">이 노트를 링크한 노트가 아직 없습니다.</p>}
+        </button>)}
       </div>
-    </section>
+    </section>}
 
     {node?.nodeType === 'paper' && <section className="side-sec side-citations">
       <header>
@@ -136,7 +137,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
       </header>
       <div className="side-list">
         {citationsLoading ? <p className="side-empty">Semantic Scholar에서 불러오는 중…</p>
-          : !citations?.fetchedAt ? <p className="side-empty">{citations?.error ?? '새로고침을 누르면 참고문헌과 피인용 논문을 가져옵니다.'}</p>
+          : !citations?.fetchedAt ? (citations?.error ? <p className="side-empty">{citations.error}</p> : null)
             : <>
               {([['references', '참고문헌'], ['citations', '이 논문을 인용']] as const).map(([key, label]) => <details key={key} open={key === 'references'}>
                 <summary>{label} {citations[key].length}편 · 라이브러리 {citations[key].filter((item) => item.inLibrary).length}편</summary>
@@ -153,14 +154,5 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
             </>}
       </div>
     </section>}
-
-    <section className="side-sec side-suggest">
-      <header><span>제안</span>{pendingCount > 0 && <small>{pendingCount}</small>}</header>
-      <div className="side-list">
-        {pendingCount > 0
-          ? <button className="side-cta" onClick={onOpenCuration}><Inbox size={13} /><span><strong>정리 대기열에 {pendingCount}건</strong><small>승인·승격·병합을 한 번에 결정합니다</small></span></button>
-          : <p className="side-empty">지금 결정할 항목이 없습니다. 논문을 읽고 근거를 담으면 여기에 쌓입니다.</p>}
-      </div>
-    </section>
   </aside>
 }
