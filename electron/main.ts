@@ -21,7 +21,7 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
-import { pruneEmptySections, readChatMessages, refreshNoteDigest } from './paperDigest.js'
+import { pruneEmptySections, readChatMessages, refreshNoteDigest, titleMatcher } from './paperDigest.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -325,7 +325,40 @@ async function saveSessions(value: unknown) {
   if (Buffer.byteLength(json) > 15 * 1024 * 1024) throw new Error('세션 저장 용량이 15MB를 초과했습니다.')
   await fs.mkdir(path.dirname(sessionsPath()), { recursive: true })
   await fs.writeFile(sessionsPath(), json, 'utf8')
+  scheduleChatRouting()
   return true
+}
+
+/**
+ * Chat is where the researcher says what they do not understand, and a note that only hears about it when
+ * somebody happens to open it is a filing cabinet, not a memory. Every time a conversation settles, the
+ * notes it was about catch up on their own: the papers in its context, and any concept, claim or question
+ * whose name came up. Only the generated regions move, and only for free — no model runs here, so this
+ * costs a few file reads and can happen in the background without asking.
+ */
+let chatRoutingTimer: NodeJS.Timeout | undefined
+let chatRouting: Promise<void> = Promise.resolve()
+function scheduleChatRouting() {
+  if (chatRoutingTimer) clearTimeout(chatRoutingTimer)
+  // Streaming saves the session on every chunk; the interesting moment is when it stops.
+  chatRoutingTimer = setTimeout(() => { chatRouting = chatRouting.then(routeChatIntoNotes).catch(() => undefined) }, 4000)
+}
+async function routeChatIntoNotes() {
+  const settings = await readSettings()
+  if (!settings.libraryPath) return
+  const messages = await readChatMessages(sessionsPath())
+  if (!messages.length) return
+  const recent = messages.slice(-40)
+  const spokenAbout = new Set(recent.flatMap((message) => [...(message.paperIds ?? []), ...(message.anchors ?? []).map((anchor) => anchor.paperId)]))
+  const said = recent.filter((message) => message.role === 'user').map((message) => message.text).join('\n')
+  const nodes = await listKnowledgeNodes(settings.libraryPath).catch(() => [])
+  const targets = nodes.filter((node) => node.nodeType === 'paper'
+    ? Boolean(node.arxivId && spokenAbout.has(node.arxivId))
+    : ['concept', 'claim', 'question'].includes(node.nodeType) && titleMatcher(node.title)(said))
+  for (const node of targets.slice(0, 12)) {
+    // One note failing — renamed, open in Obsidian, mid-edit — must not stop the others catching up.
+    try { await refreshNoteDigest(settings.libraryPath, node.id, messages) } catch { /* it will catch up on the next turn */ }
+  }
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json') }

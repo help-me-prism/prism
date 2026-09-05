@@ -192,8 +192,13 @@ async function setField(connection, tag, label, value, event) {
   })()`)
 }
 const setInput = (connection, label, value, tag = 'input') => setField(connection, tag, label, value, 'input')
+// Properties start folded so the writing is the first thing on screen; editing one means opening them.
+async function openProperties(connection) {
+  await connection.evaluate(`(() => { const box = document.querySelector('details.note-props'); if (box && !box.open) box.querySelector('summary').click(); return true })()`)
+}
 // Property text fields commit on blur, the way a document field should.
 async function setPropertyText(connection, label, value) {
+  await openProperties(connection)
   await connection.evaluate(`(() => {
     const field = document.querySelector('.prop-text[aria-label="' + ${JSON.stringify(label)} + '"]');
     if (!field) throw new Error('missing property field');
@@ -431,7 +436,8 @@ try {
   // ---------- citation layer is cache-only under test ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.side-citations'))`), 'A paper note did not show the citation layer.', 8000)
-  assert(await notesConnection.evaluate(`document.querySelector('.side-citations .side-empty')?.textContent.includes('새로고침')`), 'The citation layer fetched without an explicit refresh.')
+  // Nothing fetched means nothing rendered: the header and its refresh button are the whole section.
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.side-citations .citation-row').length === 0 && !document.querySelector('.side-citations .citation-meta')`), 'The citation layer fetched without an explicit refresh.')
 
   // ---------- Obsidian navigation keeps native paths ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.getAttribute('aria-label') === '노트 메뉴').click()`)

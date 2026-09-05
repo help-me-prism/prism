@@ -12,11 +12,15 @@ import { listKnowledgeRelations } from './relations.js'
  * Nothing outside those markers is ever touched.
  */
 export type DigestChatMessage = { role: 'user' | 'assistant'; text: string; createdAt: number; paperIds?: string[]; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number; source?: string }> }
-export type PaperDigestSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers'
+export type PaperDigestSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers' | 'asked' | 'definition' | 'stake'
 export type PaperDigestResult = { updated: boolean; chatMessages: number; sections: PaperDigestSection[]; usedModel: boolean }
 export type RunPrompt = (prompt: string) => Promise<string>
 
-const sectionHeadings: Record<PaperDigestSection, string> = { overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나', support: '지지 근거', against: '반박', answers: '지금까지 나온 답' }
+const sectionHeadings: Record<PaperDigestSection, string> = {
+  overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나',
+  support: '지지 근거', against: '반박', answers: '지금까지 나온 답', asked: '대화에서 물어본 것',
+  definition: '정의', stake: '무엇에 달려 있나',
+}
 const userHeading = '내 생각'
 const memoHeading = '메모'
 const questionWords = /(왜|어떻게|무엇|뭐|뭔|어디|언제|어느|차이|이유|의미|맞나|맞아|인가|인지|할까|일까|되나|되는지|모르겠|이해가|헷갈|why|how|what|which|difference|mean)/i
@@ -93,6 +97,47 @@ export function confusionFromChat(messages: DigestChatMessage[], topics: Set<str
 }
 
 /**
+ * Nobody types "Optimal Transport" twice in a row; the second time it is "OT". A note whose title is
+ * several capitalised words answers to its initials as well, matched as a whole word so "OT" does not pick
+ * up "OTHER". This is how a sentence anywhere in the vault is recognised as being about a note.
+ */
+export function titleMatcher(title: string) {
+  const needle = title.trim().toLocaleLowerCase()
+  const words = title.trim().split(/\s+/)
+  const initials = words.filter((word) => /^[A-Z]/.test(word)).map((word) => word[0]).join('')
+  const acronym = words.length > 1 && initials.length >= 2 && initials.length <= 5 ? new RegExp(`\\b${initials}\\b`) : undefined
+  return (text: string) => needle.length >= 3 && (text.toLocaleLowerCase().includes(needle) || Boolean(acronym?.test(text)))
+}
+
+/**
+ * A concept, claim or question has no chat of its own, but the researcher talks about it constantly while
+ * reading: "OT 경로가 왜 더 빠른가요?" is about Optimal Transport wherever it was typed. Naming the note is
+ * what makes a message belong to it — the same rule the vault already uses for `[[links]]` — so the note
+ * accumulates what was asked about it without anybody filing anything.
+ */
+export function mentionsFromChat(messages: DigestChatMessage[], title: string, paperTitles: Map<string, string>) {
+  const names = titleMatcher(title)
+  const found: Array<{ text: string; paper?: string; at: number; count: number; stems: string[] }> = []
+  for (const message of messages) {
+    if (message.role !== 'user' || !names(message.text)) continue
+    const naming = sentenceSplit(message.text).filter(names)
+    const picked = naming.find((sentence) => sentence.includes('?') || questionWords.test(sentence)) ?? naming[0]
+    if (!picked || picked.length < 6 || picked.length > 200) continue
+    const paper = message.paperIds?.map((id) => paperTitles.get(id)).find(Boolean)
+    const stems = questionStems(picked)
+    const existing = found.find((item) => sameWorry(item.stems, stems))
+    if (existing) {
+      existing.count += 1; existing.at = Math.max(existing.at, message.createdAt)
+      if (picked.length < existing.text.length) { existing.text = picked; existing.stems = stems }
+      continue
+    }
+    found.push({ text: picked, paper, at: message.createdAt, count: 1, stems })
+  }
+  return found.sort((left, right) => right.at - left.at).slice(0, 5)
+    .map(({ text, paper, count }) => ({ text, paper, count }))
+}
+
+/**
  * Sentence splitting also produces the tail of a thought — "아직 이해가 안 됩니다" — which reads as noise in a
  * note. A question is kept only when it names something: an ASCII term, or a Korean word that is not a bare
  * predicate and not one of the fillers below.
@@ -151,7 +196,7 @@ function markers(section: PaperDigestSection) {
  * Replaces one generated region. When the note has no such region yet the section is inserted before the
  * researcher's own sections, so their writing always stays at the bottom where they left it.
  */
-export function writeAutoSection(content: string, section: PaperDigestSection, body: string) {
+export function writeAutoSection(content: string, section: PaperDigestSection, body: string, order: PaperDigestSection[] = []) {
   const { open, close } = markers(section)
   const block = `${open}\n${body.trim() || '_아직 없음_'}\n${close}`
   const normalized = content.replace(/\r\n/g, '\n')
@@ -161,7 +206,8 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
     if (end >= 0) return `${normalized.slice(0, start)}${block}${normalized.slice(end + close.length)}`
   }
   const heading = `## ${sectionHeadings[section]}`
-  const headingAt = normalized.indexOf(`\n${heading}`)
+  // Matched as a whole line: "## 정의" must not claim the "## 정의 비교" table further down the note.
+  const headingAt = normalized.search(new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm')) - 1
   if (headingAt >= 0) {
     const afterHeading = normalized.indexOf('\n', headingAt + 1) + 1
     const nextHeading = normalized.slice(afterHeading).search(/\n#{1,2}\s/)
@@ -169,6 +215,14 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
     return `${normalized.slice(0, afterHeading)}\n${block}\n${normalized.slice(until)}`
   }
   const insertion = `\n\n${heading}\n\n${block}\n`
+  // A definition belongs above what people asked about the thing being defined, so a section that arrives
+  // late still takes the place its kind of note gives it, rather than piling on at the bottom.
+  for (const later of order.slice(order.indexOf(section) + 1)) {
+    if (order.indexOf(section) < 0) break
+    const laterHeading = `## ${sectionHeadings[later]}`
+    const at = normalized.search(new RegExp(`^${laterHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm')) - 1
+    if (at >= 0) return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
+  }
   // A summary is only useful at the top. Sections stack under each other, below the abstract, above everything else.
   const lastClose = [...normalized.matchAll(/<!-- \/prism:auto [a-z]+ -->/g)].at(-1)
   if (lastClose?.index !== undefined) {
@@ -389,15 +443,46 @@ export function digestSectionPath(libraryPath: string, paperNodeId: string) {
   return path.join(libraryPath, '.prism', 'cache', `${paperNodeId.replace(/[^a-zA-Z0-9._-]/g, '_')}.digest.json`)
 }
 
-const relationSections: Partial<Record<string, Array<{ section: PaperDigestSection; types: string[]; direction?: 'incoming' | 'outgoing' }>>> = {
+export type NoteSectionRule = {
+  section: PaperDigestSection
+  /** `machine` costs nothing and runs on every open; `model` costs a call and only runs when one is asked for. */
+  by: 'machine' | 'model'
+  relations?: { types: string[]; direction?: 'incoming' | 'outgoing' }
+}
+
+/**
+ * Which parts of a note write themselves, per kind of note. This table is the whole policy: a section
+ * listed here is Prism's to keep current, and everything else in the file belongs to the researcher and is
+ * never touched. `machine` sections are derived from what the vault already knows — links, relations,
+ * chat — so they are rewritten every time the note is opened. `model` sections need a model to say
+ * anything at all, so they wait until the researcher asks for one and are left alone otherwise.
+ *
+ * Papers are the exception in one direction only: their `overview` and `confusion` are written mechanically
+ * and a model rewrites them better when it is available.
+ */
+export const noteAutomation: Partial<Record<string, NoteSectionRule[]>> = {
+  paper: [
+    { section: 'overview', by: 'machine' },
+    { section: 'confusion', by: 'machine' },
+    { section: 'focus', by: 'machine' },
+  ],
+  concept: [
+    { section: 'definition', by: 'model' },
+    { section: 'sources', by: 'machine' },
+    { section: 'asked', by: 'machine' },
+  ],
   claim: [
-    { section: 'support', types: ['supports', 'evidence_for'] },
-    { section: 'against', types: ['contradicts'] },
+    { section: 'sources', by: 'machine' },
+    { section: 'support', by: 'machine', relations: { types: ['supports', 'evidence_for'] } },
+    { section: 'against', by: 'machine', relations: { types: ['contradicts'] } },
+    { section: 'asked', by: 'machine' },
+    { section: 'stake', by: 'model' },
   ],
   question: [
-    { section: 'answers', types: ['answers'] },
+    { section: 'sources', by: 'machine' },
+    { section: 'answers', by: 'machine', relations: { types: ['answers'] } },
+    { section: 'asked', by: 'machine' },
   ],
-  // A concept needs no relation list of its own: the sources section already names every note that reaches it.
 }
 
 const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
@@ -434,25 +519,117 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
     const prose = excerpt.startsWith('>') || excerpt.startsWith('|') || excerpt.length < 12 || excerpt === item.title ? '' : sourceSentence(excerpt, node.title)
     return `[[${item.relativePath.replace(/\.md$/i, '')}|${item.title}]]${prose ? ` — ${prose}` : ''}`
   })
-  const plan: Array<[PaperDigestSection, string[]]> = [['sources', sourceLines]]
-  for (const rule of relationSections[node.nodeType] ?? []) {
-    const lines = approved
-      .filter((item) => rule.types.includes(item.type) && (!rule.direction || item.direction === rule.direction))
-      .map(relationLine)
+  const paperTitles = new Map(nodes.filter((item) => item.nodeType === 'paper' && item.arxivId).map((item) => [item.arxivId!, item.title]))
+  const asked = mentionsFromChat(messages, node.title, paperTitles)
+  const askedLines = asked.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}${item.paper ? ` — ${item.paper}` : ''}`)
+  const grounding = groundingFor(node.title, snapshot.content, backlinks, approved, await sentencesFromLinkingNotes(libraryPath, node.title, backlinks))
+
+  const rules = noteAutomation[node.nodeType] ?? []
+  const order = rules.map((rule) => rule.section)
+  const plan: Array<[PaperDigestSection, string[]]> = []
+  let usedModel = false
+  for (const rule of rules) {
+    if (rule.relations) {
+      plan.push([rule.section, approved
+        .filter((item) => rule.relations!.types.includes(item.type) && (!rule.relations!.direction || item.direction === rule.relations!.direction))
+        .map(relationLine)])
+      continue
+    }
+    if (rule.section === 'sources') { plan.push(['sources', sourceLines]); continue }
+    if (rule.section === 'asked') { plan.push(['asked', askedLines]); continue }
+    if (rule.by !== 'model') continue
+    // A model section that cannot be written is left exactly as it is: no model today does not mean the
+    // definition written yesterday was wrong.
+    if (!runPrompt || !grounding) continue
+    const lines = await modelSection(rule.section, node.title, grounding, asked.map((item) => item.text), runPrompt)
+    if (!lines.length) continue
+    usedModel = true
     plan.push([rule.section, lines])
   }
 
   for (const [section, lines] of plan) {
     // A section with nothing in it is the empty heading this whole design is trying to get rid of.
     if (!lines.length) { const removed = removeAutoSection(next, section); if (removed !== next) { next = removed; written.push(section) } ; continue }
-    const updated = writeAutoSection(next, section, bulletList([...new Set(lines)]))
+    const updated = writeAutoSection(next, section, bulletList([...new Set(lines)]), order)
     if (updated !== next) { next = updated; written.push(section) }
   }
 
-  if (next === snapshot.content) return { updated: false, chatMessages: 0, sections: [], usedModel: false }
+  if (next === snapshot.content) return { updated: false, chatMessages: asked.length, sections: [], usedModel }
   const saved = await saveKnowledgeNode(libraryPath, node.id, { content: next, expectedRevision: snapshot.revision })
   if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
-  return { updated: true, chatMessages: 0, sections: written, usedModel: false }
+  return { updated: true, chatMessages: asked.length, sections: written, usedModel }
+}
+
+/**
+ * Everything the model is allowed to look at, and nothing else. A definition drafted from the note's own
+ * evidence quotes and the sentences that link to it is a summary of the vault; a definition drafted from
+ * the model's memory of the term is somebody else's note in the researcher's file.
+ */
+/**
+ * A concept that only exists because a paper mentioned it has almost nothing in its own file, and a
+ * definition drafted from that says only "it was mentioned". The papers that link to it do have the
+ * sentences — in their abstracts — so those are read too, and only the ones that name the concept are kept.
+ */
+async function sentencesFromLinkingNotes(libraryPath: string, title: string, backlinks: Array<{ nodeId: string }>) {
+  const names = titleMatcher(title)
+  const sentences: string[] = []
+  for (const item of backlinks.slice(0, 5)) {
+    try {
+      const other = await readKnowledgeNode(libraryPath, item.nodeId)
+      for (const sentence of sentenceSplit(abstractOf(other.content))) if (names(sentence) && sentence.length > 30) sentences.push(sentence)
+    } catch { /* the linking note may have been renamed or deleted since the backlink was indexed */ }
+  }
+  return sentences
+}
+
+function groundingFor(title: string, content: string, backlinks: Array<{ title: string; excerpt?: string }>, relations: Array<{ type: string; direction: string; other: { title: string } }>, linked: string[]) {
+  const quotes = [...content.matchAll(/^>\s*(?!\[!)([^\n]+)$/gm)].map((match) => normalizeSpace(match[1])).filter((line) => line.length > 30)
+  const rows = [...content.matchAll(/^\|(?!\s*-)([^\n]+)\|\s*$/gm)].map((match) => normalizeSpace(match[1].replace(/\\\|/g, '|'))).filter((row) => row.length > 30)
+  const around = backlinks.map((item) => sourceSentence(normalizeSpace(item.excerpt ?? ''), title)).filter((line) => line.length > 12)
+  const related = relations.map((item) => `${item.direction === 'incoming' ? '←' : '→'} ${relationWording[item.type] ?? item.type}: ${item.other.title}`)
+  const material = [...new Set([...linked, ...quotes, ...rows, ...around])].slice(0, 12)
+  if (!material.length && !related.length) return undefined
+  return { material, related: related.slice(0, 12) }
+}
+
+const modelSectionAsk: Partial<Record<PaperDigestSection, string>> = {
+  definition: 'Write 1-2 short Korean lines saying what this term means, using ONLY the material. If the material names more than one reading of it, say so in the second line.',
+  stake: 'Write 1-2 short Korean lines saying what this claim rests on and what would overturn it, using ONLY the material.',
+}
+
+/** The model gets the note's own material and is told to return nothing rather than fill the space. */
+async function modelSection(section: PaperDigestSection, title: string, grounding: { material: string[]; related: string[] }, asked: string[], runPrompt: RunPrompt) {
+  const ask = modelSectionAsk[section]
+  if (!ask) return []
+  const prompt = [
+    'You are writing one section of a researcher\'s note in Korean. Be terse and factual.',
+    'Use ONLY the material below. Never add anything you happen to know about the subject.',
+    'If the material is too thin to say anything true, return {"lines":[]}. An empty section is correct; an invented one is not.',
+    '',
+    `SUBJECT: ${title}`,
+    '',
+    'MATERIAL (quotes and sentences from the vault):',
+    ...(grounding.material.length ? grounding.material.map((item) => `- ${item}`) : ['- none']),
+    '',
+    'RELATED NOTES:',
+    ...(grounding.related.length ? grounding.related.map((item) => `- ${item}`) : ['- none']),
+    '',
+    'WHAT THEY ASKED ABOUT IT:',
+    ...(asked.length ? asked.map((item) => `- ${item}`) : ['- none']),
+    '',
+    ask,
+    'Return ONLY JSON: {"lines":["…"]}',
+  ].join('\n')
+  try {
+    const text = await runPrompt(prompt)
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+    const body = fenced ? fenced[1] : text
+    const start = body.indexOf('{'); const end = body.lastIndexOf('}')
+    if (start < 0 || end <= start) return []
+    const value = JSON.parse(body.slice(start, end + 1)) as { lines?: unknown }
+    if (!Array.isArray(value.lines)) return []
+    return value.lines.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map(normalizeSpace).slice(0, 3)
+  } catch { return [] }
 }
 
 /**

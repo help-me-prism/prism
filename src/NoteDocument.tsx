@@ -13,6 +13,7 @@ type Picker =
   | { kind: 'evidence'; query: string; relink?: EmbeddedEvidence }
   | { kind: 'evidence-claim'; query: string; evidence: EmbeddedEvidence; type: 'supports' | 'contradicts' | 'extends' }
   | { kind: 'copy-evidence'; query: string; evidence: EmbeddedEvidence }
+  | { kind: 'answer'; query: string }
 
 /**
  * One document view for every node type. Papers and knowledge notes are the same kind of thing now,
@@ -232,6 +233,21 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       onNotify(`${target.title}와(과) '${relationLabels[type]}' 관계를 만들었습니다.`)
     } catch (reason) { onNotify(String(reason), 'error') }
   }
+  /**
+   * A question is answered by something else, so the `answers` relation belongs in the answering note —
+   * which left the one screen where the answer is obvious, the question's own, with no way to record it.
+   * Picking the answering note here writes the relation over there.
+   */
+  async function addAnswer(source: KnowledgeNodeRecord) {
+    try {
+      const other = await window.prism.readKnowledgeNode(source.id)
+      const result = await window.prism.createKnowledgeRelation({ sourceId: source.id, targetId: node.id, type: 'answers', creator: 'user', expectedRevision: other.revision })
+      if (!result.saved) { onNotify('답하는 노트가 외부에서 변경되어 관계를 추가하지 않았습니다.', 'error'); return }
+      setPicker(undefined)
+      await onReloadContext(); await onReloadNodes()
+      onNotify(`'${source.title}'이(가) 이 질문에 답한다고 기록했습니다.`)
+    } catch (reason) { onNotify(String(reason), 'error') }
+  }
   async function deleteRelation(item: KnowledgeRelationView) {
     if (item.direction !== 'outgoing') { onNotify('이 노트에서 만든 관계만 삭제할 수 있습니다. 반대쪽 노트에서 지우세요.'); return }
     if (dirtyRef.current && !(await save())) return
@@ -373,6 +389,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (picker.kind === 'evidence-claim') return nodes.filter((item) => item.nodeType === 'claim' && item.id !== node.id && match(item)).slice(0, 40)
     if (picker.kind === 'copy-evidence') return nodes.filter((item) => item.id !== node.id && match(item)).slice(0, 40)
     if (picker.kind === 'link') return nodes.filter((item) => item.id !== node.id && match(item)).slice(0, 40)
+    if (picker.kind === 'answer') return nodes.filter((item) => item.id !== node.id && relationTypesFor(item, node).includes('answers') && match(item)).slice(0, 40)
     return []
   }, [picker, nodes, node])
   const pickerAnchors = useMemo(() => {
@@ -412,7 +429,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
             <button role="menuitem" onClick={() => { setMenuOpen(false); void window.prism.openKnowledgeNodeInObsidian({ nodeId: node.id }).catch((reason) => onNotify(String(reason), 'error')) }}><ExternalLink size={12} /> Obsidian에서 열기</button>
-            {node.nodeType === 'paper' && <button role="menuitem" disabled={digesting} onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>}
+            <button role="menuitem" disabled={digesting} onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>
             <button role="menuitem" title="내용이 하나도 없는 제목만 지웁니다" onClick={() => { setMenuOpen(false); void pruneSections() }}><Trash2 size={12} /> 빈 양식 섹션 정리</button>
             {node.nodeType === 'paper' && <button role="menuitem" disabled={suggesting} onClick={() => { setMenuOpen(false); void runModelSuggestions() }}><Sparkles size={12} /> {suggesting ? '제안 중…' : '모델에게 관계 제안 받기'}</button>}
             {nodeTemplates.map((template) => <button key={template.id} role="menuitem" onClick={() => void applyTemplateSections(template.id)}>양식 적용 · {template.name}</button>)}
@@ -444,7 +461,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
               {pending.length > 0 && <tr className="prop-pending"><td>검토 대기</td><td>
                 {pending.map((item) => <span key={item.id} className="rel-chip is-pending"><button onClick={() => onOpenNode(item.other.id)}>{relationLabels[item.type]} · {item.other.title}</button>{item.direction === 'outgoing' && <><button className="rel-approve" aria-label={`${item.other.title} 관계 승인`} onClick={() => void reviewRelation(item, 'approved')}><Check size={10} /></button><button className="rel-remove" aria-label={`${item.other.title} 관계 거절`} onClick={() => void reviewRelation(item, 'rejected')}><X size={10} /></button></>}</span>)}
               </td></tr>}
-              <tr className="prop-add"><td /><td><button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button></td></tr>
+              <tr className="prop-add"><td /><td><button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button>{node.nodeType === 'question' && <button onClick={() => setPicker({ kind: 'answer', query: '' })}><Plus size={11} /> 답 연결</button>}</td></tr>
             </tbody>
           </table>
         </details>
@@ -455,7 +472,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
             onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint">{node.nodeType === 'paper' && <button className="note-write-mine" title="자동 정리가 건드리지 않는, 나만 쓰는 칸으로 갑니다" onClick={() => { if (!editorRef.current?.focusSection('내 생각')) editorRef.current?.moveToEnd() }}><PenLine size={11} /> 내 생각 쓰기</button>}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span>{node.nodeType === 'paper' && <button className="note-digest-run" disabled={digesting} title="초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다" onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button>}</p>
+          <p className="note-hint"><button className="note-write-mine" title="자동 정리가 건드리지 않는, 나만 쓰는 칸으로 갑니다" onClick={() => { if (!editorRef.current?.focusSection('내 생각')) editorRef.current?.moveToEnd() }}><PenLine size={11} /> 내 생각 쓰기</button><button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting} title={node.nodeType === 'paper' ? '초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다' : '이 노트를 가리키는 노트와 대화를 다시 읽어 자동 구간을 갱신합니다'} onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button></p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>
@@ -480,7 +497,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       </div>
     </div>
 
-    {picker && <section className="note-picker" aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : '연결할 노트 선택'}>
+    {picker && <section className="note-picker" aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : picker.kind === 'answer' ? '이 질문에 답하는 노트 선택' : '연결할 노트 선택'}>
       <header>
         <div><Search size={13} /><input autoFocus aria-label="노트 및 근거 검색" value={picker.query} placeholder={picker.kind === 'evidence' ? '논문 제목, 문장, 수식 검색' : '제목, 본문 검색'} onChange={(event) => setPicker({ ...picker, query: event.target.value })} /></div>
         <button aria-label="선택 닫기" onClick={() => setPicker(undefined)}><X size={13} /></button>
@@ -492,7 +509,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           ? pickerAnchors.length ? pickerAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => insertEvidence(anchor, picker.relink)}><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.paperTitle}</small><strong>{anchor.source}</strong></button>)
             : <p>저장된 PDF 앵커가 없습니다. 리더에서 논문을 열면 문장·수식·표 앵커가 만들어집니다.</p>
           : pickerTargets.length ? pickerTargets.map((target) => <button key={target.id} onClick={() => {
-            if (picker.kind === 'relation') void addRelation(target, picker.type)
+            if (picker.kind === 'answer') void addAnswer(target)
+            else if (picker.kind === 'relation') void addRelation(target, picker.type)
             else if (picker.kind === 'evidence-claim') void connectEvidenceClaim(picker.evidence, target, picker.type)
             else if (picker.kind === 'copy-evidence') void copyEvidence(picker.evidence, target)
             else void insertLink(target)
