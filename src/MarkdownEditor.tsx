@@ -556,6 +556,27 @@ function liveEditDecorationSet(view: EditorView) {
       }
     }
   }
+  /**
+   * A wiki link carries a file path so the vault can resolve it, and a display name so a person can read it.
+   * Only the second one belongs on screen: `[[papers/2210.02747/2210.02747|Flow Matching]]` reads as
+   * "Flow Matching", `[[Concepts/Optimal Transport]]` as "Optimal Transport". The file keeps the path.
+   */
+  const addWikiLinks = (lineFrom: number, text: string) => {
+    for (const match of text.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+      if (match.index === undefined) continue
+      const from = lineFrom + match.index
+      const to = from + match[0].length
+      ranges.push({ from: from + 2, to: to - 2, decoration: Decoration.mark({ class: 'cm-md-wikilink' }) })
+      if (isActive(from, to)) continue
+      ranges.push({ from, to: from + 2, decoration: Decoration.replace({}) })
+      ranges.push({ from: to - 2, to, decoration: Decoration.replace({}) })
+      const inner = match[1]
+      const pipe = inner.indexOf('|')
+      const target = pipe >= 0 ? inner.slice(0, pipe) : inner
+      const hidden = pipe >= 0 ? pipe + 1 : target.lastIndexOf('/') + 1
+      if (hidden > 0) ranges.push({ from: from + 2, to: from + 2 + hidden, decoration: Decoration.replace({}) })
+    }
+  }
 
   for (const visible of view.visibleRanges) {
     let line = view.state.doc.lineAt(visible.from)
@@ -569,6 +590,16 @@ function liveEditDecorationSet(view: EditorView) {
       }
       if (frontmatterEnd > 0 && line.from < frontmatterEnd && !editingFrontmatter) {
         ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-frontmatter' }) })
+        if (line.number === view.state.doc.lines) break
+        line = view.state.doc.line(line.number + 1)
+        continue
+      }
+      // Block IDs and Prism's own HTML comments are what makes the file work in Obsidian; they are not
+      // writing. Blanking the text alone left the empty line behind, so the whole line goes away and comes
+      // back the moment the cursor needs to reach it.
+      const trimmed = text.trim()
+      if (!isActive(line.from, line.to) && (/^\^[a-zA-Z0-9_-]+$/.test(trimmed) || /^<!--[\s\S]*-->$/.test(trimmed))) {
+        ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: 'cm-md-plumbing' }) })
         if (line.number === view.state.doc.lines) break
         line = view.state.doc.line(line.number + 1)
         continue
@@ -604,7 +635,7 @@ function liveEditDecorationSet(view: EditorView) {
       addInline(line.from, text, /(?<!\*)\*[^*\n]+\*(?!\*)/g, 'cm-md-emphasis', 1)
       addInline(line.from, text, /`[^`\n]+`/g, 'cm-md-inline-code', 1)
       addInline(line.from, text, /\$[^$\n]+\$/g, 'cm-md-inline-math', 1)
-      addInline(line.from, text, /\[\[[^\]\n]+\]\]/g, 'cm-md-wikilink', 2)
+      addWikiLinks(line.from, text)
       if (!isActive(line.from, line.to)) {
         for (const comment of text.matchAll(/<!--[\s\S]*?-->/g)) {
           if (comment.index !== undefined) ranges.push({ from: line.from + comment.index, to: line.from + comment.index + comment[0].length, decoration: Decoration.replace({}) })
