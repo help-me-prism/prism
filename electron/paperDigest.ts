@@ -190,9 +190,12 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
   return `${normalized.trimEnd()}\n${insertion}`
 }
 
+// "The dominant sequence transduction models are based on…" is a paper naming what it means to replace,
+// which is the problem — but it also says "based on", so the method cue has to be the narrower of the two:
+// a sentence where the authors say what *they* did.
 const overviewCues: Array<[string, RegExp]> = [
-  ['문제', /\b(problem|challenge|difficult|limitation|however|but|expensive|unstable|cannot|lack)\b/i],
-  ['방법', /\b(we (introduce|present|propose|develop)|our (method|approach)|based on|framework|algorithm)\b/i],
+  ['문제', /\b(problem|challenge|difficult|limitation|however|but|expensive|unstable|cannot|lack)\b|\b(dominant|existing|current|prior|previous|traditional|conventional|standard)\b[^.]*\b(models?|methods?|approaches?|systems?)\b/i],
+  ['방법', /\b(we (introduce|present|propose|develop|describe)|in this (paper|work)|our (method|approach|model))\b/i],
   ['결과', /\b(result|outperform|improv|achiev|better|faster|state[- ]of[- ]the[- ]art|show that|demonstrat)\b/i],
 ]
 
@@ -201,7 +204,7 @@ const overviewCues: Array<[string, RegExp]> = [
  * result gives the note something the abstract does not: a shape. Korean is used wherever the paper has
  * already been translated, because that is the language the researcher writes their own lines in.
  */
-export function overviewFromAbstract(abstract: string, translations: Map<string, string>) {
+export function overviewFromAbstract(abstract: string, translations: TranslationLookup) {
   const sentences = sentenceSplit(abstract).filter((item) => item.length >= 20)
   if (!sentences.length) return []
   const used = new Set<number>()
@@ -210,24 +213,51 @@ export function overviewFromAbstract(abstract: string, translations: Map<string,
     const index = sentences.findIndex((sentence, at) => !used.has(at) && cue.test(sentence))
     if (index < 0) continue
     used.add(index)
-    lines.push(`**${label}** ${shorten(translations.get(quoteKey(sentences[index])) ?? sentences[index])}`)
+    lines.push(`**${label}** ${shorten(translations.find(sentences[index]) ?? sentences[index])}`)
   }
   if (lines.length) return lines
-  return sentences.slice(0, 2).map((sentence) => shorten(translations.get(quoteKey(sentence)) ?? sentence))
+  return sentences.slice(0, 2).map((sentence) => shorten(translations.find(sentence) ?? sentence))
 }
 function shorten(value: string) { const text = normalizeSpace(value); return text.length > 170 ? `${text.slice(0, 170).trimEnd()}…` : text }
 function quoteKey(value: string) { return normalizeSpace(value).replace(/\s+/g, '').toLocaleLowerCase() }
 
-/** The Korean the reader already paid for: translated sentences, keyed by their source text. */
-export async function readTranslations(libraryPath: string, arxivId: string) {
-  const map = new Map<string, string>()
+export type TranslationLookup = { find: (sentence: string) => string | undefined }
+
+/**
+ * The abstract in the note comes from arXiv's metadata while the translated sentences come from the paper's
+ * own text, so the same sentence reaches us twice in slightly different words — "in an encoder-decoder
+ * configuration" against "that include an encoder and a decoder". Keyed lookup misses, and one bullet of a
+ * Korean summary is left standing in English. Two long sentences that open the same way are the same
+ * sentence.
+ */
+function looseMatch(entries: ReadonlyArray<readonly [string, string]>, key: string) {
+  if (key.length < 40) return undefined
+  let best: string | undefined
+  let bestShared = 0
+  for (const [candidate, translation] of entries) {
+    if (candidate.length < 40) continue
+    let shared = 0
+    while (shared < key.length && shared < candidate.length && key[shared] === candidate[shared]) shared += 1
+    if (shared <= bestShared || shared < 40 || shared / Math.min(key.length, candidate.length) < 0.6) continue
+    bestShared = shared; best = translation
+  }
+  return best
+}
+
+/** The Korean the reader already paid for: translated sentences, looked up by their source text. */
+export async function readTranslations(libraryPath: string, arxivId: string): Promise<TranslationLookup> {
+  const exact = new Map<string, string>()
+  const entries: Array<readonly [string, string]> = []
   try {
     const raw = await fs.readFile(path.join(libraryPath, 'papers', arxivId, 'translation.ko.json'), 'utf8')
     for (const segment of (JSON.parse(raw) as { segments?: Array<{ source?: string; translation?: string }> }).segments ?? []) {
-      if (segment.source && segment.translation) map.set(quoteKey(segment.source), segment.translation)
+      if (!segment.source || !segment.translation) continue
+      const key = quoteKey(segment.source)
+      exact.set(key, segment.translation)
+      entries.push([key, segment.translation] as const)
     }
   } catch { /* a paper that was never translated simply keeps its own language */ }
-  return map
+  return { find: (sentence) => { const key = quoteKey(sentence); return exact.get(key) ?? looseMatch(entries, key) } }
 }
 
 function bulletList(lines: string[]) { return lines.map((line) => `- ${line}`).join('\n') }
@@ -296,7 +326,7 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   }
 
   const focusLines = focus.map((item) => {
-    const quote = item.source ? translations.get(item.source.replace(/\s+/g, '').toLocaleLowerCase()) ?? item.source : ''
+    const quote = item.source ? translations.find(item.source) ?? item.source : ''
     return `${item.label}${item.page ? ` (p.${item.page})` : ''}${item.count > 1 ? ` · ${item.count}번 참조` : ''}${quote ? ` — ${normalizeSpace(quote).slice(0, 120)}` : ''}`
   })
 
@@ -401,8 +431,8 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const sourceLines = backlinks.map((item) => {
     // The line around a link is only worth quoting when it is a sentence, not a generated relation block.
     const excerpt = normalizeSpace(item.excerpt ?? '')
-    const prose = excerpt.startsWith('>') || excerpt.startsWith('|') || excerpt.length < 12 || excerpt === item.title ? '' : excerpt
-    return `[[${item.relativePath.replace(/\.md$/i, '')}|${item.title}]]${prose ? ` — ${prose.slice(0, 140)}` : ''}`
+    const prose = excerpt.startsWith('>') || excerpt.startsWith('|') || excerpt.length < 12 || excerpt === item.title ? '' : sourceSentence(excerpt, node.title)
+    return `[[${item.relativePath.replace(/\.md$/i, '')}|${item.title}]]${prose ? ` — ${prose}` : ''}`
   })
   const plan: Array<[PaperDigestSection, string[]]> = [['sources', sourceLines]]
   for (const rule of relationSections[node.nodeType] ?? []) {
@@ -423,6 +453,20 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const saved = await saveKnowledgeNode(libraryPath, node.id, { content: next, expectedRevision: snapshot.revision })
   if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
   return { updated: true, chatMessages: 0, sections: written, usedModel: false }
+}
+
+/**
+ * A backlink's excerpt is the whole line the link sits on, and in a paragraph that is several sentences —
+ * quoted whole it ran off the end mid-word ("OT는 Optim"). The sentence that names this note is the one
+ * worth keeping, and it ends where the sentence ends.
+ */
+function sourceSentence(excerpt: string, title: string) {
+  const sentences = sentenceSplit(excerpt)
+  const named = sentences.find((sentence) => sentence.includes(title)) ?? sentences[0] ?? ''
+  if (named.length <= 140) return named
+  const cut = named.slice(0, 140)
+  const boundary = cut.lastIndexOf(' ')
+  return `${(boundary > 100 ? cut.slice(0, boundary) : cut).trimEnd()}…`
 }
 
 /** Takes a generated region and its heading away again once there is nothing to put in it. */
