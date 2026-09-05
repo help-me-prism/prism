@@ -255,6 +255,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .slash-command-menu { width: 270px; max-height: 330px; position: absolute; z-index: 20; overflow-y: auto; padding: 5px; border: 1px solid #d8d3ca; border-radius: 9px; background: #fffefb; box-shadow: 0 10px 30px #37332a2b; font-family: Inter, Arial, sans-serif; }.slash-command-menu button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: #47443f; text-align: left; cursor: pointer; }.slash-command-menu button:hover, .slash-command-menu button.active { background: #ece8f7; color: #51458d; }.slash-command-menu strong { font-size: 9px; }.slash-command-menu small { color: #969088; font-size: 7px; }.slash-command-menu p { margin: 8px; color: #918c84; font-size: 8px; }
 
 /* Reading-time capture (Reader right-click panel) */
+.reader-capture-source { max-height: 72px; overflow-y: auto; margin: 0; padding: 8px 10px 0; border-left: 3px solid #c8bfe0; color: #55505d; font-size: 10px; line-height: 1.65; }
 .reader-capture { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #e6e0ea; background: #fbf9fd; }
 .reader-capture-row { display: flex; gap: 6px; }
 .reader-capture input { min-width: 0; flex: 1; height: 28px; padding: 0 9px; border: 1px solid #d5cfdd; border-radius: 7px; outline: 0; background: #fff; color: #48434f; font-size: 9px; }
