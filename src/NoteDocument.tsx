@@ -36,7 +36,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [picker, setPicker] = useState<Picker>()
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleteReady, setDeleteReady] = useState(false)
-  const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') !== 'off')
+  // Properties are metadata about the note, not the note. They start closed so the writing is the first thing on screen.
+  const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') === 'on')
   const [pendingContradiction, setPendingContradiction] = useState<{ message: string; run: () => Promise<void> }>()
   const [suggesting, setSuggesting] = useState(false)
   const [digesting, setDigesting] = useState(false)

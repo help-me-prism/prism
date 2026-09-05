@@ -264,6 +264,66 @@ const sectionFoldState = StateField.define<{ folded: ReadonlySet<number>; decora
   provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
 })
 
+type CalloutBlock = { from: number; bodyFrom: number; to: number; label: string; folded: boolean; lineCount: number }
+
+/**
+ * `> [!abstract]- Abstract` means "starts folded" in Obsidian, and the abstract is the one part of a paper
+ * note the researcher has already read. Honouring the marker is what puts the note's own writing — the
+ * summary, the questions they kept asking — on the first screen instead of below a wall of English.
+ *
+ * Only callouts that carry a fold marker fold; a plain `> [!note]` is prose and stays where it is.
+ */
+function calloutBlocks(state: EditorState) {
+  const blocks: CalloutBlock[] = []
+  for (let number = 1; number <= state.doc.lines; number += 1) {
+    const line = state.doc.line(number)
+    const match = line.text.match(/^\s*>\s*\[!([\w-]+)\]([-+])\s*(.*)$/)
+    if (!match) continue
+    let closing = number
+    while (closing < state.doc.lines && /^\s*>/.test(state.doc.line(closing + 1).text)) closing += 1
+    if (closing > number) {
+      blocks.push({ from: line.from, bodyFrom: line.to + 1, to: state.doc.line(closing).to, label: match[3].trim() || match[1], folded: match[2] === '-', lineCount: closing - number })
+    }
+    number = closing
+  }
+  return blocks
+}
+
+function calloutFoldDecorations(state: EditorState, overrides: ReadonlyMap<number, boolean>) {
+  const active = state.doc.lineAt(state.selection.main.head)
+  const ranges: DecorationRange[] = []
+  const kept = new Map<number, boolean>()
+  for (const block of calloutBlocks(state)) {
+    const override = overrides.get(block.from)
+    if (override !== undefined) kept.set(block.from, override)
+    const folded = override ?? block.folded
+    ranges.push({ from: block.from, to: block.from, decoration: Decoration.widget({ widget: new SectionFoldToggle(block.from, block.label, folded), side: -1 }) })
+    // Never fold away the line somebody is standing on.
+    if (folded && !(active.from >= block.bodyFrom && active.from <= block.to)) {
+      ranges.push({ from: block.bodyFrom, to: block.to, decoration: Decoration.replace({ widget: new SectionFoldSummary(block.lineCount), block: true }) })
+    }
+  }
+  ranges.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide || a.to - b.to)
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const range of ranges) builder.add(range.from, range.to, range.decoration)
+  return { overrides: kept, decorations: builder.finish() }
+}
+
+/** Shares `toggleSectionFold` with the heading folds: a position belongs to exactly one of the two. */
+const calloutFoldState = StateField.define<{ overrides: ReadonlyMap<number, boolean>; decorations: DecorationSet }>({
+  create: (state) => calloutFoldDecorations(state, new Map()),
+  update(value, transaction) {
+    const overrides = new Map([...value.overrides].map(([position, folded]) => [transaction.changes.mapPos(position), folded]))
+    for (const effect of transaction.effects) {
+      if (!effect.is(toggleSectionFold)) continue
+      const block = calloutBlocks(transaction.state).find((item) => item.from === effect.value)
+      if (block) overrides.set(effect.value, !(overrides.get(effect.value) ?? block.folded))
+    }
+    return calloutFoldDecorations(transaction.state, overrides)
+  },
+  provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+})
+
 type RenderedBlock =
   | { type: 'evidence'; from: number; to: number; heading: string; quote: string; anchor?: EvidenceAnchorRef }
   | { type: 'table'; from: number; to: number; rows: string[][] }
@@ -611,7 +671,7 @@ function liveEditDecorationSet(view: EditorView) {
         const hint = emptySectionHint(view.state, line)
         if (hint) ranges.push({ from: hint.from, to: hint.from, decoration: Decoration.line({ class: 'cm-md-section-hint', attributes: { 'data-hint': hint.label } }) })
       } else if (/^\s*>\s?/.test(text)) {
-        const callout = text.match(/^\s*>\s*\[![\w-]+\]\s*/i)
+        const callout = text.match(/^\s*>\s*\[![\w-]+\][-+]?\s*/i)
         const quote = text.match(/^\s*>\s?/)
         const evidenceLink = /^\s*>\s*\[PDF 원문 열기\]\(prism:\/\/paper\//.test(text)
         ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: evidenceLink ? 'cm-md-evidence-link' : callout ? 'cm-md-callout' : 'cm-md-quote' }) })
@@ -879,7 +939,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -1008,7 +1068,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 
