@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 import {
@@ -28,8 +28,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   onReloadContext: () => Promise<void> | void
   onOpenNode: (id: string) => void
   onNotify: (message: string, tone?: 'info' | 'error') => void
-  onOpenCuration: () => void
-}) {
+  onOpenCuration: () => void }) {
   const [snapshot, setSnapshot] = useState<NoteSnapshot>()
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
@@ -152,6 +151,15 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }, [node.id, snapshot?.revision])
 
   function edit(value: string) { contentRef.current = value; dirtyRef.current = true; setContent(value); setSaved(false) }
+  /** Clicking a rendered evidence card jumps back to the PDF; the card itself is not editable text. */
+  function bindEvidenceClicks(element: HTMLDivElement | null) {
+    if (!element || element.dataset.evidenceBound) return
+    element.dataset.evidenceBound = 'true'
+    element.addEventListener('prism-open-evidence', (event) => {
+      const anchor = (event as CustomEvent<EvidenceAnchorRef>).detail
+      void window.prism.openEvidenceAnchor(anchor).catch((reason) => onNotify(String(reason), 'error'))
+    })
+  }
 
   async function updateProperty(patch: KnowledgePropertyPatch) {
     if (dirtyRef.current && !(await save())) return
@@ -438,13 +446,13 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           </table>
         </details>
 
-        {snapshot ? <div className="note-body">
+        {snapshot ? <div className="note-body" ref={bindEvidenceClicks}>
           <MarkdownEditor
             ref={editorRef} key={node.id} value={content} onChange={edit} onBlur={() => void settle()}
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
             onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint"><button onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span>{node.nodeType === 'paper' && <button className="note-digest-run" disabled={digesting} title="초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다" onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button>}</p>
+          <p className="note-hint">{node.nodeType === 'paper' && <button className="note-write-mine" title="자동 정리가 건드리지 않는, 나만 쓰는 칸으로 갑니다" onClick={() => { if (!editorRef.current?.focusSection('내 생각')) editorRef.current?.moveToEnd() }}><PenLine size={11} /> 내 생각 쓰기</button>}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span>{node.nodeType === 'paper' && <button className="note-digest-run" disabled={digesting} title="초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다" onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button>}</p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>

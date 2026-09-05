@@ -260,7 +260,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.classList.contains('is-stub') && button.textContent.includes('Score matching'))`), 'The new stub did not appear in the tree as a stub.', 8000)
 
   // ---------- block insertion through the single insert affordance ----------
-  await notesConnection.evaluate(`document.querySelector('.note-hint button').click()`)
+  await notesConnection.evaluate(`document.querySelector('.note-hint .note-insert-block').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.slash-command-menu'))`), 'The insert button did not open the block menu.')
   await notesConnection.send('Input.insertText', { text: '표' })
   await sleep(150)

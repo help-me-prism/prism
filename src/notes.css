@@ -541,3 +541,14 @@
 .note-digest-run { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px dashed #cfc8bd; border-radius: 12px; background: transparent; color: #857f76; font-size: 9.5px; cursor: pointer; }
 .note-digest-run:hover:not(:disabled) { border-color: #b3a6d6; color: #6a5896; }
 .note-digest-run:disabled { opacity: .5; cursor: default; }
+
+/* PDF evidence card: generated, clickable, not editable */
+.cm-rendered-evidence { padding: 9px 12px; border-left: 3px solid #b3a6d6; cursor: pointer; }
+.cm-rendered-evidence:hover { border-color: #7760aa; background: #faf8fd; }
+.cm-rendered-evidence small { display: block; color: #8b799f; font-size: 8.5px; }
+.cm-rendered-evidence p { margin: 4px 0 0; color: #55504a; font: 10.5px/1.6 Georgia, "Noto Serif KR Variable", serif; white-space: pre-wrap; }
+
+.cm-md-section-hint { position: relative; }
+.cm-md-section-hint::before { content: attr(data-hint); position: absolute; left: 0; top: 0; color: #c2bbb0; font-style: italic; pointer-events: none; white-space: nowrap; }
+.note-hint .note-write-mine { border-style: solid; border-color: #b3a6d6; color: #6a5896; background: #f6f2fb; }
+.note-hint .note-write-mine:hover { background: #ede5f8; }

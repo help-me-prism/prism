@@ -8,7 +8,7 @@ import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence' | 'graph'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean }
 export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
@@ -265,6 +265,7 @@ const sectionFoldState = StateField.define<{ folded: ReadonlySet<number>; decora
 })
 
 type RenderedBlock =
+  | { type: 'evidence'; from: number; to: number; heading: string; quote: string; anchor?: EvidenceAnchorRef }
   | { type: 'table'; from: number; to: number; rows: string[][] }
   | { type: 'math'; from: number; to: number; source: string }
   | { type: 'image'; from: number; to: number; alt: string; source: string }
@@ -316,6 +317,31 @@ function renderedBlocks(state: EditorState) {
         continue
       }
     }
+    // A PDF evidence card is generated, not prose: keep it in one piece so a stray click cannot split it.
+    if (/^>\s*\[!evidence\]/.test(trimmed)) {
+      let closing = number
+      while (closing < state.doc.lines && /^>/.test(state.doc.line(closing + 1).text.trim())) closing += 1
+      let anchor: EvidenceAnchorRef | undefined
+      const metaLine = closing < state.doc.lines ? state.doc.line(closing + 1) : undefined
+      const meta = metaLine?.text.trim().match(/^<!--\s*prism-evidence:([^\s]+)\s*-->$/)
+      if (meta) {
+        closing += 1
+        try {
+          const value = JSON.parse(decodeURIComponent(meta[1])) as EvidenceAnchorRef
+          if (value?.paperId && value.anchorId) anchor = value
+        } catch { /* a malformed card still renders, it just cannot be opened */ }
+      }
+      if (closing < state.doc.lines && /^\^evidence-/.test(state.doc.line(closing + 1).text.trim())) closing += 1
+      const body = state.doc.sliceString(line.from, state.doc.line(closing).to).split('\n')
+      blocks.push({
+        type: 'evidence', from: line.from, to: state.doc.line(closing).to,
+        heading: body[0].replace(/^>\s*\[!evidence\]\s*/, '').trim(),
+        quote: body.slice(1).filter((item) => item.startsWith('>') && !/\[PDF 원문 열기\]/.test(item)).map((item) => item.replace(/^>\s?/, '')).join('\n').trim(),
+        anchor,
+      })
+      number = closing
+      continue
+    }
     const image = line.text.match(/^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)\s*$/)
     if (image) {
       blocks.push({ type: 'image', from: line.from, to: line.to, alt: image[1], source: image[2] })
@@ -358,6 +384,34 @@ function tableCellText(cell: string) {
   return cell
     .replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_match, target: string, alias?: string) => alias || target.split('/').at(-1) || target)
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+}
+
+/**
+ * The card shows what was quoted from the PDF and goes back to it when clicked. It is deliberately not
+ * editable: the block id and metadata under it are what tie a note to a page.
+ */
+class RenderedEvidence extends WidgetType {
+  constructor(readonly position: number, readonly heading: string, readonly quote: string, readonly anchor?: EvidenceAnchorRef) { super() }
+  eq(other: RenderedEvidence) { return this.position === other.position && this.heading === other.heading && this.quote === other.quote }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'cm-rendered-block cm-rendered-evidence'
+    wrapper.setAttribute('role', 'button')
+    wrapper.tabIndex = 0
+    wrapper.setAttribute('aria-label', `${this.heading} PDF 원문 열기`)
+    wrapper.title = this.anchor ? 'PDF 원문 위치로 이동' : '연결이 끊어진 근거 카드입니다'
+    const label = document.createElement('small'); label.textContent = this.heading; wrapper.append(label)
+    const quote = document.createElement('p'); quote.textContent = this.quote; wrapper.append(quote)
+    const open = (event: Event) => {
+      event.preventDefault()
+      if (!this.anchor) return
+      view.dom.dispatchEvent(new CustomEvent('prism-open-evidence', { detail: this.anchor, bubbles: true }))
+    }
+    wrapper.addEventListener('mousedown', open)
+    wrapper.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') open(event) })
+    return wrapper
+  }
+  ignoreEvent() { return false }
 }
 
 class RenderedTable extends InteractiveRenderedBlock {
@@ -436,11 +490,29 @@ class RenderedTaskCheckbox extends WidgetType {
   ignoreEvent() { return false }
 }
 
+/** Evidence cards stay rendered even when the cursor is on them: their Markdown is metadata, not something to hand-edit. */
+function evidenceRangeSet(state: EditorState) {
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const block of renderedBlocks(state)) {
+    if (block.type === 'evidence') builder.add(block.from, block.to, Decoration.replace({}))
+  }
+  return builder.finish()
+}
+const evidenceAtomicState = StateField.define<DecorationSet>({
+  create: evidenceRangeSet,
+  update(value, transaction) { return transaction.docChanged ? evidenceRangeSet(transaction.state) : value },
+  provide: (field) => EditorView.atomicRanges.of((view) => view.state.field(field)),
+})
+
 function renderedBlockDecorationSet(state: EditorState) {
   const ranges: DecorationRange[] = []
   const activeLine = state.doc.lineAt(state.selection.main.head)
   const isActive = (from: number, to: number) => from <= activeLine.to && to >= activeLine.from
   for (const block of renderedBlocks(state)) {
+    if (block.type === 'evidence') {
+      ranges.push({ from: block.from, to: block.to, decoration: Decoration.replace({ widget: new RenderedEvidence(block.from, block.heading, block.quote, block.anchor), block: true }) })
+      continue
+    }
     if (isActive(block.from, block.to)) continue
     const widget = block.type === 'table'
       ? new RenderedTable(block.from, block.rows)
@@ -505,6 +577,8 @@ function liveEditDecorationSet(view: EditorView) {
       if (heading) {
         ranges.push({ from: line.from, to: line.from, decoration: Decoration.line({ class: `cm-md-heading cm-md-h${heading[1].length}` }) })
         if (!isActive(line.from, line.to)) ranges.push({ from: line.from, to: line.from + heading[0].length, decoration: Decoration.replace({}) })
+        const hint = emptySectionHint(view.state, line)
+        if (hint) ranges.push({ from: hint.from, to: hint.from, decoration: Decoration.line({ class: 'cm-md-section-hint', attributes: { 'data-hint': hint.label } }) })
       } else if (/^\s*>\s?/.test(text)) {
         const callout = text.match(/^\s*>\s*\[![\w-]+\]\s*/i)
         const quote = text.match(/^\s*>\s?/)
@@ -582,6 +656,42 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
   const anchor = selection.from + prefix.length + template.selectFrom
   view.dispatch({ changes: { from: selection.from, to: selection.to, insert: `${prefix}${template.text}${suffix}` }, selection: { anchor, head: anchor + template.selectLength }, scrollIntoView: true })
   view.focus()
+}
+
+const headingPattern = /^#{1,6}\s/
+
+/** Empty headings read as homework. Ghost text on the blank line under one says what belongs there. */
+const sectionHints: Record<string, string> = { '내 생각': '내 생각을 한두 줄 적어보세요', '메모': '리더에서 문장을 우클릭해 담거나, 여기에 바로 적어보세요' }
+function emptySectionHint(state: EditorState, heading: { number: number; text: string }) {
+  const label = sectionHints[heading.text.replace(headingPattern, '').trim()]
+  if (!label || heading.number >= state.doc.lines) return null
+  const below = state.doc.line(heading.number + 1)
+  if (below.text.trim()) return null
+  for (let number = heading.number + 2; number <= state.doc.lines; number += 1) {
+    const next = state.doc.line(number)
+    if (headingPattern.test(next.text)) break
+    if (next.text.trim()) return null
+  }
+  return { from: below.from, label }
+}
+
+/** Puts the cursor on the blank line under a heading, so "write here" needs no aiming. */
+function focusSection(view: EditorView, heading: string) {
+  const wanted = `## ${heading}`
+  for (let number = 1; number <= view.state.doc.lines; number += 1) {
+    if (view.state.doc.line(number).text.trim() !== wanted) continue
+    let anchor = view.state.doc.line(number).to
+    for (let below = number + 1; below <= view.state.doc.lines; below += 1) {
+      const next = view.state.doc.line(below)
+      if (headingPattern.test(next.text)) break
+      anchor = next.to
+      if (next.text.trim()) break
+    }
+    view.dispatch({ selection: { anchor }, scrollIntoView: true })
+    view.focus()
+    return true
+  }
+  return false
 }
 
 /** Types the "/" that opens the block menu, adding a line break first when the cursor sits mid-sentence. */
@@ -734,11 +844,11 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -867,7 +977,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 
