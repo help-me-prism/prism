@@ -21,7 +21,7 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
-import { pruneEmptySections, readChatMessages, refreshPaperDigest } from './paperDigest.js'
+import { pruneEmptySections, readChatMessages, refreshNoteDigest } from './paperDigest.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -968,7 +968,7 @@ ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, optio
   const runPrompt = useModel && provider && model
     ? (prompt: string) => runTranslationCli(provider, model, prompt, `digest-${paperNodeId}-${Date.now()}`)
     : undefined
-  return refreshPaperDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
+  return refreshNoteDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
 })
 ipcMain.handle('knowledge:prune-empty-sections', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

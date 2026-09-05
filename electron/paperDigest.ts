@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode } from './knowledge.js'
+import { listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode } from './knowledge.js'
+import { listKnowledgeRelations } from './relations.js'
 
 /**
  * Notes only get written if writing them is nearly free. Prism already knows the paper and every chat the
@@ -11,11 +12,11 @@ import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode } from './know
  * Nothing outside those markers is ever touched.
  */
 export type DigestChatMessage = { role: 'user' | 'assistant'; text: string; createdAt: number; paperIds?: string[]; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number; source?: string }> }
-export type PaperDigestSection = 'overview' | 'confusion' | 'focus'
+export type PaperDigestSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers'
 export type PaperDigestResult = { updated: boolean; chatMessages: number; sections: PaperDigestSection[]; usedModel: boolean }
 export type RunPrompt = (prompt: string) => Promise<string>
 
-const sectionHeadings: Record<PaperDigestSection, string> = { overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것' }
+const sectionHeadings: Record<PaperDigestSection, string> = { overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나', support: '지지 근거', against: '반박', answers: '지금까지 나온 답' }
 const userHeading = '내 생각'
 const memoHeading = '메모'
 const questionWords = /(왜|어떻게|무엇|뭐|뭔|어디|언제|어느|차이|이유|의미|맞나|맞아|인가|인지|할까|일까|되나|되는지|모르겠|이해가|헷갈|why|how|what|which|difference|mean)/i
@@ -39,7 +40,9 @@ export function focusFromChat(messages: DigestChatMessage[], arxivId: string) {
       counts.set(anchor.anchorId, { label: anchor.label, page: anchor.page, source: anchor.source ?? previous?.source, count: (previous?.count ?? 0) + 1 })
     }
   }
-  return [...counts.values()].sort((left, right) => right.count - left.count).slice(0, 5)
+  return [...counts.values()]
+    .map((item) => ({ ...item, source: readableQuote(item.source) }))
+    .sort((left, right) => right.count - left.count).slice(0, 5)
 }
 
 /**
@@ -51,15 +54,19 @@ function questionStems(text: string) {
   return [...new Set(text.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u)
     .filter((token) => token.length >= 2)
     .map((token) => token.match(/^[a-z0-9]+/)?.[0] ?? token.slice(0, 3))
-    .filter((token) => token.length >= 2 && !/^(이거|그거|저거|무엇|뭔가|논문|이것|그것)$/.test(token)))]
+    .filter((token) => token.length >= 2 && !emptyRoots.some((root) => token.startsWith(root) || root.startsWith(token))))]
 }
 function sameWorry(left: string[], right: string[]) {
   const shared = left.filter((token) => right.includes(token)).length
   if (shared < 2) return false
   return shared / Math.min(left.length, right.length) >= 0.4
 }
-/** What they kept getting stuck on: their own questions, with repeats surfaced first. */
-export function confusionFromChat(messages: DigestChatMessage[]) {
+/**
+ * What they kept getting stuck on. Splitting a message into sentences also produces trailing fragments
+ * ("아직 이해가 안 됩니다"), which read as noise in a note, so a sentence only counts as a worry when it
+ * names something the paper actually talks about — or when they came back to it more than once.
+ */
+export function confusionFromChat(messages: DigestChatMessage[], topics: Set<string> = new Set()) {
   const questions: Array<{ text: string; count: number; at: number; stems: string[] }> = []
   for (const message of messages) {
     if (message.role !== 'user') continue
@@ -72,13 +79,62 @@ export function confusionFromChat(messages: DigestChatMessage[]) {
       if (existing) {
         existing.count += 1; existing.at = Math.max(existing.at, message.createdAt)
         // Keep the shortest phrasing: it reads as the question rather than as a transcript.
-        if (sentence.length < existing.text.length) { existing.text = sentence; existing.stems = stems }
+        // Prefer the phrasing that names the subject; among equals, the shorter one reads as the question.
+        const better = namesSomething(sentence) !== namesSomething(existing.text) ? namesSomething(sentence) : sentence.length < existing.text.length
+        if (better) { existing.text = sentence; existing.stems = stems }
       } else questions.push({ text: sentence, count: 1, at: message.createdAt, stems })
     }
   }
-  return questions.sort((left, right) => right.count - left.count || right.at - left.at)
+  return questions
+    .filter((item) => item.count > 1 || namesSomething(item.text) || item.stems.some((stem) => topics.has(stem)))
+    .sort((left, right) => right.count - left.count || right.at - left.at)
     .slice(0, 5)
-    .map(({ text, count, at }) => ({ text, count, at }))
+    .map(({ text: value, count, at }) => ({ text: value, count, at }))
+}
+
+/**
+ * Sentence splitting also produces the tail of a thought — "아직 이해가 안 됩니다" — which reads as noise in a
+ * note. A question is kept only when it names something: an ASCII term, or a Korean word that is not a bare
+ * predicate and not one of the fillers below.
+ */
+const emptyRoots = ['아직', '이해', '생각', '정말', '진짜', '그냥', '조금', '다시', '근데', '그럼', '혹시', '무슨', '무엇', '어떤', '이런', '저런', '여기', '거기', '이거', '그거', '이게', '그게', '저게', '이것', '그것', '부분', '내용', '설명', '질문', '뭔지', '뭐가', 'still', 'really', 'think', 'understand', 'mean', 'sure', 'this', 'that', 'what', 'why', 'how']
+const predicateEnding = /(다|요|까|죠|네|음|슴|지)$/
+const particle = /(은|는|이|가|을|를|의|에|와|과|도|로|으로|에서|에게|보다|처럼|만|랑)$/
+
+/** True when the sentence names a subject, rather than only commenting on one. */
+export function namesSomething(sentence: string) {
+  for (const token of sentence.split(/[^\p{L}\p{N}]+/u)) {
+    if (token.length < 2) continue
+    const ascii = /^[A-Za-z][A-Za-z0-9-]+$/.test(token)
+    const base = ascii ? token.toLocaleLowerCase() : token.replace(particle, '')
+    if (base.length < 2) continue
+    if (emptyRoots.some((root) => base.startsWith(root) || root.startsWith(base))) continue
+    if (!ascii && predicateEnding.test(token)) continue
+    return true
+  }
+  return false
+}
+
+/** The words the paper itself uses, so a question can be checked against its subject matter. */
+export function topicsOf(...sources: string[]) {
+  return new Set(sources.flatMap((source) => questionStems(source)))
+}
+
+/**
+ * PDF text layers hand back reference lists and half-parsed formulas as readily as prose. Quoting
+ * "(2020); Song et al. (2020b)." next to an equation label teaches nothing, so such text is dropped and the
+ * label stands on its own.
+ */
+function readableQuote(value?: string) {
+  const quote = normalizeSpace(value ?? '')
+  if (quote.length < 30) return undefined
+  const letters = quote.replace(/[^\p{L}]/gu, '').length
+  if (letters / quote.length < 0.62) return undefined
+  if (/^[([]?\d{4}[)\]]?[;,]/.test(quote)) return undefined
+  if (/et al\.\s*\(\d{4}[a-z]?\)[;,.]?\s*$/.test(quote) && quote.length < 90) return undefined
+  const words = quote.split(' ')
+  if (words.length < 6) return undefined
+  return quote.length > 150 ? `${quote.slice(0, 150).trimEnd()}…` : quote
 }
 
 function abstractOf(content: string) {
@@ -134,6 +190,46 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
   return `${normalized.trimEnd()}\n${insertion}`
 }
 
+const overviewCues: Array<[string, RegExp]> = [
+  ['문제', /\b(problem|challenge|difficult|limitation|however|but|expensive|unstable|cannot|lack)\b/i],
+  ['방법', /\b(we (introduce|present|propose|develop)|our (method|approach)|based on|framework|algorithm)\b/i],
+  ['결과', /\b(result|outperform|improv|achiev|better|faster|state[- ]of[- ]the[- ]art|show that|demonstrat)\b/i],
+]
+
+/**
+ * Reading the abstract again is not a summary. One sentence each for the problem, the method and the
+ * result gives the note something the abstract does not: a shape. Korean is used wherever the paper has
+ * already been translated, because that is the language the researcher writes their own lines in.
+ */
+export function overviewFromAbstract(abstract: string, translations: Map<string, string>) {
+  const sentences = sentenceSplit(abstract).filter((item) => item.length >= 20)
+  if (!sentences.length) return []
+  const used = new Set<number>()
+  const lines: string[] = []
+  for (const [label, cue] of overviewCues) {
+    const index = sentences.findIndex((sentence, at) => !used.has(at) && cue.test(sentence))
+    if (index < 0) continue
+    used.add(index)
+    lines.push(`**${label}** ${shorten(translations.get(quoteKey(sentences[index])) ?? sentences[index])}`)
+  }
+  if (lines.length) return lines
+  return sentences.slice(0, 2).map((sentence) => shorten(translations.get(quoteKey(sentence)) ?? sentence))
+}
+function shorten(value: string) { const text = normalizeSpace(value); return text.length > 170 ? `${text.slice(0, 170).trimEnd()}…` : text }
+function quoteKey(value: string) { return normalizeSpace(value).replace(/\s+/g, '').toLocaleLowerCase() }
+
+/** The Korean the reader already paid for: translated sentences, keyed by their source text. */
+export async function readTranslations(libraryPath: string, arxivId: string) {
+  const map = new Map<string, string>()
+  try {
+    const raw = await fs.readFile(path.join(libraryPath, 'papers', arxivId, 'translation.ko.json'), 'utf8')
+    for (const segment of (JSON.parse(raw) as { segments?: Array<{ source?: string; translation?: string }> }).segments ?? []) {
+      if (segment.source && segment.translation) map.set(quoteKey(segment.source), segment.translation)
+    }
+  } catch { /* a paper that was never translated simply keeps its own language */ }
+  return map
+}
+
 function bulletList(lines: string[]) { return lines.map((line) => `- ${line}`).join('\n') }
 
 /** True when the note already shows real generated text for a section, as opposed to a placeholder or nothing. */
@@ -184,9 +280,11 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   const abstract = abstractOf(snapshot.content)
   const paperMessages = messagesForPaper(messages, paper.arxivId)
   const focus = focusFromChat(paperMessages, paper.arxivId)
-  const confusion = confusionFromChat(paperMessages)
+  const topics = topicsOf(paper.title, abstract, ...focus.map((item) => `${item.label} ${item.source ?? ''}`))
+  const confusion = confusionFromChat(paperMessages, topics)
+  const translations = await readTranslations(libraryPath, paper.arxivId)
 
-  let overviewLines = abstract ? sentenceSplit(abstract).slice(0, 3) : []
+  let overviewLines = overviewFromAbstract(abstract, translations)
   let confusionLines = confusion.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}`)
   let usedModel = false
   if (runPrompt && (abstract || confusion.length)) {
@@ -198,8 +296,8 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   }
 
   const focusLines = focus.map((item) => {
-    const quote = normalizeSpace(item.source ?? '').slice(0, 90)
-    return `${item.label}${item.page ? ` (p.${item.page})` : ''}${item.count > 1 ? ` · ${item.count}번 참조` : ''}${quote ? ` — ${quote}` : ''}`
+    const quote = item.source ? translations.get(item.source.replace(/\s+/g, '').toLocaleLowerCase()) ?? item.source : ''
+    return `${item.label}${item.page ? ` (p.${item.page})` : ''}${item.count > 1 ? ` · ${item.count}번 참조` : ''}${quote ? ` — ${normalizeSpace(quote).slice(0, 120)}` : ''}`
   })
 
   let next = snapshot.content
@@ -259,4 +357,84 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
 
 export function digestSectionPath(libraryPath: string, paperNodeId: string) {
   return path.join(libraryPath, '.prism', 'cache', `${paperNodeId.replace(/[^a-zA-Z0-9._-]/g, '_')}.digest.json`)
+}
+
+const relationSections: Partial<Record<string, Array<{ section: PaperDigestSection; types: string[]; direction?: 'incoming' | 'outgoing' }>>> = {
+  claim: [
+    { section: 'support', types: ['supports', 'evidence_for'] },
+    { section: 'against', types: ['contradicts'] },
+  ],
+  question: [
+    { section: 'answers', types: ['answers'] },
+  ],
+  // A concept needs no relation list of its own: the sources section already names every note that reaches it.
+}
+
+const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
+
+function relationLine(relation: { type: string; direction: string; other: { title: string; relativePath: string } }) {
+  const wording = relationWording[relation.type] ?? relation.type
+  const subject = `[[${relation.other.relativePath.replace(/\.md$/i, '')}|${relation.other.title}]]`
+  return relation.direction === 'incoming' ? `${subject}가 ${wording}` : `${wording} · ${subject}`
+}
+
+/**
+ * Concepts, Claims and Questions have no abstract and no chat of their own, but they are never alone in the
+ * vault: something links to them, and something stands for or against them. That is what the note can say
+ * without anybody typing, so that is what gets written.
+ */
+export async function refreshNoteDigest(libraryPath: string, nodeId: string, messages: DigestChatMessage[], runPrompt?: RunPrompt): Promise<PaperDigestResult> {
+  const nodes = await listKnowledgeNodes(libraryPath)
+  const node = nodes.find((item) => item.id === nodeId)
+  if (!node) throw new Error('노트를 찾을 수 없습니다.')
+  if (node.nodeType === 'paper') return refreshPaperDigest(libraryPath, nodeId, messages, runPrompt)
+
+  const snapshot = await readKnowledgeNode(libraryPath, node.id)
+  const [backlinks, relations] = await Promise.all([
+    listKnowledgeBacklinks(libraryPath, node.id).catch(() => []),
+    listKnowledgeRelations(libraryPath, node.id).catch(() => []),
+  ])
+  const approved = relations.filter((item) => item.reviewStatus === 'approved')
+  const written: PaperDigestSection[] = []
+  let next = snapshot.content
+
+  const sourceLines = backlinks.map((item) => {
+    // The line around a link is only worth quoting when it is a sentence, not a generated relation block.
+    const excerpt = normalizeSpace(item.excerpt ?? '')
+    const prose = excerpt.startsWith('>') || excerpt.startsWith('|') || excerpt.length < 12 || excerpt === item.title ? '' : excerpt
+    return `[[${item.relativePath.replace(/\.md$/i, '')}|${item.title}]]${prose ? ` — ${prose.slice(0, 140)}` : ''}`
+  })
+  const plan: Array<[PaperDigestSection, string[]]> = [['sources', sourceLines]]
+  for (const rule of relationSections[node.nodeType] ?? []) {
+    const lines = approved
+      .filter((item) => rule.types.includes(item.type) && (!rule.direction || item.direction === rule.direction))
+      .map(relationLine)
+    plan.push([rule.section, lines])
+  }
+
+  for (const [section, lines] of plan) {
+    // A section with nothing in it is the empty heading this whole design is trying to get rid of.
+    if (!lines.length) { const removed = removeAutoSection(next, section); if (removed !== next) { next = removed; written.push(section) } ; continue }
+    const updated = writeAutoSection(next, section, bulletList([...new Set(lines)]))
+    if (updated !== next) { next = updated; written.push(section) }
+  }
+
+  if (next === snapshot.content) return { updated: false, chatMessages: 0, sections: [], usedModel: false }
+  const saved = await saveKnowledgeNode(libraryPath, node.id, { content: next, expectedRevision: snapshot.revision })
+  if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
+  return { updated: true, chatMessages: 0, sections: written, usedModel: false }
+}
+
+/** Takes a generated region and its heading away again once there is nothing to put in it. */
+export function removeAutoSection(content: string, section: PaperDigestSection) {
+  const { open, close } = markers(section)
+  const normalized = content.replace(/\r\n/g, '\n')
+  const start = normalized.indexOf(open)
+  if (start < 0) return normalized
+  const end = normalized.indexOf(close, start)
+  if (end < 0) return normalized
+  const heading = `## ${sectionHeadings[section]}`
+  const headingAt = normalized.lastIndexOf(heading, start)
+  const from = headingAt >= 0 && !normalized.slice(headingAt + heading.length, start).trim() ? headingAt : start
+  return `${normalized.slice(0, from).trimEnd()}\n\n${normalized.slice(end + close.length).replace(/^\n+/, '')}`
 }

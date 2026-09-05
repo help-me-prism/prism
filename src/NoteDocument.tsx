@@ -195,12 +195,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     } catch (reason) { if (useModel) onNotify(String(reason), 'error') }
     finally { setDigesting(false) }
   }
-  // Opening a paper is the moment its note should already be written.
+  // Opening a note is the moment it should already be written. A concept or claim is written out of its
+  // links, so it is also rewritten whenever a link to it appears or goes away.
+  const digestKey = `${node.id}:${node.nodeType === 'paper' ? '' : relations.length}`
   useEffect(() => {
-    if (node.nodeType !== 'paper' || !snapshot || digestedRef.current === node.id) return
-    digestedRef.current = node.id
+    if (!snapshot || digestedRef.current === digestKey) return
+    digestedRef.current = digestKey
     void refreshDigest(false)
-  }, [node.id, node.nodeType, snapshot])
+  }, [digestKey, snapshot])
 
   async function runModelSuggestions() {
     if (node.nodeType !== 'paper' || suggesting) return

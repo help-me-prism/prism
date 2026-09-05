@@ -90,7 +90,21 @@ export default function NotesWindow() {
     finally { setCitationsLoading(false) }
   }
 
-  useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration) }, [])
+  useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(writeEveryNote) }, [])
+
+  /**
+   * A library where only the note you happened to open is written is not a library that is written. The
+   * deterministic pass costs a file read per note, so it runs once for everything when the window opens.
+   */
+  async function writeEveryNote() {
+    const all = await window.prism.listKnowledgeNodes().catch(() => [])
+    let changed = false
+    for (const node of all) {
+      const result = await window.prism.refreshPaperDigest(node.id, { useModel: false }).catch(() => undefined)
+      if (result?.updated) changed = true
+    }
+    if (changed) await reloadNodes()
+  }
   useEffect(() => { setRelations([]); setBacklinks([]); setCitations(undefined); void reloadContext() }, [activeId, nodes.length])
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
   // The library folder is shared with Obsidian and the Reader, so pick up outside changes without a manual refresh.
