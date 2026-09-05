@@ -93,6 +93,24 @@ async function ensureVault(libraryPath: string) {
       if (!selectedDefaults.project) { selectedDefaults.project = projectTemplates[0].id; await atomicJson(defaultsPath(libraryPath), selectedDefaults) }
       await fs.mkdir(path.dirname(projectMigration), { recursive: true }); await fs.writeFile(projectMigration, '1\n', { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
     }
+
+    // Vaults created before the light defaults still hand out the long review forms. Install the short
+    // templates alongside them and point the defaults at those; the long ones stay for deliberate use.
+    const lightMigration = path.join(libraryPath, '.prism', 'migrations', 'light-defaults-v1')
+    try { await fs.access(lightMigration) } catch {
+      const light = ['paper-reading-note', 'concept-note', 'claim-note', 'question-note']
+      const selectedDefaults = await defaults(libraryPath)
+      for (const id of light) {
+        const template = initialTemplates.find((item) => item.id === id)
+        if (!template) continue
+        const target = path.join(templatesPath(libraryPath), `${template.name}.md`)
+        await fs.writeFile(target, serializeTemplate(template), { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
+        selectedDefaults[template.nodeType] = template.id
+      }
+      await atomicJson(defaultsPath(libraryPath), selectedDefaults)
+      await fs.mkdir(path.dirname(lightMigration), { recursive: true })
+      await fs.writeFile(lightMigration, '1\n', { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
+    }
   }
 }
 async function templateFiles(libraryPath: string) {

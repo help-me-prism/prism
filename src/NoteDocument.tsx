@@ -18,7 +18,7 @@ type Picker =
  * One document view for every node type. Papers and knowledge notes are the same kind of thing now,
  * so the editor, properties, and evidence all live here instead of behind a modal.
  */
-export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration }: {
+export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, contextKey }: {
   node: KnowledgeNodeRecord
   nodes: KnowledgeNodeRecord[]
   anchors: EvidenceAnchor[]
@@ -28,7 +28,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   onReloadContext: () => Promise<void> | void
   onOpenNode: (id: string) => void
   onNotify: (message: string, tone?: 'info' | 'error') => void
-  onOpenCuration: () => void }) {
+  onOpenCuration: () => void; contextKey: string }) {
   const [snapshot, setSnapshot] = useState<NoteSnapshot>()
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
@@ -180,7 +180,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
    * note opens; the model pass is explicit because it spends the researcher's own CLI quota.
    */
   async function refreshDigest(useModel: boolean) {
-    if (node.nodeType !== 'paper' || digesting) return
+    if (digesting) return
     setDigesting(true)
     try {
       const result = await window.prism.refreshPaperDigest(node.id, { useModel })
@@ -197,7 +197,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }
   // Opening a note is the moment it should already be written. A concept or claim is written out of its
   // links, so it is also rewritten whenever a link to it appears or goes away.
-  const digestKey = `${node.id}:${node.nodeType === 'paper' ? '' : relations.length}`
+  const digestKey = `${node.id}:${node.nodeType === 'paper' ? '' : contextKey}`
   useEffect(() => {
     if (!snapshot || digestedRef.current === digestKey) return
     digestedRef.current = digestKey

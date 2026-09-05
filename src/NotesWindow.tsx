@@ -295,6 +295,7 @@ export default function NotesWindow() {
             key={active.id} node={active} nodes={nodes} anchors={anchors} relations={relations} templates={templates}
             onReloadNodes={reloadNodes} onReloadContext={reloadContext} onOpenNode={openNode} onNotify={notify}
             onOpenCuration={() => { setView('curation'); void reloadCuration() }}
+            contextKey={`${relations.length}:${backlinks.length}`}
           />
           : <div className="notes-blank">
             <NotebookPen size={30} />
