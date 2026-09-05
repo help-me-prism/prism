@@ -194,7 +194,7 @@ async function setField(connection, tag, label, value, event) {
 const setInput = (connection, label, value, tag = 'input') => setField(connection, tag, label, value, 'input')
 // Properties start folded so the writing is the first thing on screen; editing one means opening them.
 async function openProperties(connection) {
-  await connection.evaluate(`(() => { const box = document.querySelector('details.note-props'); if (box && !box.open) box.querySelector('summary').click(); return true })()`)
+  await connection.evaluate(`(() => { const box = document.querySelector('details.note-props'); if (box) box.open = true; return true })()`)
 }
 // Property text fields commit on blur, the way a document field should.
 async function setPropertyText(connection, label, value) {
@@ -246,7 +246,9 @@ try {
   })`)
   const openedState = JSON.parse(opened)
   assert(openedState.tabs.length === 1 && openedState.tabs[0].includes('Editor fixture'), `The note did not open in a tab: ${opened}`)
-  assert(openedState.props.includes('유형') && openedState.props.includes('상태') && openedState.props.includes('읽기'), `The properties table is missing paper rows: ${opened}`)
+  // Only properties something reads survive: the type row repeated the chip above the title, and nothing
+  // ever looked at importance or confidence.
+  assert(openedState.props.includes('상태') && openedState.props.includes('읽기') && !openedState.props.includes('유형') && !openedState.props.includes('중요도 · 확신도'), `The paper properties are not the trimmed set: ${opened}`)
   assert(openedState.frontmatterHidden, 'Live editing exposed raw frontmatter.')
   assert(openedState.reader, 'A paper note did not offer to open the Reader.')
   await notesConnection.send('Page.captureScreenshot', { format: 'png' }).then(async (shot) => { await fs.mkdir(path.resolve('tmp/ui'), { recursive: true }); await fs.writeFile(path.resolve('tmp/ui/notes-shell.png'), Buffer.from(shot.data, 'base64')) })
@@ -414,6 +416,13 @@ try {
     await notesConnection.evaluate(`(() => { const scroller = document.querySelector('.note-doc-scroll'); if (scroller) scroller.scrollTop = scroller.scrollHeight })()`)
     return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
   }, 'The open note did not reload the externally captured memo.', 10000)
+
+  // ---------- what wrote itself is marked until it has been read ----------
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-auto-read button'))`), 'A note that wrote itself did not offer to be marked as read.', 10000)
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'The tree did not mark the note that wrote itself.', 8000)
+  await notesConnection.evaluate(`document.querySelector('.note-auto-read button').click()`)
+  // Only this note is retired: the other notes that wrote themselves keep their own marks.
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-auto-read') && ![...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'Marking a note as read did not clear it.', 8000)
 
   // ---------- curation queue: promote a memo into a claim ----------
   await notesConnection.evaluate(`document.querySelector('.notes-rail button[aria-label="정리 대기열"]').click()`)

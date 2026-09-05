@@ -22,6 +22,7 @@ import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsReques
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
 import { pruneEmptySections, readChatMessages, refreshNoteDigest, titleMatcher } from './paperDigest.js'
+import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -1002,6 +1003,15 @@ ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, optio
     ? (prompt: string) => runTranslationCli(provider, model, prompt, `digest-${paperNodeId}-${Date.now()}`)
     : undefined
   return refreshNoteDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
+})
+ipcMain.handle('knowledge:auto-unread:list', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) return {}
+  return listAutoUnread(settings.libraryPath)
+})
+ipcMain.handle('knowledge:auto-unread:clear', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  return { cleared: await clearAutoUnread(settings.libraryPath, id) }
 })
 ipcMain.handle('knowledge:prune-empty-sections', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

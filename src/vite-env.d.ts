@@ -117,6 +117,8 @@ interface Window {
     listCurationQueue: () => Promise<CurationQueue>
     syncNoteLinks: (id: string) => Promise<{ stubs: string[]; added: number; removed: number }>
     pruneEmptySections: (id: string) => Promise<{ removed: string[] }>
+    listAutoUnread: () => Promise<Record<string, { at: number; sections: string[] }>>
+    clearAutoUnread: (id: string) => Promise<{ cleared: boolean }>
     refreshPaperDigest: (paperNodeId: string, options?: { useModel?: boolean }) => Promise<PaperDigestResult>
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>

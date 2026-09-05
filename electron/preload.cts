@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('prism', {
   listCurationQueue: () => ipcRenderer.invoke('knowledge:curation:list'),
   syncNoteLinks: (id: string) => ipcRenderer.invoke('knowledge:links:sync', id),
   pruneEmptySections: (id: string) => ipcRenderer.invoke('knowledge:prune-empty-sections', id),
+  listAutoUnread: () => ipcRenderer.invoke('knowledge:auto-unread:list'),
+  clearAutoUnread: (id: string) => ipcRenderer.invoke('knowledge:auto-unread:clear', id),
   refreshPaperDigest: (paperNodeId: string, options?: unknown) => ipcRenderer.invoke('paper:digest:refresh', paperNodeId, options),
   restoreKnowledgeNode: (trashedRelativePath: string) => ipcRenderer.invoke('knowledge:restore', trashedRelativePath),
   listPaperCitations: (arxivId: string, options?: unknown) => ipcRenderer.invoke('paper:citations', arxivId, options),

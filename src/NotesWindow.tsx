@@ -6,7 +6,7 @@ import NoteDocument from './NoteDocument'
 import ConnectionsPanel from './ConnectionsPanel'
 import CurationQueue from './CurationQueue'
 import TemplateManager from './TemplateManager'
-import { creatableTypes, isStub, treeTypes, typeFolders, typeLabels } from './knowledgeModel'
+import { autoSectionLabels, creatableTypes, isStub, treeTypes, typeFolders, typeLabels } from './knowledgeModel'
 
 type MainView = 'doc' | 'curation'
 
@@ -31,6 +31,8 @@ export default function NotesWindow() {
   const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'error'; undo?: { label: string; run: () => void | Promise<void> } }>()
   const [deleteReadyId, setDeleteReadyId] = useState<string>()
   const [curation, setCuration] = useState<CurationQueue>()
+  // Which notes wrote something the researcher has not looked at yet.
+  const [unread, setUnread] = useState<Record<string, { at: number; sections: string[] }>>({})
   const [relations, setRelations] = useState<KnowledgeRelationView[]>([])
   const [backlinks, setBacklinks] = useState<KnowledgeBacklink[]>([])
   const [citations, setCitations] = useState<CitationLinks>()
@@ -72,6 +74,9 @@ export default function NotesWindow() {
   async function reloadCuration() {
     try { setCuration(await window.prism.listCurationQueue()) } catch { setCuration(undefined) }
   }
+  async function reloadUnread() {
+    try { setUnread(await window.prism.listAutoUnread()) } catch { setUnread({}) }
+  }
   async function reloadContext(refreshCitations?: boolean) {
     const id = activeIdRef.current
     const node = nodesRef.current.find((item) => item.id === id)
@@ -90,7 +95,7 @@ export default function NotesWindow() {
     finally { setCitationsLoading(false) }
   }
 
-  useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(writeEveryNote) }, [])
+  useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(writeEveryNote).then(reloadUnread) }, [])
 
   /**
    * A library where only the note you happened to open is written is not a library that is written. The
@@ -109,7 +114,7 @@ export default function NotesWindow() {
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
   // The library folder is shared with Obsidian and the Reader, so pick up outside changes without a manual refresh.
   useEffect(() => {
-    const onFocus = () => { void reloadNodes(); void reloadCuration() }
+    const onFocus = () => { void reloadNodes(); void reloadCuration(); void reloadUnread() }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [])
@@ -188,9 +193,11 @@ export default function NotesWindow() {
   const treeRow = (node: KnowledgeNodeRecord, excerpt?: string) => <div key={node.id} className={`tree-row${node.id === activeId && view === 'doc' ? ' active' : ''}`}>
     <button
       className={`tree-file${isStub(node) ? ' is-stub' : ''}`}
-      title={isStub(node) ? '링크만 있고 아직 정리하지 않은 개념입니다' : node.relativePath} onClick={() => openNode(node.id)}
+      title={unread[node.id] ? `자동으로 새로 쓰인 내용이 있습니다: ${unread[node.id].sections.map((section) => autoSectionLabels[section] ?? section).join(' · ')}` : node.relativePath}
+      onClick={() => openNode(node.id)}
     >
       <span>{node.title}</span>
+      {unread[node.id] && <i className="tree-unread" aria-label="읽지 않은 자동 기록" />}
       {excerpt && <small>{excerpt}</small>}
     </button>
     <button
@@ -296,6 +303,7 @@ export default function NotesWindow() {
             key={active.id} node={active} nodes={nodes} anchors={anchors} relations={relations} templates={templates}
             onReloadNodes={reloadNodes} onReloadContext={reloadContext} onOpenNode={openNode} onNotify={notify}
             onOpenCuration={() => { setView('curation'); void reloadCuration() }}
+            autoUnread={unread[active.id]} onAutoUnreadChange={reloadUnread}
             contextKey={`${relations.length}:${backlinks.length}`}
           />
           : <div className="notes-blank">

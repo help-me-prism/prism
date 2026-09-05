@@ -267,7 +267,13 @@
 .tree-file > small { display: block; overflow: hidden; color: #a09a90; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .tree-file:hover { background: #eae6de; color: #46404b; }
 .tree-file.active { background: #e8e2f5; color: #4b3f73; box-shadow: inset 2px 0 0 #7760aa; }
-.tree-file.is-stub > span { color: #a09a90; font-style: italic; }
+/* A note that wrote something nobody has read yet, marked rather than dimmed: the writing is not unfinished. */
+.tree-file { position: relative; }
+.tree-unread {
+  position: absolute; top: 50%; right: 7px; width: 5px; height: 5px; margin-top: -2.5px;
+  border-radius: 50%; background: #7760aa;
+}
+.tree-file > span { padding-right: 12px; }
 .tree-empty { margin: 10px 12px; color: #a09a90; font-size: 9.5px; line-height: 1.6; }
 .tree-queue {
   margin: 0 10px 10px; padding: 9px 10px; border: 1px solid #ddd0c2; border-radius: 8px;
@@ -370,6 +376,17 @@
 .note-body .cm-editor { height: auto; }
 .note-body .cm-scroller { overflow: visible; }
 .note-body .cm-content { padding: 0; }
+.note-auto-read {
+  display: flex; align-items: center; gap: 10px; margin: 18px 0 0; padding: 9px 12px;
+  border: 1px solid #ded7ef; border-radius: 8px; background: #f6f3fb; color: #5d5570; font-size: 10px;
+}
+.note-auto-read span { flex: 1; }
+.note-auto-read b { color: #4b3f73; font-weight: 650; }
+.note-auto-read button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+  border: 1px solid #cfc5e6; border-radius: 999px; background: #fff; color: #5e52a2; font-size: 9.5px; cursor: pointer;
+}
+.note-auto-read button:hover { background: #efeaf9; }
 .note-hint { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: #b0aaa0; font-size: 9.5px; }
 .note-hint button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px dashed #cfc8bd; border-radius: 12px; background: transparent; color: #857f76; font-size: 9.5px; cursor: pointer; }
 .note-hint button:hover { border-color: #b3a6d6; color: #6a5896; }

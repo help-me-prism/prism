@@ -3,8 +3,8 @@ import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreH
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 import {
-  claimOriginLabels, evidenceKindLabels, fileName, levelLabels, nodePath, primaryRelationTypes, readingStatusLabels,
-  relationLabels, relationTypesFor, scopeConflict, splitList, statusLabels, typeLabels,
+  autoSectionLabels, claimOriginLabels, fileName, nodePath, primaryRelationTypes, readingStatusLabels,
+  relationLabels, relationTypesFor, scopeConflict, statusLabels, typeLabels,
 } from './knowledgeModel'
 
 type Picker =
@@ -19,7 +19,7 @@ type Picker =
  * One document view for every node type. Papers and knowledge notes are the same kind of thing now,
  * so the editor, properties, and evidence all live here instead of behind a modal.
  */
-export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, contextKey }: {
+export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, autoUnread, onAutoUnreadChange, contextKey }: {
   node: KnowledgeNodeRecord
   nodes: KnowledgeNodeRecord[]
   anchors: EvidenceAnchor[]
@@ -29,6 +29,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   onReloadContext: () => Promise<void> | void
   onOpenNode: (id: string) => void
   onNotify: (message: string, tone?: 'info' | 'error') => void
+  autoUnread?: { at: number; sections: string[] }
+  onAutoUnreadChange: () => void | Promise<void>
   onOpenCuration: () => void; contextKey: string }) {
   const [snapshot, setSnapshot] = useState<NoteSnapshot>()
   const [content, setContent] = useState('')
@@ -37,6 +39,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [picker, setPicker] = useState<Picker>()
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleteReady, setDeleteReady] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   // Properties are metadata about the note, not the note. They start closed so the writing is the first thing on screen.
   const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') === 'on')
   const [pendingContradiction, setPendingContradiction] = useState<{ message: string; run: () => Promise<void> }>()
@@ -77,9 +80,22 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (disposed) return
       revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content)
-    }).catch((reason) => onNotify(String(reason), 'error'))
+    }).catch((reason) => { if (!disposed && loadAttempt === 0) onNotify(String(reason), 'error') })
     return () => { disposed = true }
-  }, [node.id])
+  }, [node.id, loadAttempt])
+  /**
+   * Opening a note is one read, and a read that never answered left the note on "불러오는 중" for good — the
+   * only way out was clicking another note and back. It happens when the read lands while the vault is busy
+   * being written to, which is exactly when a note is most likely to be opened. Asking again costs one file
+   * read; asking forever would only turn a missing file into a stream of complaints, so it asks three times.
+   */
+  useEffect(() => {
+    if (snapshot || loadAttempt >= 3) return
+    const retry = window.setTimeout(() => setLoadAttempt((value) => value + 1), 2500)
+    return () => window.clearTimeout(retry)
+  }, [snapshot, node.id, loadAttempt])
+  // A new note starts its own count, without provoking a second read when the count is already clean.
+  useEffect(() => { setLoadAttempt((value) => value === 0 ? value : 0) }, [node.id])
 
   async function save(force = false) {
     const id = nodeIdRef.current
@@ -193,6 +209,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           setSnapshot(next); setContent(next.content); setSaved(true)
         }
       }
+      if (result.updated) await onAutoUnreadChange()
       if (useModel) onNotify(result.updated ? `자동 정리를 갱신했습니다. 대화 ${result.chatMessages}건을 반영했습니다.` : '갱신할 내용이 없습니다.')
     } catch (reason) { if (useModel) onNotify(String(reason), 'error') }
     finally { setDigesting(false) }
@@ -399,18 +416,24 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }, [picker, anchors])
 
   const ready = Boolean(snapshot)
+  /**
+   * A property earns a row by changing what Prism does with the note. Importance, confidence, evidence kind
+   * and projects were stored and read by nothing, and the type row repeated the coloured chip above the
+   * title — six dropdowns that only ever asked to be filled in. They stay in the frontmatter so the files
+   * keep working in Obsidian; they are simply no longer homework.
+   *
+   * What is left: status decides what the curation queue, the open-question list and the archive still want
+   * from a note, reading status starts the model's relation suggestions, and a claim's origin and scope are
+   * what the contradiction guard and the model read before saying two claims disagree.
+   */
   const properties: Array<{ key: string; label: string; value: React.ReactNode }> = [
-    { key: 'type', label: '유형', value: <span className={`node-kind kind-${node.nodeType}`}><i /> {typeLabels[node.nodeType]}</span> },
     { key: 'status', label: '상태', value: <select aria-label="노트 상태" disabled={!ready} value={node.status} onChange={(event) => void updateProperty({ status: event.target.value as KnowledgeStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> },
   ]
   if (node.nodeType === 'paper') properties.push({ key: 'reading', label: '읽기', value: <select aria-label="논문 읽기 상태" disabled={!ready} value={node.readingStatus ?? 'to_read'} onChange={(event) => void updateProperty({ readingStatus: event.target.value as KnowledgeReadingStatus })}>{Object.entries(readingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
   if (node.nodeType === 'claim') {
     properties.push({ key: 'origin', label: '출처', value: <select aria-label="주장 출처" disabled={!ready} value={node.claimOrigin ?? 'paper'} onChange={(event) => void updateProperty({ claimOrigin: event.target.value as ClaimOrigin })}>{Object.entries(claimOriginLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
-    properties.push({ key: 'evidence-kind', label: '근거 종류', value: <select aria-label="주장 근거 종류" disabled={!ready} value={node.evidenceKind ?? ''} onChange={(event) => void updateProperty({ evidenceKind: event.target.value as EvidenceKind | '' })}><option value="">미정</option>{Object.entries(evidenceKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
-    properties.push({ key: 'scope', label: '적용 범위', value: <span className="prop-inline"><PropertyText disabled={!ready} label="도메인" placeholder="예: 이미지 생성" value={node.scopeDomain ?? ''} onCommit={(value) => void updateProperty({ scopeDomain: value })} /><PropertyText disabled={!ready} label="조건" placeholder="예: 대규모 데이터" value={node.scopeRegime ?? ''} onCommit={(value) => void updateProperty({ scopeRegime: value })} /><PropertyText disabled={!ready} label="가정" placeholder="쉼표로 구분" value={(node.scopeAssumptions ?? []).join(', ')} onCommit={(value) => void updateProperty({ scopeAssumptions: splitList(value) })} /></span> })
+    properties.push({ key: 'scope', label: '적용 범위', value: <span className="prop-inline"><PropertyText disabled={!ready} label="도메인" placeholder="예: 이미지 생성" value={node.scopeDomain ?? ''} onCommit={(value) => void updateProperty({ scopeDomain: value })} /><PropertyText disabled={!ready} label="조건" placeholder="예: 대규모 데이터" value={node.scopeRegime ?? ''} onCommit={(value) => void updateProperty({ scopeRegime: value })} /></span> })
   }
-  properties.push({ key: 'levels', label: '중요도 · 확신도', value: <span className="prop-inline"><select aria-label="노트 중요도" disabled={!ready} value={node.importance} onChange={(event) => void updateProperty({ importance: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="노트 확신도" disabled={!ready} value={node.confidence} onChange={(event) => void updateProperty({ confidence: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></span> })
-  properties.push({ key: 'projects', label: '프로젝트', value: <PropertyText disabled={!ready} label="프로젝트" placeholder="쉼표로 구분" value={(node.projects ?? []).join(', ')} onCommit={(value) => void updateProperty({ projects: splitList(value) })} /> })
 
   return <article className="note-doc" aria-label={`${node.title} 노트`}>
     <header className="note-doc-head">
@@ -494,6 +517,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             </div>
           })}
         </details>}
+
+        {/* The tree says a note wrote something; this is where that claim is retired, once it has been read. */}
+        {autoUnread && <div className="note-auto-read">
+          <span>자동으로 <b>{autoUnread.sections.map((section) => autoSectionLabels[section] ?? section).join(' · ')}</b>{autoUnread.sections.length > 1 ? '를' : '을'} 새로 썼습니다.</span>
+          <button onClick={() => { void window.prism.clearAutoUnread(node.id).then(() => onAutoUnreadChange()).catch((reason) => onNotify(String(reason), 'error')) }}><Check size={12} /> 읽었어요</button>
+        </div>}
       </div>
     </div>
 

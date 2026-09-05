@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode } from './knowledge.js'
+import { markAutoWritten } from './autoUnread.js'
 import { listKnowledgeRelations } from './relations.js'
 
 /**
@@ -502,7 +503,11 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const nodes = await listKnowledgeNodes(libraryPath)
   const node = nodes.find((item) => item.id === nodeId)
   if (!node) throw new Error('노트를 찾을 수 없습니다.')
-  if (node.nodeType === 'paper') return refreshPaperDigest(libraryPath, nodeId, messages, runPrompt)
+  if (node.nodeType === 'paper') {
+    const result = await refreshPaperDigest(libraryPath, nodeId, messages, runPrompt)
+    if (result.updated) await markAutoWritten(libraryPath, nodeId, result.sections).catch(() => undefined)
+    return result
+  }
 
   const snapshot = await readKnowledgeNode(libraryPath, node.id)
   const [backlinks, relations] = await Promise.all([
@@ -547,16 +552,20 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
     plan.push([rule.section, lines])
   }
 
+  // Taking an empty section away is tidying, not news: only sections that gained something are worth
+  // telling the researcher about.
+  const filled: PaperDigestSection[] = []
   for (const [section, lines] of plan) {
     // A section with nothing in it is the empty heading this whole design is trying to get rid of.
     if (!lines.length) { const removed = removeAutoSection(next, section); if (removed !== next) { next = removed; written.push(section) } ; continue }
     const updated = writeAutoSection(next, section, bulletList([...new Set(lines)]), order)
-    if (updated !== next) { next = updated; written.push(section) }
+    if (updated !== next) { next = updated; written.push(section); filled.push(section) }
   }
 
   if (next === snapshot.content) return { updated: false, chatMessages: asked.length, sections: [], usedModel }
   const saved = await saveKnowledgeNode(libraryPath, node.id, { content: next, expectedRevision: snapshot.revision })
   if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
+  await markAutoWritten(libraryPath, node.id, filled).catch(() => undefined)
   return { updated: true, chatMessages: asked.length, sections: written, usedModel }
 }
 

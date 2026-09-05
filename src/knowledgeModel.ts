@@ -38,8 +38,16 @@ export function scopeConflict(left: KnowledgeNodeRecord, right: KnowledgeNodeRec
   return undefined
 }
 
+/** A concept that only exists because something linked to it: no body yet, waiting in the queue. */
+export function isStub(node: KnowledgeNodeRecord) { return node.nodeType === 'concept' && node.status === 'inbox' }
+
+/** The generated sections, by the heading they carry in the file — used to name what changed. */
+export const autoSectionLabels: Record<string, string> = {
+  overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나',
+  support: '지지 근거', against: '반박', answers: '지금까지 나온 답', asked: '대화에서 물어본 것',
+  definition: '정의', stake: '무엇에 달려 있나',
+}
+
 export function nodePath(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.replace(/\.md$/i, '') }
 export function fileName(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.split('/').at(-1) ?? node.relativePath }
 export function splitList(value: string) { return value.split(/[,、]/).map((item) => item.trim()).filter(Boolean) }
-/** A concept that only exists because something linked to it: no body yet, waiting in the queue. */
-export function isStub(node: KnowledgeNodeRecord) { return node.nodeType === 'concept' && node.status === 'inbox' }
