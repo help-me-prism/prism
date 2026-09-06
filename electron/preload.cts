@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('prism', {
   listAutoUnread: () => ipcRenderer.invoke('knowledge:auto-unread:list'),
   clearAutoUnread: (id: string) => ipcRenderer.invoke('knowledge:auto-unread:clear', id),
   refreshPaperDigest: (paperNodeId: string, options?: unknown) => ipcRenderer.invoke('paper:digest:refresh', paperNodeId, options),
+  refreshVaultDigests: () => ipcRenderer.invoke('knowledge:digest:refresh-vault'),
+  onVaultChanged: (callback: (event: unknown) => void) => subscribe('knowledge:vault-changed', callback),
   restoreKnowledgeNode: (trashedRelativePath: string) => ipcRenderer.invoke('knowledge:restore', trashedRelativePath),
   listPaperCitations: (arxivId: string, options?: unknown) => ipcRenderer.invoke('paper:citations', arxivId, options),
   runModelSuggestions: (paperNodeId: string) => ipcRenderer.invoke('research:suggest:model', paperNodeId),

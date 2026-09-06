@@ -102,15 +102,21 @@ export async function syncLinkRelations(libraryPath: string, nodeId: string) {
 }
 function compactNode(node: KnowledgeNodeRecord) { return { id: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath } }
 
-export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {
-  const nodes = await listKnowledgeNodes(libraryPath); const byId = new Map(nodes.map((node) => [node.id, node]))
+/** The same view the IPC returns, built from state a caller already holds — no second walk of the vault. */
+export function knowledgeRelationViews(all: KnowledgeRelationRecord[], nodes: KnowledgeNodeRecord[], nodeId: string): KnowledgeRelationView[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
   if (!byId.has(nodeId)) throw new Error('지식 노트를 찾을 수 없습니다.')
   const result: KnowledgeRelationView[] = []
-  for (const relation of await records(libraryPath)) {
+  for (const relation of all) {
     if (relation.sourceId === nodeId && byId.has(relation.targetId)) result.push({ ...relation, direction: 'outgoing', other: compactNode(byId.get(relation.targetId)!) })
     else if (relation.targetId === nodeId && byId.has(relation.sourceId)) result.push({ ...relation, direction: 'incoming', other: compactNode(byId.get(relation.sourceId)!) })
   }
   return result.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {
+  const [nodes, all] = await Promise.all([listKnowledgeNodes(libraryPath), records(libraryPath)])
+  return knowledgeRelationViews(all, nodes, nodeId)
 }
 function markdownBlock(relation: KnowledgeRelationRecord, target: KnowledgeNodeRecord) {
   const metadata = encodeURIComponent(JSON.stringify({ id: relation.id, sourceId: relation.sourceId, targetId: relation.targetId, type: relation.type, creator: relation.creator, reviewStatus: relation.reviewStatus, evidenceAnchor: relation.evidenceAnchor }))

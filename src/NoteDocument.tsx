@@ -143,7 +143,11 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     window.addEventListener('beforeunload', flush)
     return () => { window.removeEventListener('beforeunload', flush); void save() }
   }, [node.id])
-  // Obsidian and the Reader write the same files, so keep watching disk while this note is open.
+  /**
+   * Obsidian and the Reader write the same files, so an open note has to follow the disk. It used to ask the
+   * disk fifty times a minute — and asking cost a read of the whole library each time. Now the main process
+   * says which files moved and the note only re-reads when it is one of them.
+   */
   useEffect(() => {
     if (!snapshot) return
     let disposed = false; let checking = false
@@ -162,11 +166,11 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       } catch { /* the note may have been renamed or deleted elsewhere */ }
       finally { checking = false }
     }
-    const timer = window.setInterval(() => void check(), 1200)
+    const stopWatching = window.prism.onVaultChanged(({ paths }) => { if (paths.some((item) => item.toLowerCase() === node.relativePath.toLowerCase())) void check() })
     const onFocus = () => void check()
     window.addEventListener('focus', onFocus)
-    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
-  }, [node.id, snapshot?.revision])
+    return () => { disposed = true; stopWatching(); window.removeEventListener('focus', onFocus) }
+  }, [node.id, node.relativePath, snapshot?.revision])
 
   function edit(value: string) { contentRef.current = value; dirtyRef.current = true; setContent(value); setSaved(false) }
   /** Clicking a rendered evidence card jumps back to the PDF; the card itself is not editable text. */

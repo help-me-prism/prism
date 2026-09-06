@@ -120,6 +120,8 @@ interface Window {
     listAutoUnread: () => Promise<Record<string, { at: number; sections: string[] }>>
     clearAutoUnread: (id: string) => Promise<{ cleared: boolean }>
     refreshPaperDigest: (paperNodeId: string, options?: { useModel?: boolean }) => Promise<PaperDigestResult>
+    refreshVaultDigests: () => Promise<{ scanned: number; updated: string[] }>
+    onVaultChanged: (callback: (event: { paths: string[] }) => void) => () => void
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>

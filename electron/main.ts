@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
-import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync } from 'node:fs'
+import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -9,7 +9,7 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
 import { listKnowledgeDataViews } from './knowledgeViews.js'
@@ -21,7 +21,7 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
-import { pruneEmptySections, readChatMessages, refreshNoteDigest, titleMatcher } from './paperDigest.js'
+import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -352,14 +352,48 @@ async function routeChatIntoNotes() {
   const recent = messages.slice(-40)
   const spokenAbout = new Set(recent.flatMap((message) => [...(message.paperIds ?? []), ...(message.anchors ?? []).map((anchor) => anchor.paperId)]))
   const said = recent.filter((message) => message.role === 'user').map((message) => message.text).join('\n')
-  const nodes = await listKnowledgeNodes(settings.libraryPath).catch(() => [])
-  const targets = nodes.filter((node) => node.nodeType === 'paper'
+  const context = await buildDigestContext(settings.libraryPath).catch(() => undefined)
+  if (!context) return
+  const targets = context.vault.records.filter((node) => node.nodeType === 'paper'
     ? Boolean(node.arxivId && spokenAbout.has(node.arxivId))
     : ['concept', 'claim', 'question'].includes(node.nodeType) && titleMatcher(node.title)(said))
   for (const node of targets.slice(0, 12)) {
     // One note failing — renamed, open in Obsidian, mid-edit — must not stop the others catching up.
-    try { await refreshNoteDigest(settings.libraryPath, node.id, messages) } catch { /* it will catch up on the next turn */ }
+    try { await refreshNoteDigest(settings.libraryPath, node.id, messages, undefined, context) } catch { /* it will catch up on the next turn */ }
   }
+}
+
+/**
+ * Obsidian and the Reader write the same folder Prism does, and the researcher expects to see that without
+ * asking. Every open document used to re-read its file on a timer to find out; one watcher says who changed
+ * instead, so a quiet vault costs nothing and a busy one still answers in a quarter of a second.
+ */
+let vaultWatcher: FSWatcher | undefined
+let watchedVault: string | undefined
+let vaultChangeTimer: NodeJS.Timeout | undefined
+const vaultChanges = new Set<string>()
+
+function watchVault(libraryPath?: string) {
+  if (watchedVault === libraryPath) return
+  vaultWatcher?.close(); vaultWatcher = undefined; watchedVault = libraryPath
+  if (!libraryPath) return
+  try {
+    vaultWatcher = watch(libraryPath, { recursive: true }, (_event, name) => {
+      if (typeof name !== 'string' || !name.toLowerCase().endsWith('.md')) return
+      const relative = name.split(path.sep).join('/')
+      // Derived state under `.prism/` is nobody's document; only the Markdown a person could be reading matters.
+      if (relative.startsWith('.prism/')) return
+      invalidateKnowledgeCache(libraryPath, path.join(libraryPath, name))
+      vaultChanges.add(relative)
+      if (vaultChangeTimer) clearTimeout(vaultChangeTimer)
+      // A save from any editor arrives as several events; one message per burst is what a reader needs.
+      vaultChangeTimer = setTimeout(() => {
+        const paths = [...vaultChanges]; vaultChanges.clear()
+        for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) window.webContents.send('knowledge:vault-changed', { paths })
+      }, 250)
+    })
+    vaultWatcher.unref?.()
+  } catch { /* watching is a convenience; a vault on a filesystem that cannot be watched still works */ }
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json') }
@@ -377,6 +411,7 @@ async function readSettings(): Promise<AppSettings> {
     }
   } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
 }
+async function readSettingsAndWatch() { const settings = await readSettings(); watchVault(settings.libraryPath); return settings }
 async function writeSettings(patch: Partial<AppSettings>) {
   const current = await readSettings()
   if (process.env.PRISM_TEST_LIBRARY_PATH) {
@@ -388,6 +423,7 @@ async function writeSettings(patch: Partial<AppSettings>) {
   const next = { ...current, ...patch }
   await fs.mkdir(path.dirname(settingsPath()), { recursive: true })
   await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8')
+  watchVault(next.libraryPath)
   return next
 }
 
@@ -834,8 +870,9 @@ ipcMain.handle('workspace:choose', async (event) => {
   return writeSettings({ libraryPath })
 })
 ipcMain.handle('library:list', async () => {
-  const settings = await readSettings()
-  if (settings.libraryPath) await migratePaperNotes(settings.libraryPath).catch(() => 0)
+  const settings = await readSettingsAndWatch()
+  // Writing prism_id into old paper notes changes files under our own feet; start from a clean cache.
+  if (settings.libraryPath && await migratePaperNotes(settings.libraryPath).catch(() => 0)) invalidateKnowledgeCache(settings.libraryPath)
   return readLibrary()
 })
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
@@ -1003,6 +1040,10 @@ ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, optio
     ? (prompt: string) => runTranslationCli(provider, model, prompt, `digest-${paperNodeId}-${Date.now()}`)
     : undefined
   return refreshNoteDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
+})
+ipcMain.handle('knowledge:digest:refresh-vault', async () => {
+  const settings = await readSettingsAndWatch(); if (!settings.libraryPath) return { scanned: 0, updated: [] }
+  return refreshVaultDigests(settings.libraryPath, await readChatMessages(sessionsPath()))
 })
 ipcMain.handle('knowledge:auto-unread:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) return {}

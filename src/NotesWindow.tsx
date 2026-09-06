@@ -98,21 +98,18 @@ export default function NotesWindow() {
   useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(writeEveryNote).then(reloadUnread) }, [])
 
   /**
-   * A library where only the note you happened to open is written is not a library that is written. The
-   * deterministic pass costs a file read per note, so it runs once for everything when the window opens.
+   * A library where only the note you happened to open is written is not a library that is written. The whole
+   * sweep is one call: it used to be one round trip per note, each of which re-read the library.
    */
   async function writeEveryNote() {
-    const all = await window.prism.listKnowledgeNodes().catch(() => [])
-    let changed = false
-    for (const node of all) {
-      const result = await window.prism.refreshPaperDigest(node.id, { useModel: false }).catch(() => undefined)
-      if (result?.updated) changed = true
-    }
-    if (changed) await reloadNodes()
+    const result = await window.prism.refreshVaultDigests().catch(() => undefined)
+    if (result?.updated.length) await reloadNodes()
   }
   useEffect(() => { setRelations([]); setBacklinks([]); setCitations(undefined); void reloadContext() }, [activeId, nodes.length])
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
   // The library folder is shared with Obsidian and the Reader, so pick up outside changes without a manual refresh.
+  // The tree follows every write; the queue is expensive to compute, so it waits until the window is looked at.
+  useEffect(() => window.prism.onVaultChanged(() => { void reloadNodes(); void reloadUnread() }), [])
   useEffect(() => {
     const onFocus = () => { void reloadNodes(); void reloadCuration(); void reloadUnread() }
     window.addEventListener('focus', onFocus)

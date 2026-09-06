@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode } from './knowledge.js'
+import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
-import { listKnowledgeRelations } from './relations.js'
+import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
 
 /**
  * Notes only get written if writing them is nearly free. Prism already knows the paper and every chat the
@@ -357,11 +357,24 @@ function parseModelJson(text: string) {
   return { overview: list(value.overview), confusion: list(value.confusion) }
 }
 
-export async function refreshPaperDigest(libraryPath: string, paperNodeId: string, messages: DigestChatMessage[], runPrompt?: RunPrompt): Promise<PaperDigestResult> {
-  const nodes = await listKnowledgeNodes(libraryPath)
-  const paper = nodes.find((node) => node.id === paperNodeId && node.nodeType === 'paper')
+/**
+ * The vault state a digest run needs, read once. Writing one note is cheap; the cost was in rediscovering the
+ * whole library — nodes, contents, backlinks, relations — for every note in turn. A sweep hands the same
+ * context to every note, so opening the Notes window reads the library once rather than once per note.
+ */
+export type DigestContext = { vault: VaultSnapshot; relations: KnowledgeRelationRecord[] }
+
+export async function buildDigestContext(libraryPath: string): Promise<DigestContext> {
+  const [vault, relations] = await Promise.all([readVaultSnapshot(libraryPath), listKnowledgeRelationRecords(libraryPath)])
+  return { vault, relations }
+}
+async function digestContext(libraryPath: string, context?: DigestContext) { return context ?? buildDigestContext(libraryPath) }
+
+export async function refreshPaperDigest(libraryPath: string, paperNodeId: string, messages: DigestChatMessage[], runPrompt?: RunPrompt, given?: DigestContext): Promise<PaperDigestResult> {
+  const context = await digestContext(libraryPath, given)
+  const paper = context.vault.records.find((node) => node.id === paperNodeId && node.nodeType === 'paper')
   if (!paper?.arxivId) throw new Error('논문 노트를 찾을 수 없습니다.')
-  const snapshot = await readKnowledgeNode(libraryPath, paper.id)
+  const snapshot = { content: context.vault.contents.get(paper.id) ?? '', revision: paper.revision }
   const abstract = abstractOf(snapshot.content)
   const paperMessages = messagesForPaper(messages, paper.arxivId)
   const focus = focusFromChat(paperMessages, paper.arxivId)
@@ -499,21 +512,21 @@ function relationLine(relation: { type: string; direction: string; other: { titl
  * vault: something links to them, and something stands for or against them. That is what the note can say
  * without anybody typing, so that is what gets written.
  */
-export async function refreshNoteDigest(libraryPath: string, nodeId: string, messages: DigestChatMessage[], runPrompt?: RunPrompt): Promise<PaperDigestResult> {
-  const nodes = await listKnowledgeNodes(libraryPath)
+export async function refreshNoteDigest(libraryPath: string, nodeId: string, messages: DigestChatMessage[], runPrompt?: RunPrompt, given?: DigestContext): Promise<PaperDigestResult> {
+  const context = await digestContext(libraryPath, given)
+  const nodes = context.vault.records
   const node = nodes.find((item) => item.id === nodeId)
   if (!node) throw new Error('노트를 찾을 수 없습니다.')
   if (node.nodeType === 'paper') {
-    const result = await refreshPaperDigest(libraryPath, nodeId, messages, runPrompt)
+    const result = await refreshPaperDigest(libraryPath, nodeId, messages, runPrompt, context)
     if (result.updated) await markAutoWritten(libraryPath, nodeId, result.sections).catch(() => undefined)
     return result
   }
 
-  const snapshot = await readKnowledgeNode(libraryPath, node.id)
-  const [backlinks, relations] = await Promise.all([
-    listKnowledgeBacklinks(libraryPath, node.id).catch(() => []),
-    listKnowledgeRelations(libraryPath, node.id).catch(() => []),
-  ])
+  const snapshot = { content: context.vault.contents.get(node.id) ?? '', revision: node.revision }
+  const backlinks = context.vault.backlinks.get(node.id) ?? []
+  let relations: ReturnType<typeof knowledgeRelationViews> = []
+  try { relations = knowledgeRelationViews(context.relations, nodes, node.id) } catch { /* the note vanished between the read and now */ }
   const approved = relations.filter((item) => item.reviewStatus === 'approved')
   const written: PaperDigestSection[] = []
   let next = snapshot.content
@@ -527,7 +540,7 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const paperTitles = new Map(nodes.filter((item) => item.nodeType === 'paper' && item.arxivId).map((item) => [item.arxivId!, item.title]))
   const asked = mentionsFromChat(messages, node.title, paperTitles)
   const askedLines = asked.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}${item.paper ? ` — ${item.paper}` : ''}`)
-  const grounding = groundingFor(node.title, snapshot.content, backlinks, approved, await sentencesFromLinkingNotes(libraryPath, node.title, backlinks))
+  const grounding = groundingFor(node.title, snapshot.content, backlinks, approved, sentencesFromLinkingNotes(context, node.title, backlinks))
 
   const rules = noteAutomation[node.nodeType] ?? []
   const order = rules.map((rule) => rule.section)
@@ -579,14 +592,14 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
  * definition drafted from that says only "it was mentioned". The papers that link to it do have the
  * sentences — in their abstracts — so those are read too, and only the ones that name the concept are kept.
  */
-async function sentencesFromLinkingNotes(libraryPath: string, title: string, backlinks: Array<{ nodeId: string }>) {
+function sentencesFromLinkingNotes(context: DigestContext, title: string, backlinks: Array<{ nodeId: string }>) {
   const names = titleMatcher(title)
   const sentences: string[] = []
   for (const item of backlinks.slice(0, 5)) {
-    try {
-      const other = await readKnowledgeNode(libraryPath, item.nodeId)
-      for (const sentence of sentenceSplit(abstractOf(other.content))) if (names(sentence) && sentence.length > 30) sentences.push(sentence)
-    } catch { /* the linking note may have been renamed or deleted since the backlink was indexed */ }
+    // A note renamed or deleted since the backlink was indexed simply has nothing to contribute.
+    const other = context.vault.contents.get(item.nodeId)
+    if (!other) continue
+    for (const sentence of sentenceSplit(abstractOf(other))) if (names(sentence) && sentence.length > 30) sentences.push(sentence)
   }
   return sentences
 }
@@ -667,4 +680,22 @@ export function removeAutoSection(content: string, section: PaperDigestSection) 
   const headingAt = normalized.lastIndexOf(heading, start)
   const from = headingAt >= 0 && !normalized.slice(headingAt + heading.length, start).trim() ? headingAt : start
   return `${normalized.slice(0, from).trimEnd()}\n\n${normalized.slice(end + close.length).replace(/^\n+/, '')}`
+}
+
+/**
+ * The free pass over the whole library. A vault where only the note you happened to open is written is not a
+ * vault that is written, but doing that note by note meant rediscovering the library once per note. One
+ * context is built here and handed to every note, so a sweep costs one read of the library plus the notes it
+ * actually changes.
+ */
+export async function refreshVaultDigests(libraryPath: string, messages: DigestChatMessage[], only?: (node: { id: string; nodeType: string; arxivId?: string; title: string }) => boolean) {
+  const context = await buildDigestContext(libraryPath)
+  const targets = only ? context.vault.records.filter(only) : context.vault.records
+  const updated: string[] = []
+  for (const node of targets) {
+    // One note failing — renamed, open in Obsidian, mid-edit — must not stop the others catching up.
+    try { if ((await refreshNoteDigest(libraryPath, node.id, messages, undefined, context)).updated) updated.push(node.id) }
+    catch { /* it will catch up on the next sweep */ }
+  }
+  return { scanned: targets.length, updated }
 }
