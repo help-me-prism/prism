@@ -22,10 +22,14 @@ function unitHash(id: string, salt: number) {
   return ((hash >>> 0) % 100000) / 100000
 }
 
-export function seedPosition(id: string, width: number, height: number) {
-  // A phyllotaxis-like spread: hashes alone clump, and a clumped start takes many more ticks to open up.
+/**
+ * Where a node starts. The spread grows with the square root of the node count, because that is how the area
+ * a graph needs grows: seeding a thousand notes into one screenful packs them so tightly that the first ticks
+ * are an explosion the simulation then spends its whole budget undoing.
+ */
+export function seedPosition(id: string, width: number, height: number, count = 1, spacing = 60) {
   const angle = unitHash(id, 0) * Math.PI * 2
-  const radius = Math.sqrt(unitHash(id, 77)) * Math.min(width, height) * 0.36
+  const radius = Math.sqrt(unitHash(id, 77)) * Math.max(Math.sqrt(count) * spacing * 0.6, Math.min(width, height) * 0.18)
   return { x: width / 2 + Math.cos(angle) * radius, y: height / 2 + Math.sin(angle) * radius }
 }
 
@@ -43,8 +47,7 @@ export class GraphSimulation {
   constructor(options: SimulationOptions) {
     this.width = options.width
     this.height = options.height
-    // Repulsion and centring have to balance at roughly the link distance, or every node collapses onto the
-    // middle: gravity grows with distance and a 1/d^2 push cannot answer it. charge ~= linkDistance^3 * gravity.
+    // Repulsion and centring balance at roughly the link distance: charge ~= linkDistance^2 * gravity * linkDistance.
     this.linkDistance = options.linkDistance ?? 60
     this.charge = options.charge ?? 2200
     this.gravity = options.gravity ?? 0.01
@@ -61,7 +64,7 @@ export class GraphSimulation {
     const next = new Map<string, SimulationNode>()
     for (const node of nodes) {
       const previous = this.byId.get(node.id)
-      const seed = previous ?? { ...seedPosition(node.id, this.width, this.height), vx: 0, vy: 0, pinned: false }
+      const seed = previous ?? { ...seedPosition(node.id, this.width, this.height, nodes.length, this.linkDistance), vx: 0, vy: 0, pinned: false }
       next.set(node.id, { id: node.id, x: seed.x, y: seed.y, vx: seed.vx, vy: seed.vy, pinned: seed.pinned, radius: node.radius, degree: node.degree })
     }
     const changed = next.size !== this.byId.size || [...next.keys()].some((id) => !this.byId.has(id))
@@ -137,18 +140,40 @@ export class GraphSimulation {
       target.vx -= fx; target.vy -= fy
     }
 
+    /**
+     * Centring pulls every node the same amount, whatever the graph's size. A pull proportional to distance
+     * cannot hold at two scales at once: strong enough to gather a thousand notes, it crushes ten into a dot;
+     * weak enough for ten, and a thousand drift until the whole graph is a speck on screen. Dividing by the
+     * graph's own radius makes the force say "inward", and leaves the spacing to repulsion and the springs.
+     */
     const centerX = this.width / 2
     const centerY = this.height / 2
+    const pull = this.gravity * this.linkDistance * alpha
+    const radius = Math.max(this.radius(centerX, centerY), this.linkDistance)
+    // A spring stretched across the canvas asks for a step longer than the thing it is pulling on, and a step
+    // that overshoots comes back harder: that is how a layout tears itself apart. Nothing moves more than
+    // half a link per tick, so the graph converges instead of exploding.
+    const maxStep = this.linkDistance * 0.5
     for (const node of this.nodes) {
       if (node.pinned) { node.vx = 0; node.vy = 0; continue }
-      node.vx += (centerX - node.x) * this.gravity * alpha
-      node.vy += (centerY - node.y) * this.gravity * alpha
+      node.vx += (centerX - node.x) / radius * pull
+      node.vy += (centerY - node.y) / radius * pull
       node.vx *= DAMPING; node.vy *= DAMPING
+      const speed = Math.hypot(node.vx, node.vy)
+      if (speed > maxStep) { node.vx = node.vx / speed * maxStep; node.vy = node.vy / speed * maxStep }
       node.x += node.vx; node.y += node.vy
     }
 
     this.alpha *= DECAY
     return this.alpha
+  }
+
+  /** Root-mean-square distance from the centre: the size of the graph, in its own coordinates. */
+  private radius(centerX: number, centerY: number) {
+    if (!this.nodes.length) return 0
+    let total = 0
+    for (const node of this.nodes) total += (node.x - centerX) ** 2 + (node.y - centerY) ** 2
+    return Math.sqrt(total / this.nodes.length)
   }
 
   /** Runs the layout to rest without drawing — used before the first paint so nothing is seen exploding. */

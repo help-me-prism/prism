@@ -92,12 +92,20 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
 
   // The layout keeps the positions of nodes that survive a filter change, so only a genuinely new set is fitted.
   const fitted = useRef('')
+  const refit = useRef(false)
   useEffect(() => {
     if (!simulation.current) simulation.current = new GraphSimulation({ width: size.current.width, height: size.current.height })
     const sim = simulation.current
     sim.setGraph(view.nodes.map((node) => ({ id: node.id, radius: node.radius, degree: node.degree })), view.edges.map((edge) => ({ sourceId: edge.sourceId, targetId: edge.targetId })))
     const signature = `${view.nodes.length}:${view.edges.length}:${focusCenter ?? ''}`
-    if (fitted.current !== signature) { sim.settle(); fit(); fitted.current = signature }
+    if (fitted.current !== signature) {
+      // A big vault takes a couple of seconds to come to rest, and a frozen window is a worse thing to look at
+      // than a moving one: settle a small graph outright, and let a large one settle where it can be watched.
+      sim.settle(view.nodes.length > 600 ? 40 : 220)
+      fit()
+      refit.current = true
+      fitted.current = signature
+    }
     dirty.current = true
   }, [view, focusCenter, fit])
 
@@ -241,12 +249,14 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     const loop = () => {
       const sim = simulation.current
       if (sim && !sim.settled) { sim.tick(); dirty.current = true }
+      // A graph left to settle on screen ends up somewhere else than where it was framed; frame it again.
+      else if (sim && refit.current) { refit.current = false; fit() }
       if (dirty.current) { dirty.current = false; draw() }
       frame.current = window.requestAnimationFrame(loop)
     }
     frame.current = window.requestAnimationFrame(loop)
     return () => { if (frame.current) window.cancelAnimationFrame(frame.current) }
-  }, [draw])
+  }, [draw, fit])
 
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -354,8 +364,11 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
         onPointerLeave={() => { if (!dragging.current) setHoverId(undefined) }}
         onDoubleClick={onDoubleClick} onWheel={onWheel}
       />
+      {/* An empty graph is usually a vault with nothing connected yet, not a broken filter — say which. */}
       {!loading && !view.nodes.length && <p className="graph-view-empty">
-        {graph?.nodes.length ? '이 조건에 보이는 노트가 없습니다. 위의 필터를 켜 보세요.' : '아직 노트가 없습니다. 리더에서 논문을 저장하거나 새 노트를 만드세요.'}
+        {!graph?.nodes.length ? '아직 노트가 없습니다. 리더에서 논문을 저장하거나 새 노트를 만드세요.'
+          : view.hidden ? `아직 연결된 노트가 없습니다. 노트 ${view.hidden}개가 혼자 있어 숨겨졌습니다 — 본문에서 [[로 링크하거나 '고립 숨김'을 끄세요.`
+            : '이 조건에 보이는 노트가 없습니다. 위의 필터를 켜 보세요.'}
       </p>}
       {loading && <p className="graph-view-empty">볼트를 읽는 중…</p>}
 
