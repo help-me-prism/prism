@@ -65,7 +65,7 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
     return run(async () => { await window.prism.mergeConcepts({ sourceId: stub.node.id, targetId: target.id }); return `'${stub.node.title}'을(를) '${target.title}'에 병합하고 링크를 옮겼습니다.` })
   }
   function reviewSuggestion(paperNodeId: string, id: string, decision: 'accepted' | 'rejected', label: string) {
-    return run(async () => { await window.prism.reviewModelSuggestion({ paperNodeId, id, decision }); return decision === 'accepted' ? `'${label}' Concept 스텁을 Inbox에 만들었습니다.` : `'${label}' 제안을 무시했습니다.` })
+    return run(async () => { await window.prism.reviewModelSuggestion({ paperNodeId, id, decision }); return decision === 'accepted' ? `'${label}' 노트를 만들었습니다.` : `'${label}' 제안을 무시했습니다.` })
   }
   function promote() {
     if (!promoting) return
@@ -116,6 +116,13 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
       {queue.memos.length > 0 && <article className="curation-section">
         <header><span><strong>승격 대기 필기</strong><small>근거 카드 아래에 쓴 메모입니다. 문장은 직접 다듬어 승격합니다</small></span><em>{queue.memos.length}</em></header>
         {queue.memos.map((memo) => { const key = `${memo.paper.id}:${memo.blockId}:${memo.memo.slice(0, 40)}`; const open = promoting?.memo === memo; return <div key={key} className="curation-item"><button className="curation-open" onClick={() => onOpenNode(memo.paper.id)}><small>{memo.paper.title}{memo.anchorLabel ? ` · ${memo.anchorLabel}` : ''}</small><strong>{memo.memo}</strong>{memo.anchorSource && <p>{memo.anchorSource}</p>}{memo.aiHint && <span className="curation-ai-hint">AI: {memo.aiHint.kind === 'claim' ? 'Claim감' : 'Question감'}{memo.aiHint.why ? ` · ${memo.aiHint.why}` : ''}</span>}</button><div className="curation-actions"><button onClick={() => setPromoting(open && promoting?.nodeType === 'claim' ? undefined : { memo, nodeType: 'claim', title: memo.memo.split('\n')[0].slice(0, 120) })}><Sparkles size={11} /> 주장으로</button><button onClick={() => setPromoting(open && promoting?.nodeType === 'question' ? undefined : { memo, nodeType: 'question', title: memo.memo.split('\n')[0].slice(0, 120) })}><Sparkles size={11} /> 질문으로</button>{memo.aiHint && <button aria-label="AI 힌트 무시" onClick={() => void reviewSuggestion(memo.paper.id, memo.aiHint!.id, 'rejected', memo.aiHint!.kind === 'claim' ? 'Claim감' : 'Question감')}><X size={11} /> 힌트 무시</button>}</div>{open && promoting && <div className="curation-form"><label><span>{promoting.nodeType === 'claim' ? '주장 문장 (내 말로)' : '질문 문장'}</span><input autoFocus aria-label="승격 노트 제목" value={promoting.title} onChange={(event) => setPromoting({ ...promoting, title: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void promote() } }} /></label><div className="curation-form-actions"><button className="curation-cancel" onClick={() => setPromoting(undefined)}>취소</button><button className="primary" onClick={() => void promote()}>승격하기</button></div></div>}</div> })}
+      </article>}
+      {queue.claimSuggestions.length > 0 && <article className="curation-section">
+        <header><span><strong>이 논문이 하는 주장</strong><small>논문 본문에서 그대로 뽑은 문장입니다. 받아들이면 논문의 주장으로 노트가 생깁니다</small></span><em>{queue.claimSuggestions.length}</em></header>
+        {queue.claimSuggestions.map((item) => <div key={item.id} className="curation-item">
+          <button className="curation-open" onClick={() => onOpenNode(item.paperNodeId)}><small>{item.paperTitle}</small><strong>{item.sentence}</strong>{item.why && <p>{item.why}</p>}</button>
+          <div className="curation-actions"><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'accepted', item.sentence.slice(0, 30))}><Check size={11} /> 주장으로</button><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'rejected', item.sentence.slice(0, 30))}><X size={11} /> 거절</button></div>
+        </div>)}
       </article>}
       {queue.conceptSuggestions.length > 0 && <article className="curation-section">
         <header><span><strong>AI가 제안한 새 개념</strong><small>수락하면 빈 노트가 만들어집니다. 정의는 직접 씁니다</small></span><em>{queue.conceptSuggestions.length}</em></header>
