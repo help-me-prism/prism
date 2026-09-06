@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
 import { atomicWriteFile } from './atomicFile.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
@@ -133,28 +133,80 @@ function migratedPaperNote(source: string, folderName: string) {
   const start = frontmatter[0].indexOf(frontmatter[1])
   return `${source.slice(0, start)}${body}${source.slice(start + frontmatter[1].length)}`
 }
-async function nodeEntries(libraryPath: string) {
-  await listTemplates(libraryPath)
+/**
+ * Reading one note used to mean reading the whole vault: every list, backlink, relation and digest call
+ * walked every Markdown file and hashed it. That is invisible at seven notes and fatal at two hundred, so the
+ * parsed form of each file is kept in memory and only re-read when the file on disk actually changed.
+ *
+ * Freshness comes from two independent signals, because either one alone can lie. `mtime + size` catches the
+ * editor the researcher has open beside Prism; `onNoteWritten` catches our own writes, two of which can land
+ * inside the same millisecond at the same length. A cache that is wrong here shows stale text in an open
+ * editor, so it is worth paying for both.
+ */
+type VaultFileRecord = { mtimeMs: number; size: number; snapshot: NoteSnapshot; parsed?: ReturnType<typeof parseNode> }
+type NodeEntry = { filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }
+const vaultFiles = new Map<string, Map<string, VaultFileRecord>>()
+const vaultPrepared = new Set<string>()
+
+function vaultKey(libraryPath: string) { return path.resolve(libraryPath).toLowerCase() }
+function fileKey(filePath: string) { return path.resolve(filePath).toLowerCase() }
+function vaultCache(libraryPath: string) {
+  const key = vaultKey(libraryPath)
+  const existing = vaultFiles.get(key)
+  if (existing) return existing
+  const created = new Map<string, VaultFileRecord>()
+  vaultFiles.set(key, created)
+  return created
+}
+
+/** Drops cached files. No argument clears everything; a path clears one library, or one file inside it. */
+export function invalidateKnowledgeCache(libraryPath?: string, filePath?: string) {
+  if (!libraryPath) { vaultFiles.clear(); vaultPrepared.clear(); return }
+  if (!filePath) { vaultFiles.get(vaultKey(libraryPath))?.clear(); return }
+  vaultFiles.get(vaultKey(libraryPath))?.delete(fileKey(filePath))
+}
+onNoteWritten((notePath) => { const key = fileKey(notePath); for (const cache of vaultFiles.values()) cache.delete(key) })
+
+async function markdownFiles(libraryPath: string) {
   const seen = new Set<string>(); const files: Array<{ filePath: string; paperFolder?: string }> = []
-  const push = (filePath: string, paperFolder?: string) => { const key = path.resolve(filePath).toLowerCase(); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
-  for (const folder of Object.values(folderByType)) {
-    const directory = path.join(libraryPath, folder)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name))
+  const push = (filePath: string, paperFolder?: string) => { const key = fileKey(filePath); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
+  const collect = async (directory: string, paperFolder?: string) => {
+    let entries: Dirent[]
+    // A folder the researcher removed in Finder is simply empty, not a reason to fail every listing.
+    try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return [] }
+    for (const entry of entries) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), paperFolder)
+    return entries
   }
+  for (const folder of Object.values(folderByType)) await collect(path.join(libraryPath, folder))
   const papersDirectory = path.join(libraryPath, 'papers')
-  let paperFolders: Dirent[] = []
-  try { paperFolders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { /* nothing downloaded yet */ }
-  for (const folder of paperFolders) {
+  for (const folder of await collect(papersDirectory)) {
     if (!folder.isDirectory()) continue
-    const directory = path.join(papersDirectory, folder.name)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), folder.name)
+    await collect(path.join(papersDirectory, folder.name), folder.name)
   }
-  const entries: Array<{ filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }> = []
+  return files
+}
+
+async function nodeEntries(libraryPath: string): Promise<NodeEntry[]> {
+  // Seeding templates and creating the vault folders is first-run work, not per-read work.
+  if (!vaultPrepared.has(vaultKey(libraryPath))) { await listTemplates(libraryPath); vaultPrepared.add(vaultKey(libraryPath)) }
+  const files = await markdownFiles(libraryPath)
+  const cache = vaultCache(libraryPath)
+  const live = new Set<string>()
+  const entries: NodeEntry[] = []
   for (const { filePath, paperFolder } of files) {
-    const snapshot = await readNoteSnapshot(filePath)
-    const parsed = parseNode(snapshot.content, paperFolder)
-    if (parsed) entries.push({ filePath, snapshot, parsed })
+    const key = fileKey(filePath)
+    live.add(key)
+    let stat: Awaited<ReturnType<typeof fs.stat>>
+    try { stat = await fs.stat(filePath) } catch { continue }
+    let record = cache.get(key)
+    if (!record || record.mtimeMs !== stat.mtimeMs || record.size !== stat.size) {
+      const snapshot = await readNoteSnapshot(filePath)
+      record = { mtimeMs: stat.mtimeMs, size: stat.size, snapshot, parsed: parseNode(snapshot.content, paperFolder) }
+      cache.set(key, record)
+    }
+    if (record.parsed) entries.push({ filePath, snapshot: record.snapshot, parsed: record.parsed })
   }
+  for (const key of [...cache.keys()]) if (!live.has(key)) cache.delete(key)
   return entries
 }
 
@@ -180,12 +232,57 @@ async function findNode(libraryPath: string, id: string) {
   return (await nodeEntries(libraryPath)).find((entry) => entry.parsed.id === id)
 }
 
+function toRecord(libraryPath: string, entry: NodeEntry): KnowledgeNodeRecord {
+  const { filePath, snapshot, parsed } = entry
+  return { ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt }
+}
+
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {
-  const nodes: KnowledgeNodeRecord[] = []
-  for (const { filePath, snapshot, parsed } of await nodeEntries(libraryPath)) {
-    nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
-  }
-  return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
+  return (await nodeEntries(libraryPath)).map((entry) => toRecord(libraryPath, entry)).sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+/**
+ * Everything the vault knows about itself, read once. Listing, backlinks and the digest each used to walk the
+ * whole library on their own — and the digest walked it once per note, which is the same file read N³ times
+ * for one window open. Anything that needs more than one of these should ask for the snapshot instead.
+ */
+export type VaultSnapshot = { records: KnowledgeNodeRecord[]; contents: Map<string, string>; backlinks: Map<string, KnowledgeBacklink[]> }
+
+export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnapshot> {
+  const entries = await nodeEntries(libraryPath)
+  const records = entries.map((entry) => toRecord(libraryPath, entry))
+  const contents = new Map<string, string>()
+  const backlinks = new Map<string, KnowledgeBacklink[]>()
+  const byPath = new Map<string, string>()
+  const byBase = new Map<string, string[]>()
+  records.forEach((record, index) => {
+    contents.set(record.id, entries[index].snapshot.content)
+    backlinks.set(record.id, [])
+    const route = record.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
+    byPath.set(route, record.id)
+    const base = route.split('/').at(-1)!
+    byBase.set(base, [...(byBase.get(base) ?? []), record.id])
+  })
+  records.forEach((source, index) => {
+    const content = entries[index].snapshot.content
+    // One entry per source-target pair: the first link is the one whose line gets quoted, as before.
+    const claimed = new Set<string>()
+    for (const link of linkTargets(content)) {
+      const normalized = link.target.toLocaleLowerCase()
+      const exact = byPath.get(normalized)
+      const targets = exact ? [exact] : normalized.includes('/') ? [] : byBase.get(normalized) ?? []
+      for (const targetId of targets) {
+        if (targetId === source.id || claimed.has(targetId)) continue
+        claimed.add(targetId)
+        const lineStart = content.lastIndexOf('\n', link.index) + 1
+        const lineEnd = content.indexOf('\n', link.index)
+        const excerpt = content.slice(lineStart, lineEnd < 0 ? content.length : lineEnd).replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, targetValue, alias) => alias || targetValue).trim().slice(0, 240)
+        backlinks.get(targetId)!.push({ nodeId: source.id, title: source.title, nodeType: source.nodeType, relativePath: source.relativePath, excerpt })
+      }
+    }
+  })
+  for (const list of backlinks.values()) list.sort((left, right) => left.title.localeCompare(right.title))
+  return { records: [...records].sort((left, right) => right.modifiedAt - left.modifiedAt), contents, backlinks }
 }
 
 export function evidenceBlock(source: string, blockId: string) {
@@ -241,26 +338,9 @@ function linkTargets(source: string) {
 }
 
 export async function listKnowledgeBacklinks(libraryPath: string, targetId: string): Promise<KnowledgeBacklink[]> {
-  const nodes = await listKnowledgeNodes(libraryPath)
-  const target = nodes.find((node) => node.id === targetId)
-  if (!target) throw new Error('지식 노트를 찾을 수 없습니다.')
-  const targetPath = target.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-  const targetBase = targetPath.split('/').at(-1)!
-  const backlinks: KnowledgeBacklink[] = []
-  for (const node of nodes) {
-    if (node.id === targetId) continue
-    const snapshot = await readKnowledgeNode(libraryPath, node.id)
-    const link = linkTargets(snapshot.content).find((item) => {
-      const normalized = item.target.toLocaleLowerCase()
-      return normalized === targetPath || (!normalized.includes('/') && normalized === targetBase)
-    })
-    if (!link) continue
-    const lineStart = snapshot.content.lastIndexOf('\n', link.index) + 1
-    const lineEnd = snapshot.content.indexOf('\n', link.index)
-    const excerpt = snapshot.content.slice(lineStart, lineEnd < 0 ? snapshot.content.length : lineEnd).replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, targetValue, alias) => alias || targetValue).trim().slice(0, 240)
-    backlinks.push({ nodeId: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath, excerpt })
-  }
-  return backlinks.sort((left, right) => left.title.localeCompare(right.title))
+  const backlinks = (await readVaultSnapshot(libraryPath)).backlinks.get(targetId)
+  if (!backlinks) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return backlinks
 }
 
 export async function createKnowledgeNode(libraryPath: string, request: KnowledgeCreateRequest) {
