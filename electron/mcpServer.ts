@@ -2,6 +2,7 @@ import process from 'node:process'
 import { McpServer } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod/v4'
+import { rememberToolTitle } from './noteContract.js'
 import { assertKnowledgeVault, mcpComparePapers, mcpCreateNoteDraft, mcpFindRelatedConcepts, mcpGetClaimEvidence, mcpOpenPaperAnchor, mcpReadNoteMemory, mcpRemember, mcpSearchKnowledge, mcpSuggestRelationships } from './knowledgeMcp.js'
 
 function vaultArgument() {
@@ -27,7 +28,7 @@ function buildServer(libraryPath: string) {
   server.registerTool('suggest_relationships', { title: 'Suggest knowledge relationships', description: 'Return deterministic, read-only relationship and research-gap suggestions for one active node.', inputSchema: z.object({ node_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/) }), annotations: readOnly }, async ({ node_id }) => { try { return result(await mcpSuggestRelationships(libraryPath, node_id)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('read_note_memory', { title: 'Read what a note remembers', description: 'Return the sections of one note that a conversation is allowed to keep, with their current lines. Read this before remembering, so an update replaces the list rather than losing what is already there.', inputSchema: z.object({ node_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/) }), annotations: readOnly }, async ({ node_id }) => { try { return result(await mcpReadNoteMemory(libraryPath, node_id)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('remember', {
-    title: 'Keep something in a note',
+    title: rememberToolTitle,
     description: [
       'Record what this conversation established about one note.',
       'Write it in the language the researcher is using, in their words where you have them: this goes into their file, under their heading, and they will read it as their own note rather than as your summary.',

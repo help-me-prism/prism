@@ -23,6 +23,8 @@ import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview 
 import { listPaperCitations } from './citations.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
+import { decideCodexServerRequest } from './codexApproval.js'
+import { chatMemoryInstruction } from './noteContract.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -206,6 +208,8 @@ class CodexAppServer {
   }
 
   private onMessage(message: RpcResponse) {
+    // A server request carries both an id and a method, and used to be mistaken for a reply and dropped.
+    if (typeof message.id === 'number' && message.method) { this.write({ id: message.id, ...decideCodexServerRequest(message.method, message.params ?? {}) }); return }
     if (typeof message.id === 'number') {
       const pending = this.pending.get(message.id)
       if (!pending) return
@@ -243,13 +247,17 @@ class CodexAppServer {
 
   notify(method: string) { this.write({ method }) }
 
-  async send(sender: WebContents, request: ChatRequest) {
+  async send(sender: WebContents, request: ChatRequest, libraryPath?: string) {
     await this.ensureReady()
+    // Without a library there is nothing to remember into, and the thread stays exactly as strict as before.
+    const vault = libraryPath
+      ? { approvalPolicy: 'on-request', config: { mcp_servers: { prism: prismMcpServer(libraryPath) } }, developerInstructions: chatMemoryInstruction }
+      : { approvalPolicy: 'never' }
     let threadId = request.providerThreadId
     if (threadId) {
-      await this.request('thread/resume', { threadId, model: request.model, cwd: app.getPath('documents'), approvalPolicy: 'never', sandbox: 'read-only', excludeTurns: true })
+      await this.request('thread/resume', { threadId, model: request.model, cwd: app.getPath('documents'), sandbox: 'read-only', excludeTurns: true, ...vault })
     } else {
-      const result = await this.request('thread/start', { model: request.model, cwd: app.getPath('documents'), approvalPolicy: 'never', sandbox: 'read-only' })
+      const result = await this.request('thread/start', { model: request.model, cwd: app.getPath('documents'), sandbox: 'read-only', ...vault })
       const thread = result.thread as Record<string, unknown> | undefined
       if (!thread || typeof thread.id !== 'string') throw new Error('Codex 세션 ID를 받지 못했습니다.')
       threadId = thread.id
@@ -281,26 +289,15 @@ const codexServer = new CodexAppServer()
  */
 const chatMcpTools = ['mcp__prism__search_knowledge', 'mcp__prism__get_claim_evidence', 'mcp__prism__find_related_concepts', 'mcp__prism__compare_papers', 'mcp__prism__read_note_memory', 'mcp__prism__remember']
 
-/**
- * A tool the model never reaches for is a tool that does not exist. Left to itself it answers the question
- * and moves on, which is exactly what it should do — remembering is a second intention, and every assistant
- * that has a memory is told to have it.
- */
-const chatMemoryInstruction = [
-  'You are answering inside Prism, a local research reading app. The Markdown notes in the vault belong to the researcher.',
-  'Remembering is the last thing you do in a turn. After you have answered, if the conversation showed what the researcher is stuck on or what they keep coming back to about a paper, concept, claim or question, call mcp__prism__remember on that note so it is waiting for them next time. Load that tool alongside the others rather than deciding at the end that you do not have it.',
-  'Call mcp__prism__read_note_memory first and send the whole list back, so an update corrects what is there instead of losing it.',
-  'Keeping it current is as much taking away as adding. Drop a line the moment this conversation resolves it — a record of what somebody is stuck on is worth having only while they are still stuck — and drop one that turned out to be wrong. Send the list without it. An empty list clears the section.',
-  'Do not remember small talk, or what the note already says, or a summary of your own answer. Say in one short clause what you kept, and nothing more.',
-  'Use mcp__prism__search_knowledge to find a note when you only know its title.',
-  'You cannot write anywhere else in a note, and you should not try: what the researcher wrote is theirs.',
-].join(' ')
+
+function prismMcpServer(libraryPath: string) {
+  return { command: process.execPath, args: [path.join(__dirname, 'mcpServer.js'), '--vault', libraryPath], env: { ELECTRON_RUN_AS_NODE: '1' } }
+}
 
 async function writeChatMcpConfig(libraryPath: string) {
   const target = path.join(app.getPath('userData'), 'chat-mcp.json')
-  const config = { mcpServers: { prism: { command: process.execPath, args: [path.join(__dirname, 'mcpServer.js'), '--vault', libraryPath], env: { ELECTRON_RUN_AS_NODE: '1' } } } }
   await fs.mkdir(path.dirname(target), { recursive: true })
-  await fs.writeFile(target, JSON.stringify(config, null, 2), 'utf8')
+  await fs.writeFile(target, JSON.stringify({ mcpServers: { prism: prismMcpServer(libraryPath) } }, null, 2), 'utf8')
   return target
 }
 
@@ -1299,7 +1296,7 @@ ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   const settings = await readSettings()
   // Without a library there is nothing to remember into, and the chat stays the read-only assistant it was.
   const mcpConfigPath = settings.libraryPath ? await writeChatMcpConfig(settings.libraryPath).catch(() => undefined) : undefined
-  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }); else sendClaude(event.sender, { ...request, prompt }, mcpConfigPath)
+  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }, settings.libraryPath); else sendClaude(event.sender, { ...request, prompt }, mcpConfigPath)
   return { started: true }
 })
 ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {

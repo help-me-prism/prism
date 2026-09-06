@@ -201,13 +201,25 @@ PDF 문장 오버레이는 논문을 열고 나서 전체 페이지 구조를 �
 
 ### CLI별 상태
 
-| CLI | 상태 |
+| CLI | 어떻게 여는가 |
 | --- | --- |
-| Claude | **동작.** `--permission-mode plan`은 MCP 도구까지 전부 막으므로, 쓸 도구를 `--allowedTools`로 이름 지어 열고 나머지는 그대로 거부하게 둔다(물어볼 사람이 없으면 CLI가 거부한다). 실측: `remember`는 통과, Write/Bash는 차단 |
-| Codex | **바닥만.** 0.151.0에서 MCP 도구 호출은 승인을 요구하는데 Prism의 `approvalPolicy: 'never'`가 이를 거부한다. app-server 프로토콜에는 명령·파일·권한 승인 RPC만 있고 **MCP 도구용 승인 RPC가 없어** Prism이 대신 답할 수도 없다. `apps.<server>.default_tools_approval_mode="auto"`도 통하지 않았다. Codex 사용자는 규칙 기반 바닥이 그대로 동작한다 |
+| Claude | `--permission-mode plan`은 MCP 도구까지 전부 막는다. 그래서 쓸 도구를 `--allowedTools`로 이름 지어 열고 나머지는 그대로 거부하게 둔다 — 물어볼 사람이 없으면 CLI가 거부한다. 실측: `remember`는 통과, Write/Bash는 차단(모델은 파일을 만들었다고 주장했지만 파일은 없었다) |
+| Codex | 읽기 전용 MCP 도구는 그냥 실행하고, **쓰는 도구는 클라이언트에게 물어본다.** `mcpServer/elicitation/request`에 `_meta.codex_approval_kind: "mcp_tool_call"`이 붙어 오고 응답은 `{action: accept\|decline\|cancel}`이다. 그래서 스레드를 `approvalPolicy: 'never'` 대신 `'on-request'`로 돌리고 `electron/codexApproval.ts`가 판단한다 |
 
-모델이 도구를 부르는 것은 두 번째 의도라 시켜야 한다. `electron/main.ts`의 `chatMemoryInstruction`이 `--append-system-prompt`로 붙는다. 도구를 지연 로딩하는 CLI에서는 "마지막에 부르라"는 순서까지 적어야 실제로 불렀다.
+Codex를 `on-request`로 바꾼 것이 권한을 넓히지 않는다는 점이 중요하다. `never`는 **우리 도구까지** 같이 거부했고, 지금은 우리 도구만 승인하고 나머지는 전부 거절한다 — 명령 실행·파일 변경·권한 상승은 예전 그대로 막힌다. 승인은 도구를 id가 아니라 **제목**으로 지목하므로 제목은 `noteContract.ts`의 상수 하나다. 그리고 답하지 않으면 턴이 멈추기 때문에 모르는 요청에는 침묵 대신 오류로 답한다 — 예전에는 서버 요청이 id를 달고 와서 **아무도 하지 않은 호출의 응답처럼 보여 조용히 버려졌다.**
+
+MCP 서버는 두 CLI에 다르게 전달한다. Claude는 `--mcp-config`가 가리키는 JSON 파일, Codex는 `thread/start`의 `config.mcp_servers` — 볼트 경로가 스레드마다 정해지므로 후자가 더 맞다. 실행은 둘 다 `ELECTRON_RUN_AS_NODE=1`로 패키징된 `mcpServer.js`라 따로 설치할 것이 없다.
+
+### 지시가 절반이다
+
+모델이 도구를 부르는 것은 두 번째 의도라 시켜야 한다. `noteContract.ts`의 `chatMemoryInstruction`이 Claude에는 `--append-system-prompt`로, Codex에는 `thread/start`의 `developerInstructions`로 붙는다. 실측으로 세 번 고쳤다.
+
+- **부르라고 해야 부른다.** 지시가 없으면 답만 하고 끝났다.
+- **언제 부를지도 말해야 한다.** 도구를 지연 로딩하는 CLI에서는 "마지막에 부르라, 다른 도구와 함께 로드하라"까지 적어야 실제로 불렀다.
+- **답하는 것과 해결되는 것은 다르다.** 이 말이 없으면 모델이 자기가 설명했다는 이유로 구간을 통째로 비웠다. 지금은 구간의 불변식을 먼저 말한다 — "이 노트에 대해 **아직** 이해하지 못한 것의 목록"이고, 넣고 빼는 기준은 사용자가 한 말뿐이다.
 
 ### 검증
 
-`npm run test:capture`의 `test-note-contract.mjs`가 바닥이 씨를 뿌리고 대화가 쓴 뒤에는 물러나는 것을, `test-knowledge-mcp.mjs`가 `remember`가 자기 구간 밖으로 못 나가는 것을 확인한다. 실제 CLI 왕복은 임시 볼트로 확인했다 — 한국어로, 사용자 표현으로, 올바른 구간에 쓰고, 다음 턴에 해결된 항목을 지웠으며, `prism:mine` 구간은 그대로였다.
+`npm run test:capture`의 `test-note-contract.mjs`가 바닥이 씨를 뿌리고 대화가 쓴 뒤에는 물러나는 것을, `test-knowledge-mcp.mjs`가 `remember`가 자기 구간 밖으로 못 나가는 것을 확인한다. `test-codex-approval.mjs`가 승인 판단을 검증한다 — 우리 도구는 승인, 다른 서버의 도구와 우리 서버의 다른 도구는 거절, 명령·파일·권한은 그대로 거부, 모르는 요청은 오류로 응답.
+
+실제 CLI 왕복은 두 CLI 모두 임시 볼트로 확인했다: 한국어로, 사용자 표현으로, 올바른 구간에 쓰고, 다음 턴에 "이제 이해했다"고 한 항목만 지우고 "아직 모르겠다"는 항목은 남겼으며, `prism:mine` 구간은 매번 그대로였다. 작은 모델에서는 지울 것을 안 지우고 넘어가는 일이 있지만, 잃는 방향으로 틀리지는 않았다.

@@ -89,6 +89,30 @@ export const noteMine: Partial<Record<string, MineSection[]>> = {
 /** Sections older notes carry that are the researcher's too, and were never marked as anything. */
 export const legacyMineHeadings = ['내 생각', '메모']
 
+/**
+ * The title the `remember` tool carries. Codex asks the client to approve an MCP tool call by title rather
+ * than by name, so this is what Prism recognises its own memory tool by — one constant instead of the same
+ * string written twice and drifting apart.
+ */
+export const rememberToolTitle = 'Keep something in a note'
+
+/**
+ * A tool the model never reaches for is a tool that does not exist. Left to itself it answers the question
+ * and moves on, which is exactly what it should do — remembering is a second intention, and every assistant
+ * that has a memory is told to have it.
+ */
+export const chatMemoryInstruction = [
+  'You are answering inside Prism, a local research reading app. The Markdown notes in the vault belong to the researcher.',
+  'Remembering is the last thing you do in a turn. After you have answered, call mcp__prism__remember on the note the conversation was about. Load that tool alongside the others rather than deciding at the end that you do not have it.',
+  'The section is one list: what the researcher still does not understand about that note. Keep it true.',
+  'Add a line when they say they do not follow something. Remove a line when they say they now do. Answering it yourself changes nothing — your explanation is not evidence that it landed, and only what they say counts.',
+  'Call mcp__prism__read_note_memory first and send the whole list back every time. Whatever you leave out is removed, so a line you still believe belongs must be sent again. An empty list clears the section; send one only when nothing belongs there any more.',
+  'Do not remember small talk, or what the note already says, or a summary of your own answer. Say in one short clause what you kept, and nothing more.',
+  'Use mcp__prism__search_knowledge to find a note when you only know its title.',
+  'You cannot write anywhere else in a note, and you should not try: what the researcher wrote is theirs.',
+].join(' ')
+
+
 export function autoMarkers(section: AutoSection) { return { open: `<!-- prism:auto ${section} -->`, close: `<!-- /prism:auto ${section} -->` } }
 export function mineMarkers(section: MineSection) { return { open: `<!-- prism:mine ${section} -->`, close: `<!-- /prism:mine ${section} -->` } }
 
