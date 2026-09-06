@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { captureToPaperNote } from '../dist-electron/capture.js'
-import { listCurationQueue, mergeConcepts, promoteMemo } from '../dist-electron/curation.js'
+import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo } from '../dist-electron/curation.js'
 import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, migratePaperNotes, readKnowledgeNode, restoreKnowledgeNode, saveKnowledgeNode } from '../dist-electron/knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords, syncLinkRelations } from '../dist-electron/relations.js'
 import { refreshNoteDigest } from '../dist-electron/paperDigest.js'
@@ -130,6 +130,31 @@ ${withSection}`)
   const stillTyped = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.sourceId === alpha.id && relation.targetId === question.id)
   assert(stillTyped.length === 1 && stillTyped[0].type === 'raises', 'Removing the link should not remove the typed relation the researcher approved.')
 
+  // What the researcher wrote about their own work becomes a Claim they own, and stops being offered once it is.
+  const applying = await readKnowledgeNode(root, alpha.id)
+  const applyLine = '이 목적함수를 음성 합성 샘플링에 그대로 써볼 수 있겠다.'
+  await saveKnowledgeNode(root, alpha.id, { content: `${applying.content}
+
+## 내 연구에 쓸 곳
+
+<!-- prism:mine apply -->
+${applyLine}
+<!-- /prism:mine apply -->
+`, expectedRevision: applying.revision })
+  const withApply = await listCurationQueue(root)
+  const offered = withApply.applyNotes.find((item) => item.line === applyLine)
+  assert(offered && offered.node.id === alpha.id, `A line about the researcher's own work was not offered: ${JSON.stringify(withApply.applyNotes)}`)
+
+  const mine = await promoteApplyNote(root, { nodeId: alpha.id, line: applyLine, title: '음성 합성에 이 목적함수를 쓸 수 있다' })
+  const mineNote = await readKnowledgeNode(root, mine.id)
+  assert(mineNote.content.includes('claim_origin: mine'), `A promoted research note is not the researcher's own claim:
+${mineNote.content}`)
+  assert(mineNote.content.includes(applyLine) && mineNote.content.includes('[[papers/test.0001/test.0001|Paper Alpha]]'), 'The promoted claim lost the sentence or where it came from.')
+  // Their own section is never written back into: the line is dropped from the queue because a Claim quotes it.
+  assert((await readKnowledgeNode(root, alpha.id)).content.includes(`<!-- prism:mine apply -->
+${applyLine}`), 'Promoting changed what the researcher had written.')
+  assert(!(await listCurationQueue(root)).applyNotes.some((item) => item.line === applyLine), 'A line that already became a Claim is still being offered.')
+
   // Deleting a note is undoable: the trash entry restores it to its folder.
   const disposable = await createKnowledgeNode(root, { nodeType: 'question', title: '지울 질문' })
   const removed = await deleteKnowledgeNode(root, disposable.id)
@@ -140,7 +165,7 @@ ${withSection}`)
   assert((await fs.stat(path.join(root, 'Questions', '지울 질문.md'))).isFile(), 'Undo did not put the note back in its folder.')
   await assert.rejects(restoreKnowledgeNode(root, '../outside.md'), /올바르지/)
 
-  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges of their own type with typed upgrades, relations that live in one generated section rather than a callout per edge, and undoable deletion.\n')
+  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges of their own type with typed upgrades, relations that live in one generated section rather than a callout per edge, research notes promoted to claims the researcher owns, and undoable deletion.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

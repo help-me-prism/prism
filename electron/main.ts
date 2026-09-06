@@ -17,7 +17,7 @@ import { searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
-import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
+import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo, type MergeConceptsRequest, type PromoteApplyRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
@@ -1079,6 +1079,11 @@ ipcMain.handle('knowledge:curation:promote-memo', async (_event, request: Promot
   if (!request || typeof request.paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.paperNodeId) || typeof request.blockId !== 'string' || !/^evidence-[a-zA-Z0-9_-]{1,100}$/.test(request.blockId)
     || typeof request.memo !== 'string' || request.memo.length > 4_000 || (request.nodeType !== 'claim' && request.nodeType !== 'question') || typeof request.title !== 'string' || request.title.length > 300) throw new Error('승격 요청이 올바르지 않습니다.')
   return promoteMemo(settings.libraryPath, request)
+})
+ipcMain.handle('knowledge:curation:promote-apply', async (_event, request: PromoteApplyRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId) || typeof request.line !== 'string' || request.line.length > 1_000 || typeof request.title !== 'string' || request.title.length > 200) throw new Error('승격 요청이 올바르지 않습니다.')
+  return promoteApplyNote(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:curation:merge-concepts', async (_event, request: MergeConceptsRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

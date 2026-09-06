@@ -14,6 +14,7 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
   const [message, setMessage] = useState('')
   const [promoting, setPromoting] = useState<{ memo: CurationMemo; nodeType: 'claim' | 'question'; title: string }>()
   const [merging, setMerging] = useState<{ stub: CurationStub; query: string; similar?: KnowledgeSuggestion[] }>()
+  const [promotingApply, setPromotingApply] = useState<{ node: KnowledgeNodeRecord; line: string; title: string }>()
   const [deleteReadyId, setDeleteReadyId] = useState<string>()
 
   async function load() {
@@ -76,6 +77,17 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
       return `'${title}' ${nodeType === 'claim' ? '주장' : '질문'} 노트로 승격하고 근거와 출처를 유지했습니다.`
     })
   }
+  // Their own sentence becomes a Claim they own; the paper did not make it, so it inherits no evidence.
+  function promoteApply() {
+    if (!promotingApply) return
+    const { node, line, title } = promotingApply
+    setPromotingApply(undefined)
+    return run(async () => {
+      const result = await window.prism.promoteApplyNote({ nodeId: node.id, line, title })
+      onOpenNode(result.id)
+      return `'${title}'을(를) 내 주장으로 올렸습니다. 근거를 붙이면 대기열에서 빠집니다.`
+    })
+  }
   const mergeTargets = useMemo(() => {
     if (!merging) return []
     const query = merging.query.trim().toLocaleLowerCase()
@@ -108,6 +120,14 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
       {queue.conceptSuggestions.length > 0 && <article className="curation-section">
         <header><span><strong>AI가 제안한 새 개념</strong><small>수락하면 빈 노트가 만들어집니다. 정의는 직접 씁니다</small></span><em>{queue.conceptSuggestions.length}</em></header>
         {queue.conceptSuggestions.map((item) => <div key={item.id} className="curation-item"><button className="curation-open" onClick={() => onOpenNode(item.paperNodeId)}><small>{item.paperTitle}에서 제안</small><strong>{item.title}</strong>{item.reason && <p>{item.reason}</p>}</button><div className="curation-actions"><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'accepted', item.title)}><Check size={11} /> 스텁 만들기</button><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'rejected', item.title)}><X size={11} /> 거절</button></div></div>)}
+      </article>}
+      {queue.applyNotes.length > 0 && <article className="curation-section">
+        <header><span><strong>내 연구에 쓸 곳</strong><small>논문을 읽다 적은 당신의 문장입니다. 주장으로 올리면 근거를 붙일 수 있습니다</small></span><em>{queue.applyNotes.length}</em></header>
+        {queue.applyNotes.map((item) => { const key = `${item.node.id}:${item.line.slice(0, 40)}`; const open = promotingApply?.line === item.line && promotingApply.node.id === item.node.id; return <div key={key} className="curation-item">
+          <button className="curation-open" onClick={() => onOpenNode(item.node.id)}><small>{item.node.title}</small><strong>{item.line}</strong></button>
+          <div className="curation-actions"><button onClick={() => setPromotingApply(open ? undefined : { node: item.node, line: item.line, title: item.line.slice(0, 120) })}><Sparkles size={11} /> 내 주장으로</button></div>
+          {open && promotingApply && <div className="curation-form"><label><span>주장 문장 (내 말로)</span><input autoFocus aria-label="승격 노트 제목" value={promotingApply.title} onChange={(event) => setPromotingApply({ ...promotingApply, title: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void promoteApply() } }} /></label><div className="curation-form-actions"><button className="curation-cancel" onClick={() => setPromotingApply(undefined)}>취소</button><button className="primary" onClick={() => void promoteApply()}>승격하기</button></div></div>}
+        </div> })}
       </article>}
       {queue.conflicts.length > 0 && <article className="curation-section">
         <header><span><strong>서로 반대로 말하는 논문</strong><small>한 주장을 두고 한쪽은 지지하고 한쪽은 반박합니다. 읽어보고 어느 쪽이 맞는지 정하세요</small></span><em>{queue.conflicts.length}</em></header>
