@@ -3,6 +3,9 @@ import path from 'node:path'
 import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, noteAutomation, type AutoSection } from './noteContract.js'
+
+export { noteAutomation, type NoteSectionRule } from './noteContract.js'
 
 /**
  * Notes only get written if writing them is nearly free. Prism already knows the paper and every chat the
@@ -13,15 +16,11 @@ import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRel
  * Nothing outside those markers is ever touched.
  */
 export type DigestChatMessage = { role: 'user' | 'assistant'; text: string; createdAt: number; paperIds?: string[]; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number; source?: string }> }
-export type PaperDigestSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers' | 'asked' | 'definition' | 'stake'
+export type PaperDigestSection = AutoSection
 export type PaperDigestResult = { updated: boolean; chatMessages: number; sections: PaperDigestSection[]; usedModel: boolean }
 export type RunPrompt = (prompt: string) => Promise<string>
 
-const sectionHeadings: Record<PaperDigestSection, string> = {
-  overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나',
-  support: '지지 근거', against: '반박', answers: '지금까지 나온 답', asked: '대화에서 물어본 것',
-  definition: '정의', stake: '무엇에 달려 있나',
-}
+const sectionHeadings = autoHeadings
 const userHeading = '내 생각'
 const memoHeading = '메모'
 const questionWords = /(왜|어떻게|무엇|뭐|뭔|어디|언제|어느|차이|이유|의미|맞나|맞아|인가|인지|할까|일까|되나|되는지|모르겠|이해가|헷갈|why|how|what|which|difference|mean)/i
@@ -189,9 +188,7 @@ function abstractOf(content: string) {
   return normalizeSpace(match[1].replace(/^>\s?/gm, ''))
 }
 
-function markers(section: PaperDigestSection) {
-  return { open: `<!-- prism:auto ${section} -->`, close: `<!-- /prism:auto ${section} -->` }
-}
+const markers = autoMarkers
 
 /**
  * Replaces one generated region. When the note has no such region yet the section is inserted before the
@@ -417,6 +414,7 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
     if (updated !== next) { next = updated; written.push(section) }
   }
   if (next === snapshot.content) return { updated: false, chatMessages: paperMessages.length, sections: [], usedModel }
+  assertOnlyAutoChanged(snapshot.content, next, paper.title)
   const saved = await saveKnowledgeNode(libraryPath, paper.id, { content: next, expectedRevision: snapshot.revision })
   if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
   return { updated: true, chatMessages: paperMessages.length, sections: written, usedModel }
@@ -459,48 +457,6 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
 
 export function digestSectionPath(libraryPath: string, paperNodeId: string) {
   return path.join(libraryPath, '.prism', 'cache', `${paperNodeId.replace(/[^a-zA-Z0-9._-]/g, '_')}.digest.json`)
-}
-
-export type NoteSectionRule = {
-  section: PaperDigestSection
-  /** `machine` costs nothing and runs on every open; `model` costs a call and only runs when one is asked for. */
-  by: 'machine' | 'model'
-  relations?: { types: string[]; direction?: 'incoming' | 'outgoing' }
-}
-
-/**
- * Which parts of a note write themselves, per kind of note. This table is the whole policy: a section
- * listed here is Prism's to keep current, and everything else in the file belongs to the researcher and is
- * never touched. `machine` sections are derived from what the vault already knows — links, relations,
- * chat — so they are rewritten every time the note is opened. `model` sections need a model to say
- * anything at all, so they wait until the researcher asks for one and are left alone otherwise.
- *
- * Papers are the exception in one direction only: their `overview` and `confusion` are written mechanically
- * and a model rewrites them better when it is available.
- */
-export const noteAutomation: Partial<Record<string, NoteSectionRule[]>> = {
-  paper: [
-    { section: 'overview', by: 'machine' },
-    { section: 'confusion', by: 'machine' },
-    { section: 'focus', by: 'machine' },
-  ],
-  concept: [
-    { section: 'definition', by: 'model' },
-    { section: 'sources', by: 'machine' },
-    { section: 'asked', by: 'machine' },
-  ],
-  claim: [
-    { section: 'sources', by: 'machine' },
-    { section: 'support', by: 'machine', relations: { types: ['supports', 'evidence_for'] } },
-    { section: 'against', by: 'machine', relations: { types: ['contradicts'] } },
-    { section: 'asked', by: 'machine' },
-    { section: 'stake', by: 'model' },
-  ],
-  question: [
-    { section: 'sources', by: 'machine' },
-    { section: 'answers', by: 'machine', relations: { types: ['answers'] } },
-    { section: 'asked', by: 'machine' },
-  ],
 }
 
 const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
@@ -580,6 +536,7 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   }
 
   if (next === snapshot.content) return { updated: false, chatMessages: asked.length, sections: [], usedModel }
+  assertOnlyAutoChanged(snapshot.content, next, node.title)
   const saved = await saveKnowledgeNode(libraryPath, node.id, { content: next, expectedRevision: snapshot.revision })
   if (!saved.saved) throw new Error('노트가 외부에서 변경되어 자동 정리를 저장하지 못했습니다.')
   await markAutoWritten(libraryPath, node.id, filled).catch(() => undefined)
