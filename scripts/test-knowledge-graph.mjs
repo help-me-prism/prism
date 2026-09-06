@@ -55,6 +55,13 @@ try {
   assert.equal(pair.length, 1, 'one edge for one pair')
   assert.equal(pair[0].type, 'uses')
 
+  // The generated 관계 sections link both ways, so the mirror of a typed relation must not become a second edge.
+  await write('Claims/Disputed.md', note('claim-dddddddd', 'claim', 'Disputed', 'Noise prediction wins. 근거: [[Papers/Paper Alpha]].'))
+  const mirrored = await listKnowledgeGraph(root)
+  const between = mirrored.edges.filter((edge) => [edge.sourceId, edge.targetId].sort().join('|') === ['paper-aaaaaaaa', 'claim-dddddddd'].sort().join('|'))
+  assert.equal(between.length, 1, 'a link back along an existing relation is the same pair, not a second edge')
+  assert.equal(between[0].type, 'supports')
+
   // A relation pointing at a note that is not in the vault is not an edge.
   await relation('66666666666666666666', 'paper-aaaaaaaa', 'concept-99999999', { type: 'uses' })
   const third = await listKnowledgeGraph(root)

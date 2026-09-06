@@ -105,6 +105,33 @@ export default function MiniGraph({ nodes, edges, height = 250, onOpenNode }: {
     dragging.current = undefined
   }
 
+  /**
+   * Which nodes get to say their name. Naming all of them overlaps every label with its neighbours' at this
+   * size; the note the panel is about comes first, then whatever is best connected, and a name that would land
+   * on one already written is left for the hover.
+   */
+  const named = (() => {
+    const width_ = (text: string) => {
+      let total = 0
+      for (const character of text) total += character.codePointAt(0)! > 0x1100 ? 8.6 : 4.7
+      return total
+    }
+    const rank = (node: MiniNode) => (node.kind === 'center' ? 1e6 : node.kind === 'hop2' ? 0 : 1e3) + (degrees.get(node.id) ?? 0)
+    const claimed: Array<[number, number, number, number]> = []
+    const chosen = new Set<string>()
+    for (const { node, point } of [...positioned].sort((left, right) => rank(right.node) - rank(left.node))) {
+      if (node.kind === 'hop2' && node.id !== hoverId) continue
+      const half = width_(node.title.length > 15 ? `${node.title.slice(0, 14)}…` : node.title) / 2 + 1
+      const top = point.y + point.radius + 3
+      const box: [number, number, number, number] = [point.x - half, top, point.x + half, top + 10]
+      const forced = node.kind === 'center' || node.id === hoverId
+      if (!forced && claimed.some(([x0, y0, x1, y1]) => box[0] < x1 && box[2] > x0 && box[1] < y1 && box[3] > y0)) continue
+      claimed.push(box)
+      chosen.add(node.id)
+    }
+    return chosen
+  })()
+
   return <svg
     ref={svgRef} className="mini-graph" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="연결 그래프"
     onPointerMove={moveDrag} onPointerUp={endDrag} onPointerLeave={(event) => { endDrag(event); setHoverId(undefined) }}
@@ -136,7 +163,7 @@ export default function MiniGraph({ nodes, edges, height = 250, onOpenNode }: {
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenNode(node.id) } }}
       >
         <circle cx={point.x} cy={point.y} r={point.radius} />
-        {(node.kind !== 'hop2' || hoverId === node.id) && <text x={point.x} y={point.y + point.radius + 9}>{label}</text>}
+        {named.has(node.id) && <text x={point.x} y={point.y + point.radius + 9}>{label}</text>}
         <title>{node.title}</title>
       </g>
     })}

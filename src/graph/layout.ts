@@ -48,8 +48,8 @@ export class GraphSimulation {
     this.width = options.width
     this.height = options.height
     // Repulsion and centring balance at roughly the link distance: charge ~= linkDistance^2 * gravity * linkDistance.
-    this.linkDistance = options.linkDistance ?? 60
-    this.charge = options.charge ?? 2200
+    this.linkDistance = options.linkDistance ?? 78
+    this.charge = options.charge ?? 4750
     this.gravity = options.gravity ?? 0.01
   }
 

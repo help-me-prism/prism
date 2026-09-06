@@ -26,16 +26,23 @@ export async function listKnowledgeGraph(libraryPath: string): Promise<Knowledge
   const edges: KnowledgeGraphEdge[] = []
   const pairs = new Set<string>()
 
+  // Two notes are one pair however the relation points: a link is only news when nothing already joins them.
+  const pair = (left: string, right: string) => (left < right ? `${left}|${right}` : `${right}|${left}`)
+
   for (const relation of relations) {
     if (!known.has(relation.sourceId) || !known.has(relation.targetId)) continue
     edges.push({ id: relation.id, sourceId: relation.sourceId, targetId: relation.targetId, type: relation.type, origin: relation.origin ?? 'manual', creator: relation.creator, reviewStatus: relation.reviewStatus })
-    if (relation.reviewStatus !== 'rejected') pairs.add(`${relation.sourceId}>${relation.targetId}`)
+    if (relation.reviewStatus !== 'rejected') pairs.add(pair(relation.sourceId, relation.targetId))
   }
 
+  /**
+   * The generated `관계` sections write every relation back into both notes as a `[[link]]`, so a graph that
+   * counted them would draw each relation twice — once typed, once as a faint line pointing the other way.
+   */
   for (const [targetId, backlinks] of snapshot.backlinks) {
     if (!known.has(targetId)) continue
     for (const backlink of backlinks) {
-      const key = `${backlink.nodeId}>${targetId}`
+      const key = pair(backlink.nodeId, targetId)
       if (!known.has(backlink.nodeId) || pairs.has(key)) continue
       pairs.add(key)
       edges.push({ id: `link-${backlink.nodeId}-${targetId}`, sourceId: backlink.nodeId, targetId, type: 'link', origin: 'link', creator: 'user', reviewStatus: 'approved' })

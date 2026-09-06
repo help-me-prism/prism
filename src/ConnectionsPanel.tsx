@@ -114,7 +114,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
       </div>
     </section>}
 
-    {backlinks.length > 0 && <section className="side-sec side-links">
+    {node && backlinks.length > 0 && <section className="side-sec side-links">
       <header><span>백링크</span><small>{backlinks.length}</small></header>
       <div className="side-list">
         {backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>

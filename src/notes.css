@@ -191,13 +191,13 @@
 
 /* One node colour per type, named once: the tree dots, the panel graph and the canvas graph all read these. */
 :root {
-  --kind-paper: #4f7ab8;
-  --kind-concept: #3f9078;
-  --kind-claim: #b07d35;
-  --kind-question: #7d63bd;
-  --kind-insight: #8a8f5c;
-  --kind-project: #97785f;
-  --kind-contra: #c05a52;
+  --kind-paper: #5580b4;
+  --kind-concept: #3f8a72;
+  --kind-claim: #b8873c;
+  --kind-question: #7f68b8;
+  --kind-insight: #868b5c;
+  --kind-project: #95765e;
+  --kind-contra: #bd5a52;
 }
 .kind-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; display: inline-block; background: #a09a90; }
 .kind-dot.kind-paper, .node-kind.kind-paper i { background: var(--kind-paper); }
@@ -595,6 +595,9 @@
 .graph-toggles { margin-left: auto; display: flex; gap: 5px; }
 .graph-toggles button { display: inline-flex; align-items: center; gap: 4px; height: 23px; padding: 0 9px; border: 1px solid #ddd8ce; border-radius: 12px; background: #fff; color: #857f76; font-size: 10px; cursor: pointer; }
 .graph-toggles button.on { border-color: #7760aa; background: #7760aa; color: #fff; }
+.graph-toggles button em { font-style: normal; padding: 0 4px; border-radius: 7px; background: #efece6; color: #857f76; font-size: 9px; }
+.graph-toggles button.on em { background: rgba(255, 255, 255, .22); color: #fff; }
+.graph-status-focus { color: #6a5896; }
 .graph-toggles button:disabled { opacity: .5; cursor: default; }
 .graph-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .graph-canvas-full { display: block; cursor: grab; touch-action: none; }

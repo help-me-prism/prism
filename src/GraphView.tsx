@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Focus, Maximize2, RefreshCw, Search, X } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
-import { allNodeTypes, defaultGraphFilter, graphView, neighbourhood, neighbours, type GraphFilter, type GraphView as GraphViewData } from './graph/model'
+import { allNodeTypes, defaultGraphFilter, graphView, neighbourhood, neighbours, type GraphFilter, type GraphViewNode, type GraphView as GraphViewData } from './graph/model'
 import { GraphSimulation } from './graph/layout'
-import { edgeStyle, nodeColor } from './graph/palette'
+import { edgeLegend, edgeStyle, nodeColor } from './graph/palette'
 
 /**
  * The whole vault at once. It is deliberately not the way to find a note — the tree and search are — but it is
@@ -63,6 +63,8 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
   }, [onNotify])
 
   useEffect(() => { void load() }, [load])
+  // Narrowing to "the note I have open" has to keep meaning that when a different note is opened.
+  useEffect(() => { setFocusCenter((current) => current === undefined ? undefined : activeId) }, [activeId])
   // A save arrives as a burst of file events; the whole graph is too expensive to rebuild once per event.
   useEffect(() => {
     let pending: number | undefined
@@ -80,7 +82,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     const { minX, minY, maxX, maxY } = sim.bounds()
     const width = Math.max(maxX - minX, 1)
     const height = Math.max(maxY - minY, 1)
-    const k = Math.min(size.current.width / (width + 90), size.current.height / (height + 90), 2.4)
+    const k = Math.min(size.current.width / (width + 190), size.current.height / (height + 110), 2.4)
     camera.current = {
       k,
       x: size.current.width / 2 - (minX + width / 2) * k,
@@ -173,9 +175,8 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       const target = sim.byId.get(edge.targetId)
       if (!source || !target) continue
       const style = edgeStyle(edge.type, edge.origin, edge.approved)
-      const alpha = highlight
-        ? (edge.sourceId === highlight || edge.targetId === highlight ? 0.95 : 0.06)
-        : searching ? 0.18 : 0.7
+      const incident = edge.sourceId === highlight || edge.targetId === highlight
+      const alpha = highlight ? (incident ? 0.95 : 0.05) : searching ? 0.14 : 0.55
       if (alpha < 0.08) continue
       const from = toScreen(source.x, source.y)
       const to = toScreen(target.x, target.y)
@@ -188,8 +189,9 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       context.lineTo(to.x, to.y)
       context.stroke()
       context.setLineDash([])
-      // Direction only matters once an edge is legible; below that an arrowhead is noise.
-      if (style.arrow && k > 0.85) {
+      // Direction is a question about one note, not about the whole vault: fifty arrowheads on screen at once
+      // are fifty things to look at and nothing to read. They appear for whatever the reader is pointing at.
+      if (style.arrow && incident && k > 0.6) {
         const angle = Math.atan2(to.y - from.y, to.x - from.x)
         const tip = target.radius * k + 3
         const x = to.x - Math.cos(angle) * tip
@@ -204,15 +206,14 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       }
     }
 
-    const labelled = view.nodes.length <= 120 || k > 1.05
-    context.textAlign = 'center'
-    context.textBaseline = 'top'
+    const onScreen: Array<{ node: GraphViewNode; x: number; y: number; radius: number }> = []
     for (const node of view.nodes) {
       const point = sim.byId.get(node.id)
       if (!point) continue
       const screen = toScreen(point.x, point.y)
-      const radius = Math.max(point.radius * k, 2.2)
       if (screen.x < -60 || screen.y < -60 || screen.x > width + 60 || screen.y > height + 60) continue
+      const radius = Math.max(point.radius * k, 2.2)
+      onScreen.push({ node, x: screen.x, y: screen.y, radius })
       context.globalAlpha = dim(node.id)
       context.fillStyle = nodeColor(node.nodeType)
       context.beginPath()
@@ -227,20 +228,51 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
         context.lineWidth = 1.2
         context.stroke()
       }
+    }
 
-      const named = labelled || node.match || node.id === highlight || node.id === activeId || (related?.has(node.id) ?? false)
-      if (!named || radius < 2.5) continue
+    /**
+     * Labels are drawn last and only where they fit. Naming every node at once turns the middle of any real
+     * vault into a wall of overlapping text that names nothing; the well-connected notes get their names, the
+     * rest get theirs on hover. What the reader asked about always wins the space.
+     */
+    context.textAlign = 'center'
+    context.textBaseline = 'top'
+    context.lineJoin = 'round'
+    const priority = (node: GraphViewNode) =>
+      (node.id === highlight ? 1e6 : 0) + (node.id === activeId ? 5e5 : 0) + (node.match ? 2e5 : 0) + (related?.has(node.id) ? 1e5 : 0) + node.degree
+    // Node circles claim their own space first: a name written across a node hides the thing it is naming.
+    const claimed: Array<[number, number, number, number]> = onScreen.map(({ x, y, radius }) => [x - radius, y - radius, x + radius, y + radius])
+    // The status line and the legend sit over the canvas; a name written under them is a name nobody can read.
+    claimed.push([0, height - 26, width, height])
+    const free = (x0: number, y0: number, x1: number, y1: number) =>
+      !claimed.some(([a0, b0, a1, b1]) => x0 < a1 && x1 > a0 && y0 < b1 && y1 > b0)
+    for (const entry of [...onScreen].sort((left, right) => priority(right.node) - priority(left.node))) {
+      const { node, x, y, radius } = entry
+      const forced = node.id === highlight || node.id === activeId || (related?.has(node.id) ?? false)
+      if (radius < 2.5 && !forced) continue
+      if (!forced && !node.match && k < 0.55) continue
       const label = node.title.length > 22 ? `${node.title.slice(0, 21)}…` : node.title
-      // A halo, not a box: labels have to stay readable where they cross an edge without hiding it.
-      context.font = `${node.id === highlight ? 600 : 400} ${Math.min(Math.max(10 * k, 9), 13)}px Inter, system-ui, sans-serif`
+      const size = Math.min(Math.max(10 * k, 9), 13)
+      context.font = `${node.id === highlight ? 600 : 400} ${size}px Inter, system-ui, sans-serif`
+      const half = context.measureText(label).width / 2 + 2
+      // Under the node reads best; above it is the second try, and only then is the name left for the hover.
+      const below = y + radius + 3
+      const above = y - radius - size - 4
+      const top = free(x - half, below, x + half, below + size + 2) ? below
+        : free(x - half, above, x + half, above + size + 2) ? above
+          : forced ? below : undefined
+      if (top === undefined) continue
+      // A name running off the edge of the canvas is half a name; it waits for the hover instead.
+      if (x - half < 2 || x + half > width - 2) continue
+      claimed.push([x - half, top, x + half, top + size + 2])
+      // A halo, not a box: a label has to stay readable where it crosses an edge without hiding it.
       context.globalAlpha = dim(node.id) * 0.85
       context.strokeStyle = '#f4f2ed'
       context.lineWidth = 3
-      context.lineJoin = 'round'
-      context.strokeText(label, screen.x, screen.y + radius + 3)
+      context.strokeText(label, x, top)
       context.globalAlpha = dim(node.id)
       context.fillStyle = node.id === highlight || node.id === activeId ? '#3c352c' : '#6f675d'
-      context.fillText(label, screen.x, screen.y + radius + 3)
+      context.fillText(label, x, top)
     }
     context.globalAlpha = 1
   }, [view, byId, adjacency, hoverId, selectedId, activeId, filter.query])
@@ -329,6 +361,20 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     for (const node of graph?.nodes ?? []) result.set(node.nodeType, (result.get(node.nodeType) ?? 0) + 1)
     return result
   }, [graph])
+  /**
+   * What each layer would add, counted over the whole vault rather than over what is currently drawn. A number
+   * that changed when you pressed the button would be describing the answer instead of the question.
+   */
+  const layers = useMemo(() => {
+    let links = 0; let proposed = 0
+    for (const edge of graph?.edges ?? []) {
+      if (edge.reviewStatus === 'rejected') continue
+      if (edge.origin === 'link') links += 1
+      else if (edge.type === 'mentions' || edge.reviewStatus === 'pending') proposed += 1
+    }
+    return { links, proposed }
+  }, [graph])
+  const activeNode = activeId ? graph?.nodes.find((node) => node.id === activeId) : undefined
 
   return <div className="graph-view">
     <div className="graph-toolbar">
@@ -347,10 +393,27 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
         {filter.query && <button aria-label="찾기 지우기" onClick={() => setFilter((current) => ({ ...current, query: '' }))}><X size={11} /></button>}
       </div>
       <div className="graph-toggles">
-        <button className={filter.showLinks ? 'on' : ''} aria-pressed={filter.showLinks} title="본문에 쓴 [[링크]]를 엣지로 봅니다" onClick={() => setFilter((current) => ({ ...current, showLinks: !current.showLinks }))}>링크</button>
-        <button className={filter.showProposed ? 'on' : ''} aria-pressed={filter.showProposed} title="아직 승인하지 않은 AI 제안과 자동 추출 관계" onClick={() => setFilter((current) => ({ ...current, showProposed: !current.showProposed }))}>AI 제안</button>
-        <button className={filter.hideIsolated ? 'on' : ''} aria-pressed={filter.hideIsolated} title="연결이 하나도 없는 노트를 숨깁니다" onClick={() => setFilter((current) => ({ ...current, hideIsolated: !current.hideIsolated }))}>고립 숨김</button>
-        {activeId && <button className={focusCenter ? 'on' : ''} aria-pressed={Boolean(focusCenter)} title="열려 있는 노트에서 2홉까지만 봅니다" onClick={() => { setFocusCenter(focusCenter ? undefined : activeId) }}><Focus size={12} /> 이 노트 중심</button>}
+        {/* Each toggle says what it puts on the canvas and how much of it, so pressing one is not a guess. */}
+        <button
+          className={filter.showLinks ? 'on' : ''} aria-pressed={filter.showLinks} disabled={!layers.links}
+          title={layers.links ? '본문에 [[제목]]으로 쓴 링크를 옅은 점선으로 함께 그립니다. 관계 유형이 붙은 연결은 이 스위치와 무관하게 늘 보입니다.' : '본문에 쓴 [[링크]]가 아직 없습니다.'}
+          onClick={() => setFilter((current) => ({ ...current, showLinks: !current.showLinks }))}
+        >본문 링크{layers.links ? <em>{layers.links}</em> : null}</button>
+        <button
+          className={filter.showProposed ? 'on' : ''} aria-pressed={filter.showProposed} disabled={!layers.proposed}
+          title={layers.proposed ? `아직 승인하지 않은 AI 제안 ${layers.proposed}개를 얇은 점선으로 겹쳐 봅니다. 승인은 정리 대기열에서 합니다.` : '검토를 기다리는 AI 제안이 없습니다.'}
+          onClick={() => setFilter((current) => ({ ...current, showProposed: !current.showProposed }))}
+        >AI 제안{layers.proposed ? <em>{layers.proposed}</em> : null}</button>
+        <button
+          className={!filter.hideIsolated ? 'on' : ''} aria-pressed={!filter.hideIsolated}
+          title="아직 아무 데도 연결되지 않은 노트까지 함께 봅니다. 기본은 숨김입니다."
+          onClick={() => setFilter((current) => ({ ...current, hideIsolated: !current.hideIsolated }))}
+        >혼자 있는 노트{view.hidden && filter.hideIsolated ? <em>{view.hidden}</em> : null}</button>
+        {activeNode && <button
+          className={focusCenter ? 'on' : ''} aria-pressed={Boolean(focusCenter)}
+          title={`'${activeNode.title}'에서 두 다리 안에 닿는 노트만 남깁니다.`}
+          onClick={() => { setFocusCenter(focusCenter ? undefined : activeId) }}
+        ><Focus size={12} /> 연 노트 주변만</button>}
         <button title="화면에 맞추기" aria-label="화면에 맞추기" onClick={fit}><Maximize2 size={12} /></button>
         <button title="그래프 다시 읽기" aria-label="그래프 다시 읽기" disabled={loading} onClick={() => void load(true)}><RefreshCw size={12} /></button>
       </div>
@@ -373,14 +436,14 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       {loading && <p className="graph-view-empty">볼트를 읽는 중…</p>}
 
       <div className="graph-status">
-        <span>노드 {view.nodes.length} · 연결 {view.edges.length}{view.hidden && filter.hideIsolated ? ` · 고립 ${view.hidden} 숨김` : ''}</span>
+        <span>노트 {view.nodes.length} · 연결 {view.edges.length}{view.hidden && filter.hideIsolated ? ` · 혼자 있는 노트 ${view.hidden} 숨김` : ''}</span>
+        {focusCenter && activeNode && <span className="graph-status-focus">‘{activeNode.title}’ 주변 2단계만</span>}
         <span>{Math.round(zoom * 100)}%</span>
       </div>
       <div className="graph-legend graph-legend-full">
-        {(['supports', 'contradicts', 'defines', 'answers', 'link'] as KnowledgeRelationType[]).map((type) => {
-          const style = edgeStyle(type, type === 'link' ? 'link' : 'manual', true)
-          return <span key={type}><i className="edge-dash" style={{ background: style.color, opacity: style.dash.length ? 0.6 : 1 }} />{relationLabels[type]}</span>
-        })}
+        {edgeLegend.map((entry) => <span key={entry.label}>
+          <i className="edge-dash" style={{ background: entry.color, opacity: entry.dash ? 0.65 : 1 }} />{entry.label}
+        </span>)}
       </div>
     </div>
 
