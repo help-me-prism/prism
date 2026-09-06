@@ -37,7 +37,7 @@ export async function readNoteSnapshot(notePath: string): Promise<NoteSnapshot> 
 type NoteWriteListener = (notePath: string) => void
 const noteWriteListeners = new Set<NoteWriteListener>()
 export function onNoteWritten(listener: NoteWriteListener) { noteWriteListeners.add(listener); return () => { noteWriteListeners.delete(listener) } }
-export function announceNoteWritten(notePath: string) { for (const listener of noteWriteListeners) try { listener(notePath) } catch { /* a stale cache must never break a save */ } }
+function announceNoteWritten(notePath: string) { for (const listener of noteWriteListeners) try { listener(notePath) } catch { /* a stale cache must never break a save */ } }
 
 export async function saveNoteSnapshot(notePath: string, request: NoteSaveRequest): Promise<NoteSaveResult> {
   const disk = await readNoteSnapshot(notePath)

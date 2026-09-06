@@ -37,12 +37,12 @@ export type KnowledgeNodeRecord = {
   scopeAssumptions?: string[]
   projects?: string[]
 }
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
+/** `body` writes the note directly; a caller that already knows what the note says has no use for a template. */
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus; body?: string }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
-export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
@@ -339,26 +339,7 @@ export function knowledgePlainText(source: string) {
     .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, target, alias) => alias || target).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^\s*>\s?(?:\[![^\]]+\]\s*)?/gm, '').replace(/[*_`#$~-]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
-function occurrences(source: string, query: string) { let count = 0; let index = 0; while ((index = source.indexOf(query, index)) >= 0) { count += 1; index += query.length } return count }
 
-export async function searchKnowledge(libraryPath: string, input: string): Promise<KnowledgeSearchResult[]> {
-  const query = input.trim()
-  if (!query || query.length > 200) throw new Error('검색어는 1자 이상 200자 이하로 입력해 주세요.')
-  const normalizedQuery = query.toLocaleLowerCase()
-  const results: KnowledgeSearchResult[] = []
-  for (const node of await listKnowledgeNodes(libraryPath)) {
-    const snapshot = await readNoteSnapshot(path.join(libraryPath, ...node.relativePath.split('/')))
-    const plain = knowledgePlainText(snapshot.content); const normalizedBody = plain.toLocaleLowerCase(); const title = node.title.toLocaleLowerCase(); const route = `${node.nodeType} ${node.relativePath}`.toLocaleLowerCase()
-    const bodyHits = occurrences(normalizedBody, normalizedQuery)
-    let score = title === normalizedQuery ? 1000 : title.startsWith(normalizedQuery) ? 600 : title.includes(normalizedQuery) ? 350 : route.includes(normalizedQuery) ? 180 : 0
-    score += Math.min(bodyHits, 10) * 20
-    if (!score) continue
-    const match = normalizedBody.indexOf(normalizedQuery); const start = match < 0 ? 0 : Math.max(0, match - 70); const end = match < 0 ? 180 : Math.min(plain.length, match + query.length + 110)
-    const excerpt = `${start > 0 ? '…' : ''}${plain.slice(start, end)}${end < plain.length ? '…' : ''}`
-    results.push({ node, excerpt, score })
-  }
-  return results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt).slice(0, 100)
-}
 
 function linkTargets(source: string) {
   const searchable = source.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, ' '))
@@ -378,7 +359,8 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
   if (!nodeTypes.has(request.nodeType)) throw new Error('지식 노트 유형이 올바르지 않습니다.')
   const title = safeName(request.title)
   const templates = await listTemplates(libraryPath)
-  const template = templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
+  const template = request.body ? undefined
+    : templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
     ?? templates.find((item) => item.nodeType === request.nodeType && item.isDefault)
     ?? templates.find((item) => item.nodeType === request.nodeType)
   const id = `${request.nodeType}-${randomUUID().slice(0, 12)}`
@@ -390,7 +372,7 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     if (!templateVariables.has(key) || typeof value !== 'string' || value.length > 2_000) throw new Error('지원하지 않는 템플릿 변수이거나 값이 너무 깁니다.')
     values[key] = value
   }
-  const body = (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
+  const body = (request.body ?? template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
   if (request.status !== undefined && !statuses.has(request.status)) throw new Error('상태 값이 올바르지 않습니다.')
   const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body, status: request.status })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })

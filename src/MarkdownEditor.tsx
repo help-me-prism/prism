@@ -8,8 +8,8 @@ import { basicSetup } from 'codemirror'
 import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
-export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence' | 'graph'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
+export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence'
+export type MarkdownEditorHandle = { insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
 export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
@@ -33,7 +33,7 @@ type BlockCommandOption = { kind: 'block'; command: MarkdownBlockCommand; label:
 type ActionCommandOption = { kind: 'action'; command: MarkdownSlashAction; label: string; description: string; keywords: string }
 type CommandOption = BlockCommandOption | ActionCommandOption
 
-export const markdownBlockCommands: BlockCommandOption[] = [
+const markdownBlockCommands: BlockCommandOption[] = [
   { kind: 'block', command: 'heading', label: '제목', description: '섹션 제목을 추가합니다', keywords: 'heading header 제목 헤딩' },
   { kind: 'block', command: 'bullet', label: '글머리표 목록', description: '순서 없는 목록을 추가합니다', keywords: 'bullet list 글머리 목록' },
   { kind: 'block', command: 'ordered', label: '번호 목록', description: '순서 있는 목록을 추가합니다', keywords: 'number ordered list 번호 목록' },
@@ -52,7 +52,6 @@ const markdownActionCommands: ActionCommandOption[] = [
   { kind: 'action', command: 'contradicts', label: '반박 관계', description: '반박할 Claim을 선택합니다', keywords: 'contradict refute 반박 모순' },
   { kind: 'action', command: 'link', label: '논문·지식 링크', description: '논문, Concept, Claim을 검색합니다', keywords: 'link 링크 논문 paper concept claim' },
   { kind: 'action', command: 'evidence', label: 'PDF 근거', description: '논문의 정확한 위치를 연결합니다', keywords: 'evidence pdf 근거 인용' },
-  { kind: 'action', command: 'graph', label: '관계 그래프', description: '현재 노트의 연결을 확인합니다', keywords: 'graph network 그래프 관계망' },
 ]
 
 function menuPosition(coords: { top: number; bottom: number; left: number } | null, bounds: DOMRect | undefined, width: number, estimatedHeight = 190) {
@@ -975,7 +974,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, focusMineSection: (section) => viewRef.current ? focusMineSection(viewRef.current, section) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, focusMineSection: (section) => viewRef.current ? focusMineSection(viewRef.current, section) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return

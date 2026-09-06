@@ -117,7 +117,7 @@ export function titleMatcher(title: string) {
  * what makes a message belong to it — the same rule the vault already uses for `[[links]]` — so the note
  * accumulates what was asked about it without anybody filing anything.
  */
-export function mentionsFromChat(messages: DigestChatMessage[], title: string, paperTitles: Map<string, string>) {
+function mentionsFromChat(messages: DigestChatMessage[], title: string, paperTitles: Map<string, string>) {
   const names = titleMatcher(title)
   const found: Array<{ text: string; paper?: string; at: number; count: number; stems: string[] }> = []
   for (const message of messages) {
@@ -149,7 +149,7 @@ const predicateEnding = /(다|요|까|죠|네|음|슴|지)$/
 const particle = /(은|는|이|가|을|를|의|에|와|과|도|로|으로|에서|에게|보다|처럼|만|랑)$/
 
 /** True when the sentence names a subject, rather than only commenting on one. */
-export function namesSomething(sentence: string) {
+function namesSomething(sentence: string) {
   for (const token of sentence.split(/[^\p{L}\p{N}]+/u)) {
     if (token.length < 2) continue
     const ascii = /^[A-Za-z][A-Za-z0-9-]+$/.test(token)
@@ -163,7 +163,7 @@ export function namesSomething(sentence: string) {
 }
 
 /** The words the paper itself uses, so a question can be checked against its subject matter. */
-export function topicsOf(...sources: string[]) {
+function topicsOf(...sources: string[]) {
   return new Set(sources.flatMap((source) => questionStems(source)))
 }
 
@@ -258,7 +258,7 @@ const overviewCues: Array<[string, RegExp]> = [
  * result gives the note something the abstract does not: a shape. Korean is used wherever the paper has
  * already been translated, because that is the language the researcher writes their own lines in.
  */
-export function overviewFromAbstract(abstract: string, translations: Pick<PaperBody, 'find'>) {
+function overviewFromAbstract(abstract: string, translations: Pick<PaperBody, 'find'>) {
   const sentences = sentenceSplit(abstract).filter((item) => item.length >= 20)
   if (!sentences.length) return []
   const used = new Set<number>()
@@ -276,7 +276,7 @@ function shorten(value: string) { const text = normalizeSpace(value); return tex
 function bulletList(lines: string[]) { return lines.map((line) => `- ${line}`).join('\n') }
 
 /** True when the note already shows real generated text for a section, as opposed to a placeholder or nothing. */
-export function hasGeneratedContent(content: string, section: PaperDigestSection) {
+function hasGeneratedContent(content: string, section: PaperDigestSection) {
   const { open, close } = markers(section)
   const start = content.indexOf(open)
   if (start < 0) return false
@@ -425,9 +425,6 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
   return { removed, snapshot: saved.snapshot }
 }
 
-export function digestSectionPath(libraryPath: string, paperNodeId: string) {
-  return path.join(libraryPath, '.prism', 'cache', `${paperNodeId.replace(/[^a-zA-Z0-9._-]/g, '_')}.digest.json`)
-}
 
 const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
 

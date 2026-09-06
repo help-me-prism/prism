@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
 import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
-import { listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
 
 const indexVersion = 1
 const vectorSize = 384
@@ -12,9 +11,6 @@ const indexRelativePath = '.prism/index/research-search-v1.json'
 type IndexEntry = { nodeId: string; revision: string; title: string; relativePath: string; plain: string; terms: Record<string, number>; vector: number[] }
 type ResearchIndex = { version: 1; signature: string; generatedAt: string; idf: Record<string, number>; entries: IndexEntry[] }
 export type ResearchSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number; textScore: number; semanticScore: number }
-export type ResearchEvidence = { nodeId: string; paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; paperTitle: string; source: string }
-export type ResearchContext = { query: string; seeds: ResearchSearchResult[]; nodes: KnowledgeNodeRecord[]; relations: KnowledgeRelationRecord[]; evidence: ResearchEvidence[] }
-export type ResearchIndexStatus = { nodeCount: number; signature: string; rebuilt: boolean; relativePath: typeof indexRelativePath }
 
 function indexPath(libraryPath: string) { return path.join(libraryPath, ...indexRelativePath.split('/')) }
 function signature(nodes: KnowledgeNodeRecord[]) { return createHash('sha256').update(nodes.map((node) => `${node.id}:${node.revision}`).sort().join('\n')).digest('hex') }
@@ -103,33 +99,5 @@ export async function searchResearchKnowledge(libraryPath: string, input: string
   return results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt).slice(0, Math.max(1, Math.min(limit, 100)))
 }
 
-function evidenceFrom(markdown: string, nodeId: string) {
-  const result: ResearchEvidence[] = []
-  for (const match of markdown.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)) try {
-    const item = JSON.parse(decodeURIComponent(match[1])) as Partial<ResearchEvidence>
-    if (typeof item.paperId === 'string' && typeof item.anchorId === 'string' && ['sentence', 'section', 'equation', 'table', 'figure', 'page'].includes(String(item.type)) && Number.isInteger(item.page) && typeof item.label === 'string' && typeof item.paperTitle === 'string' && typeof item.source === 'string') result.push({ nodeId, paperId: item.paperId, anchorId: item.anchorId, type: item.type!, page: item.page!, label: item.label, paperTitle: item.paperTitle, source: item.source })
-  } catch { /* Malformed generated metadata remains source Markdown but is not trusted as evidence. */ }
-  return result
-}
 
-export async function retrieveResearchContext(libraryPath: string, input: string): Promise<ResearchContext> {
-  const seeds = await searchResearchKnowledge(libraryPath, input, 5); const allNodes = await listKnowledgeNodes(libraryPath); const byId = new Map(allNodes.map((node) => [node.id, node])); const approved = (await listKnowledgeRelationRecords(libraryPath)).filter((relation) => relation.reviewStatus === 'approved')
-  const selected = new Set(seeds.map((seed) => seed.node.id)); let frontier = [...selected]; const traversed = new Map<string, KnowledgeRelationRecord>()
-  for (let depth = 0; depth < 2 && frontier.length; depth += 1) {
-    const next: string[] = []
-    for (const relation of approved) if (frontier.includes(relation.sourceId) || frontier.includes(relation.targetId)) {
-      const other = frontier.includes(relation.sourceId) ? relation.targetId : relation.sourceId
-      traversed.set(relation.id, relation); if (byId.has(other) && !selected.has(other)) { selected.add(other); next.push(other) }
-    }
-    frontier = next
-  }
-  const nodes = [...selected].map((id) => byId.get(id)).filter((node): node is KnowledgeNodeRecord => Boolean(node))
-  const evidence: ResearchEvidence[] = []
-  for (const node of nodes) evidence.push(...evidenceFrom((await readKnowledgeNode(libraryPath, node.id)).content, node.id))
-  return { query: input.trim(), seeds, nodes, relations: [...traversed.values()], evidence }
-}
 
-export async function rebuildResearchIndex(libraryPath: string): Promise<ResearchIndexStatus> {
-  const result = await currentIndex(libraryPath, true)
-  return { nodeCount: result.nodes.length, signature: result.index.signature, rebuilt: true, relativePath: indexRelativePath }
-}

@@ -415,7 +415,6 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   function runSlashAction(action: MarkdownSlashAction) {
     if (action === 'link') { setPicker({ kind: 'link', query: '' }); return }
     if (action === 'evidence') { setPicker({ kind: 'evidence', query: '' }); return }
-    if (action === 'graph') { onNotify('연결 그래프는 오른쪽 패널에 항상 열려 있습니다.'); return }
     const type: KnowledgeRelationType = action === 'supports' ? 'supports' : action === 'contradicts' ? 'contradicts' : (availableRelationTypes[0] ?? 'uses')
     openRelationPicker(type)
   }

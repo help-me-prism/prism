@@ -87,7 +87,7 @@ export const noteMine: Partial<Record<string, MineSection[]>> = {
 }
 
 /** Sections older notes carry that are the researcher's too, and were never marked as anything. */
-export const legacyMineHeadings = ['내 생각', '메모']
+const legacyMineHeadings = ['내 생각', '메모']
 
 /**
  * The title the `remember` tool carries. Codex asks the client to approve an MCP tool call by title rather

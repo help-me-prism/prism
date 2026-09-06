@@ -4,9 +4,7 @@ export const typeLabels: Record<KnowledgeNodeType, string> = { paper: '논문', 
 export const typeFolders: Record<KnowledgeNodeType, string> = { paper: 'papers', concept: 'concepts', claim: 'claims', insight: 'insights', question: 'questions', project: 'projects' }
 export const statusLabels: Record<KnowledgeStatus, string> = { inbox: '수집됨', developing: '발전 중', understood: '이해함', established: '정리됨', archived: '보관됨' }
 export const readingStatusLabels: Record<KnowledgeReadingStatus, string> = { to_read: '읽을 예정', reading: '읽는 중', read: '읽음', paused: '보류' }
-export const levelLabels: Record<KnowledgeLevel, string> = { low: '낮음', medium: '보통', high: '높음' }
 export const claimOriginLabels: Record<ClaimOrigin, string> = { paper: '논문의 주장', mine: '내 해석' }
-export const evidenceKindLabels: Record<EvidenceKind, string> = { theory: '이론', experiment: '실험', anecdote: '일화', idea: '아이디어' }
 export const relationLabels: Record<KnowledgeRelationType, string> = {
   defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문 제기', answers: '답함',
   mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련',
@@ -54,4 +52,3 @@ export const autoSectionLabels: Record<string, string> = {
 
 export function nodePath(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.replace(/\.md$/i, '') }
 export function fileName(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.split('/').at(-1) ?? node.relativePath }
-export function splitList(value: string) { return value.split(/[,、]/).map((item) => item.trim()).filter(Boolean) }

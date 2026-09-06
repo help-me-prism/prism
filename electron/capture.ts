@@ -56,7 +56,7 @@ function blockIdFor(anchor: Pick<EvidenceAnchor, 'paperId' | 'anchorId'>) {
 }
 
 /** Same card format the Notes editor inserts, so the renderer's evidence parser and backlinks treat both alike. */
-export function evidenceCardMarkdown(anchor: EvidenceAnchor) {
+function evidenceCardMarkdown(anchor: EvidenceAnchor) {
   const blockId = blockIdFor(anchor)
   const embedded = { paperId: anchor.paperId, paperTitle: anchor.paperTitle, anchorId: anchor.anchorId, type: anchor.type, page: anchor.page, label: anchor.label, source: anchor.source, sourceHash: anchor.sourceHash, blockId }
   const metadata = encodeURIComponent(JSON.stringify(embedded))
@@ -79,7 +79,7 @@ export function appendToNotesSection(content: string, block: string) {
 }
 
 /** Appends one row to the Concept's "정의 비교" table: which paper, how it defines the concept, and the researcher's note with a PDF link. */
-export async function addConceptDefinition(libraryPath: string, concept: KnowledgeNodeRecord, paper: KnowledgeNodeRecord, anchor: EvidenceAnchor, memo: string) {
+async function addConceptDefinition(libraryPath: string, concept: KnowledgeNodeRecord, paper: KnowledgeNodeRecord, anchor: EvidenceAnchor, memo: string) {
   const snapshot = await readKnowledgeNode(libraryPath, concept.id)
   const cell = (value: string) => value.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim()
   const link = `[PDF p.${anchor.page}](prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page})`

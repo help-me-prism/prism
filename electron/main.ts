@@ -9,12 +9,11 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
-import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
-import { listKnowledgeDataViews } from './knowledgeViews.js'
+import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
-import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
+import { searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
@@ -954,27 +953,6 @@ ipcMain.handle('reader:open', async (_event, arxivId?: string) => {
   target.show(); target.focus()
   return true
 })
-ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
-  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return readNoteSnapshot(record.notePath)
-})
-ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteSaveRequest) => {
-  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
-  if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
-  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
-  if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
-  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
-  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  const result = await saveNoteSnapshot(record.notePath, request)
-  if (result.saved && request.createStubs) {
-    const settings = await readSettings()
-    const stubs = settings.libraryPath ? await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) : []
-    return { ...result, stubs }
-  }
-  return result
-})
 ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -1019,21 +997,9 @@ ipcMain.handle('knowledge:list', async () => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeNodes(settings.libraryPath)
 })
-ipcMain.handle('knowledge:search', async (_event, query: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return searchKnowledge(settings.libraryPath, String(query))
-})
 ipcMain.handle('research:search', async (_event, query: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return searchResearchKnowledge(settings.libraryPath, String(query))
-})
-ipcMain.handle('research:context', async (_event, query: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return retrieveResearchContext(settings.libraryPath, String(query))
-})
-ipcMain.handle('research:index:rebuild', async () => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return rebuildResearchIndex(settings.libraryPath)
 })
 ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -1119,10 +1085,6 @@ ipcMain.handle('knowledge:curation:merge-concepts', async (_event, request: Merg
   if (!request || typeof request.sourceId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.sourceId) || typeof request.targetId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.targetId)) throw new Error('병합 요청이 올바르지 않습니다.')
   return mergeConcepts(settings.libraryPath, request)
 })
-ipcMain.handle('knowledge:views', async () => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return listKnowledgeDataViews(settings.libraryPath)
-})
 ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpenRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
@@ -1187,10 +1149,6 @@ ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
 ipcMain.handle('knowledge:relations:create', async (_event, request: KnowledgeRelationCreateRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return createKnowledgeRelation(settings.libraryPath, request)
-})
-ipcMain.handle('knowledge:relations:update', async (_event, request: KnowledgeRelationUpdateRequest) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return updateKnowledgeRelation(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:relations:delete', async (_event, request: KnowledgeRelationDeleteRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

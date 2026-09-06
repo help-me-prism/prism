@@ -14,7 +14,6 @@ export type RelationOrigin = 'manual' | 'link'
 export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; origin?: RelationOrigin; createdAt: string }
 export type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
 export type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
-export type KnowledgeRelationUpdateRequest = { id: string; type: KnowledgeRelationType; evidenceAnchor?: RelationEvidenceAnchor | null; expectedRevision: string }
 export type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 
@@ -156,24 +155,6 @@ export async function createKnowledgeRelation(libraryPath: string, request: Know
   return { saved: true as const, relation, snapshot: savedSnapshot, relations: await listKnowledgeRelations(libraryPath, source.id) }
 }
 
-export async function updateKnowledgeRelation(libraryPath: string, request: KnowledgeRelationUpdateRequest) {
-  if (!relationIdPattern.test(request.id) || !relationTypes.has(request.type) || !/^[a-f0-9]{64}$/.test(request.expectedRevision)
-    || (request.evidenceAnchor !== undefined && request.evidenceAnchor !== null && !validEvidenceAnchor(request.evidenceAnchor))) throw new Error('관계 변경 정보가 올바르지 않습니다.')
-  const all = await records(libraryPath); const relation = all.find((item) => item.id === request.id)
-  if (!relation || relation.creator !== 'user' || relation.reviewStatus !== 'approved') throw new Error('변경할 사용자 관계를 찾을 수 없습니다.')
-  const evidenceAnchor = request.evidenceAnchor === undefined ? relation.evidenceAnchor : request.evidenceAnchor ?? undefined
-  if (all.some((item) => item.id !== relation.id && item.sourceId === relation.sourceId && item.targetId === relation.targetId && item.type === request.type && sameEvidence(item.evidenceAnchor, evidenceAnchor) && item.reviewStatus !== 'rejected')) throw new Error('이미 같은 관계가 있습니다.')
-  const snapshot = await readKnowledgeNode(libraryPath, relation.sourceId)
-  if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
-  const target = (await listKnowledgeNodes(libraryPath)).find((node) => node.id === relation.targetId)
-  if (!target) throw new Error('관계 대상 지식 노트를 찾을 수 없습니다.')
-  const updated: KnowledgeRelationRecord = { ...relation, type: request.type, evidenceAnchor }
-  const content = `${removeMarkdownBlock(snapshot.content, relation.id).trimEnd()}\n\n${markdownBlock(updated, target)}\n`
-  const saved = await saveKnowledgeNode(libraryPath, relation.sourceId, { content, expectedRevision: request.expectedRevision })
-  if (!saved.saved) return saved
-  await atomicRecord(libraryPath, updated)
-  return { saved: true as const, relation: updated, snapshot: saved.snapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
-}
 
 export async function deleteKnowledgeRelation(libraryPath: string, request: KnowledgeRelationDeleteRequest) {
   if (!relationIdPattern.test(request.id) || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('관계 삭제 정보가 올바르지 않습니다.')
