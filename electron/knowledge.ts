@@ -5,7 +5,12 @@ import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest
 import { atomicWriteFile } from './atomicFile.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
-export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
+/**
+ * `understood` is the one status nobody has to set. A note earns it the moment it holds a sentence only the
+ * researcher could have written, which is the only evidence anybody has that a concept landed — and it makes
+ * "how much of this library do I actually understand" a question the vault can answer.
+ */
+export type KnowledgeStatus = 'inbox' | 'developing' | 'understood' | 'established' | 'archived'
 export type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
 export type ClaimOrigin = 'paper' | 'mine'
@@ -41,7 +46,7 @@ export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
-const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
+const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'understood', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
 const claimOrigins = new Set<ClaimOrigin>(['paper', 'mine'])

@@ -6,7 +6,8 @@ export type KnowledgeDataViews = {
   unansweredQuestions: KnowledgeNodeRecord[]
   unsupportedClaims: KnowledgeNodeRecord[]
   projectContexts: { project: KnowledgeNodeRecord; concepts: KnowledgeNodeRecord[]; insights: KnowledgeNodeRecord[] }[]
-  conflictingPapers: { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord }[]
+  /** Two papers that take opposite sides. `claim` is what they disagree about, when the disagreement runs through one. */
+  conflictingPapers: { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord; claim?: KnowledgeNodeRecord }[]
 }
 
 const unique = (nodes: KnowledgeNodeRecord[]) => [...new Map(nodes.map((node) => [node.id, node])).values()]
@@ -44,10 +45,10 @@ export async function listKnowledgeDataViews(libraryPath: string): Promise<Knowl
 
   const conflictingPapers: KnowledgeDataViews['conflictingPapers'] = []
   const seenPairs = new Set<string>()
-  const addPair = (relationId: string, left: KnowledgeNodeRecord, right: KnowledgeNodeRecord) => {
+  const addPair = (relationId: string, left: KnowledgeNodeRecord, right: KnowledgeNodeRecord, claim?: KnowledgeNodeRecord) => {
     const key = `${left.id}:${right.id}`
     if (left.id === right.id || seenPairs.has(key)) return
-    seenPairs.add(key); conflictingPapers.push({ relationId, left, right })
+    seenPairs.add(key); conflictingPapers.push({ relationId, left, right, claim })
   }
   // Legacy direct Paper ↔ Paper contradictions.
   for (const relation of approvedRelations) {
@@ -56,16 +57,16 @@ export async function listKnowledgeDataViews(libraryPath: string): Promise<Knowl
     if (left?.nodeType === 'paper' && right?.nodeType === 'paper') addPair(relation.id, left, right)
   }
   // Claim-level opposition: one Paper supports a Claim that another Paper contradicts.
-  const byClaim = new Map<string, { supports: KnowledgeNodeRecord[]; contradicts: Array<{ relationId: string; paper: KnowledgeNodeRecord }> }>()
+  const byClaim = new Map<string, { claim: KnowledgeNodeRecord; supports: KnowledgeNodeRecord[]; contradicts: Array<{ relationId: string; paper: KnowledgeNodeRecord }> }>()
   for (const relation of approvedRelations) {
     const source = nodesById.get(relation.sourceId); const target = nodesById.get(relation.targetId)
     if (source?.nodeType !== 'paper' || target?.nodeType !== 'claim') continue
-    const entry = byClaim.get(target.id) ?? { supports: [], contradicts: [] }
+    const entry = byClaim.get(target.id) ?? { claim: target, supports: [], contradicts: [] }
     if (relation.type === 'supports') entry.supports.push(source)
     else if (relation.type === 'contradicts') entry.contradicts.push({ relationId: relation.id, paper: source })
     byClaim.set(target.id, entry)
   }
-  for (const entry of byClaim.values()) for (const left of entry.supports) for (const right of entry.contradicts) addPair(right.relationId, left, right.paper)
+  for (const entry of byClaim.values()) for (const left of entry.supports) for (const right of entry.contradicts) addPair(right.relationId, left, right.paper, entry.claim)
 
   return { projects, unansweredQuestions, unsupportedClaims, projectContexts, conflictingPapers }
 }

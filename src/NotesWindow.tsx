@@ -59,6 +59,7 @@ export default function NotesWindow() {
     return nodes.filter((node) => `${node.title} ${node.relativePath} ${node.preview}`.toLocaleLowerCase().includes(text)).slice(0, 60)
   }, [nodes, query])
   const relationCount = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved').length, [relations])
+  const understoodCount = useMemo(() => nodes.filter((node) => node.status === 'understood' || node.status === 'established').length, [nodes])
 
   function notify(text: string, tone: 'info' | 'error' = 'info', undo?: { label: string; run: () => void | Promise<void> }) { setNotice({ text, tone, undo }) }
   useEffect(() => { if (!notice || notice.tone === 'error') return; const timer = window.setTimeout(() => setNotice(undefined), notice.undo ? 12000 : 6000); return () => window.clearTimeout(timer) }, [notice])
@@ -114,7 +115,7 @@ export default function NotesWindow() {
    */
   async function writeEveryNote() {
     const result = await window.prism.refreshVaultDigests().catch(() => undefined)
-    if (result?.updated.length) await reloadNodes()
+    if (result?.updated.length || result?.understood.length) await reloadNodes()
   }
   useEffect(() => { setRelations([]); setBacklinks([]); setCitations(undefined); void reloadContext() }, [activeId, nodes.length])
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
@@ -343,7 +344,8 @@ export default function NotesWindow() {
 
     <footer className="notes-status">
       <span>{libraryPath ? libraryPath.split(/[\\/]/).filter(Boolean).at(-1) : '라이브러리 없음'}</span>
-      <span>노드 {nodes.length}</span>
+      {/* What the library holds, and how much of it the researcher has actually written into. */}
+      <span title="사용자가 직접 쓴 문장이 있는 노트">노드 {nodes.length} · 이해함 {understoodCount}</span>
       {active && <span>이 노트 · 관계 {relationCount} · 백링크 {backlinks.length}</span>}
       <label className="status-model status-push" title="자동 정리와 관계 제안이 쓰는 CLI입니다. 고르지 않으면 기계가 쓸 수 있는 구간만 채워집니다.">
         <Sparkles size={11} />

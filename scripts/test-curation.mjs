@@ -28,6 +28,11 @@ try {
   await write('Claims/Unsupported claim.md', note('claim-eeeeeeee', 'claim', 'Unsupported claim', 'No evidence yet.', 'claim_origin: mine\n'))
   await write('Questions/Open question.md', note('question-ffffffff', 'question', 'Open question', 'Why?'))
   await write('.prism/relations/relation-11111111111111111111.json', JSON.stringify({ id: 'relation-11111111111111111111', sourceId: 'paper-bbbbbbbb', targetId: 'claim-eeeeeeee', type: 'supports', creator: 'ai', reviewStatus: 'pending', createdAt: '2026-09-03T00:00:00.000Z' }))
+  // Two papers taking opposite sides of one claim: the vault has always been able to work this out and has
+  // never shown it to anybody.
+  await write('Claims/Disputed claim.md', note('claim-99999999', 'claim', 'Disputed claim', 'Noise prediction beats score matching.'))
+  await write('.prism/relations/relation-22222222222222222222.json', JSON.stringify({ id: 'relation-22222222222222222222', sourceId: 'paper-test.0001', targetId: 'claim-99999999', type: 'supports', creator: 'user', reviewStatus: 'approved', createdAt: '2026-09-03T00:00:00.000Z' }))
+  await write('.prism/relations/relation-33333333333333333333.json', JSON.stringify({ id: 'relation-33333333333333333333', sourceId: 'paper-bbbbbbbb', targetId: 'claim-99999999', type: 'contradicts', creator: 'user', reviewStatus: 'approved', createdAt: '2026-09-03T00:00:00.000Z' }))
   await write('.prism/library.json', JSON.stringify([{ arxivId: 'test.0001', title: 'Paper Alpha', pdfPath: path.join(paperDir, 'original.pdf'), notePath }]))
   await migratePaperNotes(root)
   const paper = { arxivId: 'test.0001', title: 'Paper Alpha', pdfPath: path.join(paperDir, 'original.pdf'), notePath }
@@ -53,7 +58,12 @@ try {
   assert(memoTexts.includes('노이즈 예측은 가중 score matching과 같다.') && memoTexts.includes('log density gradient로 정의'), `Reading memos were not detected: ${JSON.stringify(memoTexts)}`)
   assert(queue.memos.every((memo) => memo.anchor && memo.anchorLabel), 'Memos lost their anchor metadata.')
   assert.equal(queue.unsupportedClaims.length, 1); assert.equal(queue.unansweredQuestions.length, 1)
-  assert.equal(queue.total, 1 + 2 + 2 + 1 + 1)
+  // A disagreement between two papers is a decision waiting to be made, so it is in the queue and in the count.
+  assert.equal(queue.conflicts.length, 1, `Papers disagreeing over a claim did not reach the queue: ${JSON.stringify(queue.conflicts)}`)
+  const conflict = queue.conflicts[0]
+  assert(conflict.claim?.title === 'Disputed claim', `A conflict did not carry what the papers disagree about: ${JSON.stringify(conflict.claim)}`)
+  assert([conflict.left.title, conflict.right.title].sort().join('|') === 'Paper Alpha|Paper Beta', `A conflict named the wrong papers: ${conflict.left.title} / ${conflict.right.title}`)
+  assert.equal(queue.total, 1 + 2 + 2 + 1 + 1 + 1)
 
   // Promoting a memo creates a Claim that keeps the evidence card, links back, and marks the memo in the paper note.
   const memo = queue.memos.find((item) => item.memo.startsWith('노이즈 예측'))
@@ -118,7 +128,7 @@ try {
   assert((await fs.stat(path.join(root, 'Questions', '지울 질문.md'))).isFile(), 'Undo did not put the note back in its folder.')
   await assert.rejects(restoreKnowledgeNode(root, '../outside.md'), /올바르지/)
 
-  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges with typed upgrades, and undoable deletion.\n')
+  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges with typed upgrades, and undoable deletion.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

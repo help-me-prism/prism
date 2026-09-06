@@ -4,6 +4,8 @@ import { readNoteSnapshot, saveNoteSnapshot, type NoteSnapshot } from './notes.j
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
 import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords } from './relations.js'
+import { mineRegion } from './noteContract.js'
+import type { KnowledgeNodeType } from './templates.js'
 
 /**
  * Reading-time capture: the Reader and the chat append into the Paper note's `## Notes` section
@@ -149,21 +151,31 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
 }
 
 /**
- * Obsidian-style stubs: a `[[Concept]]` link whose target does not exist becomes an empty Concept note in `inbox`
- * status. Links are free; the note only gets written once the curation queue proves it is worth it.
+ * Obsidian-style stubs: a `[[link]]` whose target does not exist becomes an empty note in `inbox` status.
+ * Links are free; the note only gets written once the curation queue proves it is worth it.
+ *
+ * What kind of note depends on where the link is. Almost everywhere it names a concept, but under
+ * "내 연구에 쓸 곳" it names the work the researcher is doing — the one axis of this vault that is in no
+ * paper, and the reason the `projects:` frontmatter field went unused: it asked them to fill in a field
+ * instead of letting them write the sentence they were already writing.
  */
 export async function ensureLinkStubs(libraryPath: string, content: string): Promise<string[]> {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
-  const targets = new Set<string>()
+  const apply = mineRegion(searchable, 'apply')
+  const targets = new Map<string, KnowledgeNodeType>()
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
     const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim()
     if (!raw) continue
-    if (raw.includes('/') && !/^concepts\//i.test(raw)) continue
+    const at = match.index ?? 0
+    const inApply = Boolean(apply && at >= apply.from && at < apply.to)
+    const folder = raw.includes('/') ? raw.split('/')[0].toLocaleLowerCase() : undefined
+    if (folder && folder !== 'concepts' && folder !== 'projects') continue
+    const nodeType: KnowledgeNodeType = folder === 'projects' || (!folder && inApply) ? 'project' : 'concept'
     const name = raw.split('/').at(-1)!.trim()
     if (name.length < 2 || name.length > 120 || /^[\d.v]+$/.test(name) || /[<>:"|?*]/.test(name)) continue
-    // A link that only names a vault folder ("[[Concepts]]") is navigation, not a concept.
+    // A link that only names a vault folder ("[[Concepts]]") is navigation, not a note.
     if (vaultFolders.has(name.toLocaleLowerCase())) continue
-    targets.add(name)
+    targets.set(name, nodeType)
   }
   if (!targets.size) return []
   const nodes = await listKnowledgeNodes(libraryPath)
@@ -173,11 +185,11 @@ export async function ensureLinkStubs(libraryPath: string, content: string): Pro
     known.add(node.relativePath.replace(/\.md$/i, '').split('/').at(-1)!.toLocaleLowerCase())
   }
   const created: string[] = []
-  for (const name of targets) {
+  for (const [name, nodeType] of targets) {
     if (known.has(name.toLocaleLowerCase())) continue
-    try { await fs.access(path.join(libraryPath, 'Concepts', `${name}.md`)); continue } catch { /* not present: create the stub */ }
+    try { await fs.access(path.join(libraryPath, nodeType === 'project' ? 'Projects' : 'Concepts', `${name}.md`)); continue } catch { /* not present: create the stub */ }
     // Born as a stub in one write, so a reader never sees it in a half-created state.
-    await createKnowledgeNode(libraryPath, { title: name, nodeType: 'concept', status: 'inbox' })
+    await createKnowledgeNode(libraryPath, { title: name, nodeType, status: 'inbox' })
     created.push(name)
     known.add(name.toLocaleLowerCase())
   }

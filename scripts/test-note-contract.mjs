@@ -95,6 +95,14 @@ try {
   assert.doesNotThrow(() => assertOnlyAutoChanged(before, after, 'rerun'), 'A second run moved something outside a generated region.')
   assert.equal(mineRegion(after, 'unresolved').text, mineLines.unresolved, 'A second run changed the researcher\'s writing.')
 
+  // ---------- a note the researcher has written in says so, without anybody setting a dropdown ----------
+  assert(sweep.understood.includes(paper.id) && sweep.understood.includes(concept.id), `Notes with the researcher's own sentences were not promoted: ${JSON.stringify(sweep.understood)}`)
+  const promoted = await listKnowledgeNodes(root)
+  assert(promoted.every((node) => node.status === 'understood'), `Status did not follow the writing: ${JSON.stringify(promoted.map((node) => [node.title, node.status]))}`)
+  // Nothing takes it away again, and a second sweep does not keep rewriting frontmatter it already wrote.
+  const again = await refreshVaultDigests(root, messages)
+  assert.equal(again.understood.length, 0, 'A second sweep promoted notes that were already promoted.')
+
   // ---------- the rules are a floor, and stand down where a conversation has spoken ----------
   // Without a model configured the deterministic extraction still seeds what a conversation would have kept,
   // so a note is never empty; the moment a conversation writes that section, the rules stop touching it.
@@ -115,7 +123,7 @@ try {
   await assert.rejects(() => mcpRemember(root, concept.id, 'sources', ['x']), /대화가 쓸 수 있는 구간이 아닙니다/, 'A derived section was writable from a conversation.')
   assert.equal(mineRegion((await readKnowledgeNode(root, concept.id)).content, 'restate').text, mineLines.restate, 'A rejected write still changed the note.')
 
-  process.stdout.write('Note contract passed: the three layers, section ownership per node type, reduction that keeps only what the researcher wrote, a real sweep that rewrites its own regions while leaving marked and older user sections byte-for-byte intact, and deterministic rules that seed a chat section and then stand down once a conversation has written it.\n')
+  process.stdout.write('Note contract passed: the three layers, section ownership per node type, reduction that keeps only what the researcher wrote, a real sweep that rewrites its own regions while leaving marked and older user sections byte-for-byte intact, status that follows what the researcher wrote rather than a dropdown, and deterministic rules that seed a chat section and then stand down once a conversation has written it.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

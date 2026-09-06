@@ -109,6 +109,19 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
         <header><span><strong>AI가 제안한 새 개념</strong><small>수락하면 빈 노트가 만들어집니다. 정의는 직접 씁니다</small></span><em>{queue.conceptSuggestions.length}</em></header>
         {queue.conceptSuggestions.map((item) => <div key={item.id} className="curation-item"><button className="curation-open" onClick={() => onOpenNode(item.paperNodeId)}><small>{item.paperTitle}에서 제안</small><strong>{item.title}</strong>{item.reason && <p>{item.reason}</p>}</button><div className="curation-actions"><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'accepted', item.title)}><Check size={11} /> 스텁 만들기</button><button onClick={() => void reviewSuggestion(item.paperNodeId, item.id, 'rejected', item.title)}><X size={11} /> 거절</button></div></div>)}
       </article>}
+      {queue.conflicts.length > 0 && <article className="curation-section">
+        <header><span><strong>서로 반대로 말하는 논문</strong><small>한 주장을 두고 한쪽은 지지하고 한쪽은 반박합니다. 읽어보고 어느 쪽이 맞는지 정하세요</small></span><em>{queue.conflicts.length}</em></header>
+        {queue.conflicts.map((item) => <div key={`${item.left.id}:${item.right.id}`} className="curation-item">
+          <button className="curation-open" onClick={() => onOpenNode(item.claim?.id ?? item.left.id)}>
+            <small>{item.claim ? `주장 · ${item.claim.title}` : '논문끼리 직접 반박'}</small>
+            <strong>{item.left.title} ↔ {item.right.title}</strong>
+          </button>
+          <div className="curation-actions">
+            <button onClick={() => onOpenNode(item.left.id)}>{item.left.title.slice(0, 18)} 열기</button>
+            <button onClick={() => onOpenNode(item.right.id)}>{item.right.title.slice(0, 18)} 열기</button>
+          </div>
+        </div>)}
+      </article>}
       {queue.unsupportedClaims.length > 0 && <article className="curation-section">
         <header><span><strong>근거 없는 주장</strong><small>PDF 근거 카드나 승인된 지지 관계가 필요합니다</small></span><em>{queue.unsupportedClaims.length}</em></header>
         {queue.unsupportedClaims.map((node) => <div key={node.id} className="curation-item"><button className="curation-open" onClick={() => onOpenNode(node.id)}><small>주장 · {node.relativePath}</small><strong>{node.title}</strong></button></div>)}

@@ -2,7 +2,7 @@
 
 export const typeLabels: Record<KnowledgeNodeType, string> = { paper: '논문', concept: '개념', claim: '주장', insight: '해석', question: '질문', project: '프로젝트' }
 export const typeFolders: Record<KnowledgeNodeType, string> = { paper: 'papers', concept: 'concepts', claim: 'claims', insight: 'insights', question: 'questions', project: 'projects' }
-export const statusLabels: Record<KnowledgeStatus, string> = { inbox: '수집됨', developing: '발전 중', established: '정리됨', archived: '보관됨' }
+export const statusLabels: Record<KnowledgeStatus, string> = { inbox: '수집됨', developing: '발전 중', understood: '이해함', established: '정리됨', archived: '보관됨' }
 export const readingStatusLabels: Record<KnowledgeReadingStatus, string> = { to_read: '읽을 예정', reading: '읽는 중', read: '읽음', paused: '보류' }
 export const levelLabels: Record<KnowledgeLevel, string> = { low: '낮음', medium: '보통', high: '높음' }
 export const claimOriginLabels: Record<ClaimOrigin, string> = { paper: '논문의 주장', mine: '내 해석' }
@@ -11,8 +11,12 @@ export const relationLabels: Record<KnowledgeRelationType, string> = {
   defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문 제기', answers: '답함',
   mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련',
 }
-/** Types offered when creating a note. Insight and Project stay readable but are no longer authored as nodes. */
-export const creatableTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question']
+/**
+ * Types offered when creating a note. Project is here because the vault has one axis that is in no paper —
+ * what the researcher is actually working on — and it is what makes "everything related to X" a question this
+ * library can answer. Insight stays readable but is no longer authored: it was absorbed into Claim.
+ */
+export const creatableTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'project']
 export const treeTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'insight', 'project']
 export const primaryRelationTypes: KnowledgeRelationType[] = ['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers']
 
