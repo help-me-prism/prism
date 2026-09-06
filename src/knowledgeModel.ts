@@ -7,6 +7,7 @@ export const readingStatusLabels: Record<KnowledgeReadingStatus, string> = { to_
 export const claimOriginLabels: Record<ClaimOrigin, string> = { paper: '논문의 주장', mine: '내 해석' }
 export const relationLabels: Record<KnowledgeRelationType, string> = {
   defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문 제기', answers: '답함',
+  link: '링크',
   mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련',
 }
 /**

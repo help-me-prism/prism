@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, PanelRight, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import NoteDocument from './NoteDocument'
 import ConnectionsPanel from './ConnectionsPanel'
 import CurationQueue from './CurationQueue'
+import GraphView from './GraphView'
 import TemplateManager from './TemplateManager'
 import { autoSectionLabels, creatableTypes, isStub, treeTypes, typeFolders, typeLabels } from './knowledgeModel'
 
-type MainView = 'doc' | 'curation'
+type MainView = 'doc' | 'curation' | 'graph'
 
 /**
  * The Notes window is a vault workspace: activity rail, node tree, tabbed documents, and a standing
@@ -236,9 +237,10 @@ export default function NotesWindow() {
       <button aria-label="정리 대기열" title="정리 대기열" aria-pressed={view === 'curation'} onClick={() => { setView('curation'); void reloadCuration() }}>
         <Inbox size={17} />{curation?.total ? <em>{curation.total}</em> : null}<b>정리</b>
       </button>
+      <button aria-label="그래프" title="볼트 전체 그래프" aria-pressed={view === 'graph'} onClick={() => setView('graph')}><Network size={17} /><b>그래프</b></button>
       <button aria-label="검색" title="볼트 검색" onClick={() => searchRef.current?.focus()}><Search size={17} /><b>검색</b></button>
       <span className="rail-spacer" />
-      <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><Network size={17} /><b>연결</b></button>
+      <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><PanelRight size={17} /><b>연결</b></button>
       <button aria-label="노트 양식" title="노트 양식" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={17} /><b>양식</b></button>
       <button aria-label="라이브러리 폴더" title="라이브러리 폴더 선택" onClick={() => void chooseLibrary()}><Settings2 size={17} /><b>볼트</b></button>
     </nav>
@@ -309,6 +311,7 @@ export default function NotesWindow() {
           <button className="tab-close" aria-label={`${node.title} 탭 닫기`} onClick={() => closeTab(node.id)}><X size={11} /></button>
         </div>)}
         {view === 'curation' && <div className="notes-tab on"><button role="tab" aria-selected="true"><Inbox size={11} /> 정리 대기열</button></div>}
+        {view === 'graph' && <div className="notes-tab on"><button role="tab" aria-selected="true"><Network size={11} /> 전체 그래프</button></div>}
       </div>
 
       {notice && <div className={`notes-notice${notice.tone === 'error' ? ' is-error' : ''}`} role="status">
@@ -317,7 +320,9 @@ export default function NotesWindow() {
         <button aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X size={12} /></button>
       </div>}
 
-      {view === 'curation'
+      {view === 'graph'
+        ? <GraphView activeId={activeId} onOpenNode={openNode} onNotify={notify} />
+        : view === 'curation'
         ? <CurationQueue onOpenNode={openNode} onChanged={async () => { await reloadNodes(); await reloadContext() }} onCount={() => void reloadCuration()} />
         : active
           ? <NoteDocument
@@ -338,7 +343,7 @@ export default function NotesWindow() {
 
     {sideOpen && <ConnectionsPanel
       node={view === 'doc' ? active : undefined} relations={relations} backlinks={backlinks} citations={citations}
-      citationsLoading={citationsLoading} onOpenNode={openNode}
+      citationsLoading={citationsLoading} onOpenNode={openNode} onOpenFullGraph={() => setView('graph')}
       onRefreshCitations={() => void reloadContext(true)} onAddCitationRelation={addCitationRelation}
     />}
 

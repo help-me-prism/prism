@@ -427,9 +427,10 @@ npm run start:fast
 4. **정리 대기열** — Notes 창 `정리` 버튼. AI 관계 승인, 스텁(백링크 수) 정리·병합·삭제, 메모 승격(Claim/Question, 근거·출처 유지, 논문 노트에 → 링크 표시), 근거 없는 Claim, 열린 Question. Concept 정의 비교 표. `shared/contracts/curation.md`, `electron/curation.ts`, `src/CurationQueue.tsx`.
 5. **모델 제안** — Reader 툴바 `지식 제안 CLI`(번역·채팅과 별도 설정). 읽음 표시 또는 `모델 제안` 버튼으로 실행. 결과는 전부 검토 대기(관계 pending, 메모 힌트, 새 Concept 제안). 거절은 `.prism/suggestions/`에 기억. `shared/contracts/model-suggestions.md`, `electron/knowledgeAi.ts`.
 6. **탐색** — Notes 창 오른쪽 `연결` 패널(백링크·승인 관계·인용 자동 레이어, 인용 행에서 `extends` 관계 생성). 로컬 그래프에 유형/관계 필터, 2홉, 자동 관계 토글. Semantic Scholar 캐시 `.prism/citations/`. `shared/contracts/citations.md`, `electron/citations.ts`.
+6-1. **그래프** — 레일 `그래프`가 볼트 전체를 캔버스 탭으로 연다(`knowledge:graph` 한 번의 볼트 순회, `electron/knowledgeGraph.ts`). 로컬 그래프와 전체 그래프가 같은 힘 배치·같은 색·같은 레이어 규칙을 쓴다(`src/graph/`: `layout.ts` 의존성 없는 시뮬레이션, `model.ts` 레이어 규칙, `palette.ts` 색, `MiniGraph.tsx` 패널용 SVG). 시작 위치는 노드 id 해시라 같은 볼트는 늘 같은 모양으로 열린다. Obsidian에서 쓴 `[[링크]]`는 사이드카 기록이 없어도 엣지가 된다. `shared/contracts/knowledge-graph.md`.
 7. `library.json`의 절대 경로는 현재 라이브러리 아래로 재배치해 읽는다(폴더 이동·동기화 대비).
 
-검증: `npm run test:capture`(캡처·대기열·모델 파이프라인·인용, Electron 불필요), `npm run test:notes-ui`, `npm run test:mcp`, `node scripts/capture-research-ui.mjs <라이브러리 사본>`(화면 캡처, 실제 Vault에는 쓰지 말 것).
+검증: `npm run test:capture`(캡처·대기열·모델 파이프라인·인용·그래프, Electron 불필요), `npm run test:notes-ui`, `npm run test:mcp`, `node scripts/capture-research-ui.mjs <라이브러리 사본>`(화면 캡처, 실제 Vault에는 쓰지 말 것).
 
 주의: 화면 캡처 스크립트나 테스트에 실제 Vault를 넘기면 안 된다. 라이브러리 사본을 쓰되, 사본의 `library.json` 절대 경로는 7번 항목 덕분에 사본 아래로 재배치된다.
 
