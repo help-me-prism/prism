@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
-import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
+import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, chatSections, isChatSection, type AutoSection } from './noteContract.js'
+import { removeAutoSection, writeAutoSection } from './paperDigest.js'
+import { markChatWritten } from './chatMemory.js'
+import { markAutoWritten } from './autoUnread.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
 import { listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
@@ -145,4 +149,57 @@ export async function mcpCreateNoteDraft(libraryPath: string, templateId: string
   const node = (await listKnowledgeNodes(libraryPath)).find((item) => item.id === id)
   if (!node) throw new Error('생성한 초안 노트를 다시 읽을 수 없습니다.')
   return { node, created: true as const }
+}
+
+/**
+ * The memory surface, and the only way a conversation can write into the vault.
+ *
+ * The safety here is not a rule the model is asked to follow — it is what the tool can express. It takes a
+ * node id and the name of a section, never a path and never a body of Markdown to splice in, so there is no
+ * argument that could reach the researcher's own writing. `isChatSection` decides whether that name means
+ * anything for that kind of note, `writeAutoSection` replaces the region between the markers and nothing
+ * else, and `assertOnlyAutoChanged` refuses the save if the rest of the file moved anyway.
+ */
+export async function mcpReadNoteMemory(libraryPath: string, nodeId: string) {
+  if (!nodeIdPattern.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const node = (await listKnowledgeNodes(libraryPath)).find((item) => item.id === nodeId)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  const content = (await readKnowledgeNode(libraryPath, nodeId)).content
+  const sections = chatSections(node.nodeType).map((section) => ({
+    section,
+    heading: autoHeadings[section],
+    lines: (autoSectionBody(content, section) ?? '').split('\n').map((line) => line.replace(/^-\s*/, '').trim()).filter(Boolean),
+  }))
+  return { nodeId, title: node.title, nodeType: node.nodeType, sections }
+}
+
+function autoSectionBody(content: string, section: AutoSection) {
+  const { open, close } = autoMarkers(section)
+  const normalized = content.replace(/\r\n/g, '\n')
+  const start = normalized.indexOf(open)
+  if (start < 0) return undefined
+  const end = normalized.indexOf(close, start)
+  if (end < 0) return undefined
+  const body = normalized.slice(start + open.length, end).trim()
+  return /^_[^_]*_$/.test(body) ? '' : body
+}
+
+export async function mcpRemember(libraryPath: string, nodeId: string, section: string, lines: string[]) {
+  if (!nodeIdPattern.test(nodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const node = (await listKnowledgeNodes(libraryPath)).find((item) => item.id === nodeId)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  if (!isChatSection(node.nodeType, section)) throw new Error(`'${section}'은(는) ${node.nodeType} 노트에서 대화가 쓸 수 있는 구간이 아닙니다. 쓸 수 있는 구간: ${chatSections(node.nodeType).join(', ') || '없음'}`)
+  const kept = lines.map((line) => String(line).replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8).map((line) => line.slice(0, 300))
+  const snapshot = await readKnowledgeNode(libraryPath, nodeId)
+  // An empty list is how the conversation says this no longer belongs in the note, which is the half of
+  // "keep it current" that only writing can never do.
+  const body = kept.length ? kept.map((line) => `- ${line}`).join('\n') : ''
+  const next = kept.length ? writeAutoSection(snapshot.content, section, body) : removeAutoSection(snapshot.content, section)
+  if (next === snapshot.content) return { nodeId, section, lines: kept, changed: false as const }
+  assertOnlyAutoChanged(snapshot.content, next, node.title)
+  const saved = await saveKnowledgeNode(libraryPath, nodeId, { content: next, expectedRevision: snapshot.revision })
+  if (!saved.saved) throw new Error('노트가 방금 외부에서 변경되었습니다. 다시 읽고 시도해 주세요.')
+  await markChatWritten(libraryPath, nodeId, [section]).catch(() => undefined)
+  await markAutoWritten(libraryPath, nodeId, kept.length ? [section] : []).catch(() => undefined)
+  return { nodeId, section, lines: kept, changed: true as const }
 }

@@ -2,7 +2,7 @@ import process from 'node:process'
 import { McpServer } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import * as z from 'zod/v4'
-import { assertKnowledgeVault, mcpComparePapers, mcpCreateNoteDraft, mcpFindRelatedConcepts, mcpGetClaimEvidence, mcpOpenPaperAnchor, mcpSearchKnowledge, mcpSuggestRelationships } from './knowledgeMcp.js'
+import { assertKnowledgeVault, mcpComparePapers, mcpCreateNoteDraft, mcpFindRelatedConcepts, mcpGetClaimEvidence, mcpOpenPaperAnchor, mcpReadNoteMemory, mcpRemember, mcpSearchKnowledge, mcpSuggestRelationships } from './knowledgeMcp.js'
 
 function vaultArgument() {
   const index = process.argv.indexOf('--vault'); const candidate = index >= 0 ? process.argv[index + 1] : process.env.PRISM_VAULT_PATH
@@ -17,7 +17,7 @@ function result(value: Record<string, unknown>) { return { content: [{ type: 'te
 function toolError(reason: unknown, libraryPath: string) { return { isError: true as const, content: [{ type: 'text' as const, text: publicMessage(reason, libraryPath) }] } }
 
 function buildServer(libraryPath: string) {
-  const server = new McpServer({ name: 'prism-research-knowledge', version: '0.1.0' }, { instructions: 'Search and inspect the local Prism research Vault. Distinguish PDF evidence, user notes, and derived suggestions. Never treat a suggestion as an approved relationship.' })
+  const server = new McpServer({ name: 'prism-research-knowledge', version: '0.1.0' }, { instructions: 'Search, inspect and remember in the local Prism research Vault. Distinguish PDF evidence, user notes, and derived suggestions. Never treat a suggestion as an approved relationship. Use `remember` when a conversation establishes something about a note that is worth having later; what the researcher wrote is never yours to change.' })
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   server.registerTool('search_knowledge', { title: 'Search Prism knowledge', description: 'Hybrid text and local semantic search over Markdown knowledge nodes.', inputSchema: z.object({ query: z.string().min(1).max(200), limit: z.number().int().min(1).max(20).optional() }), annotations: readOnly }, async ({ query, limit }) => { try { return result(await mcpSearchKnowledge(libraryPath, query, limit)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('get_claim_evidence', { title: 'Get Claim evidence', description: 'Return approved supporting or contradicting relations and exact PDF evidence for one Claim.', inputSchema: z.object({ claim_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/) }), annotations: readOnly }, async ({ claim_id }) => { try { return result(await mcpGetClaimEvidence(libraryPath, claim_id)) } catch (reason) { return toolError(reason, libraryPath) } })
@@ -25,6 +25,23 @@ function buildServer(libraryPath: string) {
   server.registerTool('compare_papers', { title: 'Compare Paper records', description: 'Return bounded Paper notes, evidence, and approved Claim or Concept links without generating a conclusion.', inputSchema: z.object({ paper_ids: z.array(z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/)).min(2).max(8) }), annotations: readOnly }, async ({ paper_ids }) => { try { return result(await mcpComparePapers(libraryPath, paper_ids)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('open_paper_anchor', { title: 'Open a Paper anchor', description: 'Resolve a stable PDF anchor and queue it for a running Prism app.', inputSchema: z.object({ anchor_id: z.string().min(1).max(300), paper_id: z.string().regex(/^[a-zA-Z0-9._-]{1,160}$/).optional() }), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } }, async ({ anchor_id, paper_id }) => { try { return result(await mcpOpenPaperAnchor(libraryPath, anchor_id, paper_id)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('suggest_relationships', { title: 'Suggest knowledge relationships', description: 'Return deterministic, read-only relationship and research-gap suggestions for one active node.', inputSchema: z.object({ node_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/) }), annotations: readOnly }, async ({ node_id }) => { try { return result(await mcpSuggestRelationships(libraryPath, node_id)) } catch (reason) { return toolError(reason, libraryPath) } })
+  server.registerTool('read_note_memory', { title: 'Read what a note remembers', description: 'Return the sections of one note that a conversation is allowed to keep, with their current lines. Read this before remembering, so an update replaces the list rather than losing what is already there.', inputSchema: z.object({ node_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/) }), annotations: readOnly }, async ({ node_id }) => { try { return result(await mcpReadNoteMemory(libraryPath, node_id)) } catch (reason) { return toolError(reason, libraryPath) } })
+  server.registerTool('remember', {
+    title: 'Keep something in a note',
+    description: [
+      'Record what this conversation established about one note, in the researcher\'s language.',
+      'Call it when the conversation produced something worth having later: what they are stuck on, what they asked more than once, what turned out to be the answer. Do not call it for small talk, for what the note already says, or to summarise your own reply.',
+      'The lines replace the section, so send the whole list: keeping it current means dropping what turned out to be wrong as much as adding what is new. An empty list removes the section.',
+      'Sections: "confusion" on a paper is what the researcher has not resolved about it; "asked" on a concept, claim or question is what they wanted to know about that thing.',
+      'You cannot write anywhere else in the note. What the researcher wrote is theirs.',
+    ].join(' '),
+    inputSchema: z.object({
+      node_id: z.string().regex(/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/),
+      section: z.enum(['confusion', 'asked']),
+      lines: z.array(z.string().max(300)).max(8),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, async ({ node_id, section, lines }) => { try { return result(await mcpRemember(libraryPath, node_id, section, lines)) } catch (reason) { return toolError(reason, libraryPath) } })
   server.registerTool('create_note_draft', { title: 'Create a Prism note draft', description: 'Create one non-overwriting AI draft from a user-owned Markdown template.', inputSchema: z.object({ template_id: z.string().regex(/^[a-zA-Z0-9._-]{1,120}$/), title: z.string().min(1).max(200), variables: z.record(z.string(), z.string().max(2_000)).optional() }), annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false } }, async ({ template_id, title, variables }) => { try { return result(await mcpCreateNoteDraft(libraryPath, template_id, title, variables)) } catch (reason) { return toolError(reason, libraryPath) } })
   return server
 }

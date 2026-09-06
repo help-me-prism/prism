@@ -3,7 +3,8 @@ import path from 'node:path'
 import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
-import { assertOnlyAutoChanged, autoHeadings, autoMarkers, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
+import { claimedByChat, listChatMemory, type ChatMemoryMap } from './chatMemory.js'
 
 export { noteAutomation, type NoteSectionRule } from './noteContract.js'
 
@@ -359,15 +360,15 @@ function parseModelJson(text: string) {
  * whole library — nodes, contents, backlinks, relations — for every note in turn. A sweep hands the same
  * context to every note, so opening the Notes window reads the library once rather than once per note.
  */
-export type DigestContext = { vault: VaultSnapshot; byId: Map<string, KnowledgeNodeRecord>; relationsOf: (nodeId: string) => KnowledgeRelationRecord[] }
+export type DigestContext = { vault: VaultSnapshot; byId: Map<string, KnowledgeNodeRecord>; relationsOf: (nodeId: string) => KnowledgeRelationRecord[]; chatMemory: ChatMemoryMap }
 
 export async function buildDigestContext(libraryPath: string): Promise<DigestContext> {
-  const [vault, relations] = await Promise.all([readVaultSnapshot(libraryPath), listKnowledgeRelationRecords(libraryPath)])
+  const [vault, relations, chatMemory] = await Promise.all([readVaultSnapshot(libraryPath), listKnowledgeRelationRecords(libraryPath), listChatMemory(libraryPath)])
   const byId = new Map(vault.records.map((node) => [node.id, node]))
   // Grouped once by endpoint: scanning every relation for every note is the other quiet quadratic.
   const byNode = new Map<string, KnowledgeRelationRecord[]>()
   for (const relation of relations) for (const endpoint of new Set([relation.sourceId, relation.targetId])) byNode.set(endpoint, [...(byNode.get(endpoint) ?? []), relation])
-  return { vault, byId, relationsOf: (nodeId) => byNode.get(nodeId) ?? [] }
+  return { vault, byId, relationsOf: (nodeId) => byNode.get(nodeId) ?? [], chatMemory }
 }
 async function digestContext(libraryPath: string, context?: DigestContext) { return context ?? buildDigestContext(libraryPath) }
 
@@ -407,6 +408,9 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
     ['focus', focusLines, '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
   ]
   for (const [section, lines, placeholder] of sections) {
+    // A section the conversation has taken over is not the rules' to rewrite. They seeded it so a researcher
+    // with no model configured is not left with nothing; once a model has spoken they stand down for good.
+    if (isChatSection('paper', section) && claimedByChat(context.chatMemory, paper.id, section)) continue
     // Never trade written content for a placeholder: chat may be momentarily unreadable, and a note that
     // loses what it showed a minute ago is worse than one that is slightly stale.
     if (!lines.length && hasGeneratedContent(next, section)) continue
@@ -514,7 +518,7 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
       continue
     }
     if (rule.section === 'sources') { plan.push(['sources', sourceLines]); continue }
-    if (rule.section === 'asked') { plan.push(['asked', askedLines]); continue }
+    if (rule.section === 'asked') { if (!claimedByChat(context.chatMemory, node.id, 'asked')) plan.push(['asked', askedLines]); continue }
     if (rule.by !== 'model') continue
     // A model section that cannot be written is left exactly as it is: no model today does not mean the
     // definition written yesterday was wrong.

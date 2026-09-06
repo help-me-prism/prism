@@ -42,33 +42,40 @@ export const minePrompts: Record<MineSection, string> = {
 
 export type NoteSectionRule = {
   section: AutoSection
-  /** `machine` costs nothing and runs on every open; `model` costs a call and only runs when one is asked for. */
-  by: 'machine' | 'model'
+  /**
+   * `machine` costs nothing and runs on every open. `model` costs a call and only runs when one is asked for.
+   * `chat` belongs to the conversation: the model writing the answer decides, in the same turn, that something
+   * is worth keeping and says so through the `remember` tool — no second inference, which is how every
+   * assistant that has a memory does it. The deterministic extraction that used to guess at these from
+   * question marks and word stems is kept only as a floor, seeding a section that is still empty so a
+   * researcher with no CLI configured is not left with nothing.
+   */
+  by: 'machine' | 'model' | 'chat'
   relations?: { types: string[]; direction?: 'incoming' | 'outgoing' }
 }
 
 export const noteAutomation: Partial<Record<string, NoteSectionRule[]>> = {
   paper: [
     { section: 'overview', by: 'machine' },
-    { section: 'confusion', by: 'machine' },
+    { section: 'confusion', by: 'chat' },
     { section: 'focus', by: 'machine' },
   ],
   concept: [
     { section: 'definition', by: 'model' },
     { section: 'sources', by: 'machine' },
-    { section: 'asked', by: 'machine' },
+    { section: 'asked', by: 'chat' },
   ],
   claim: [
     { section: 'sources', by: 'machine' },
     { section: 'support', by: 'machine', relations: { types: ['supports', 'evidence_for'] } },
     { section: 'against', by: 'machine', relations: { types: ['contradicts'] } },
-    { section: 'asked', by: 'machine' },
+    { section: 'asked', by: 'chat' },
     { section: 'stake', by: 'model' },
   ],
   question: [
     { section: 'sources', by: 'machine' },
     { section: 'answers', by: 'machine', relations: { types: ['answers'] } },
-    { section: 'asked', by: 'machine' },
+    { section: 'asked', by: 'chat' },
   ],
 }
 
@@ -91,6 +98,14 @@ export function isAutoSection(nodeType: string, section: string): section is Aut
 }
 export function isMineSection(nodeType: string, section: string): section is MineSection {
   return (noteMine[nodeType] ?? []).includes(section as MineSection)
+}
+
+/** What a conversation is allowed to keep in this kind of note. Everything else is derived or the researcher's. */
+export function chatSections(nodeType: string) {
+  return (noteAutomation[nodeType] ?? []).filter((rule) => rule.by === 'chat').map((rule) => rule.section)
+}
+export function isChatSection(nodeType: string, section: string): section is AutoSection {
+  return chatSections(nodeType).includes(section as AutoSection)
 }
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

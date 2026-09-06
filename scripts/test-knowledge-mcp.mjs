@@ -63,7 +63,44 @@ try {
   client = new Client({ name: 'prism-mcp-smoke', version: '1.0.0' })
   await client.connect(transport)
   const listed = await client.listTools(); const names = listed.tools.map((tool) => tool.name)
-  assert(JSON.stringify(names) === JSON.stringify(['search_knowledge', 'get_claim_evidence', 'find_related_concepts', 'compare_papers', 'open_paper_anchor', 'suggest_relationships', 'create_note_draft']), `Unexpected MCP tools: ${JSON.stringify(names)}`)
+  assert(JSON.stringify(names) === JSON.stringify(['search_knowledge', 'get_claim_evidence', 'find_related_concepts', 'compare_papers', 'open_paper_anchor', 'suggest_relationships', 'read_note_memory', 'remember', 'create_note_draft']), `Unexpected MCP tools: ${JSON.stringify(names)}`)
+
+  // ---------- remembering: the only way a conversation writes, and the only place it can ----------
+  const memoryConcept = 'concept-ffffffff'
+  const conceptPath = path.join(vault, 'Concepts', 'Optimal Transport.md')
+  const ownSentence = '내가 직접 쓴 문장은 대화가 건드리면 안 된다.'
+  await write('Concepts/Optimal Transport.md', `${note(memoryConcept, 'concept', 'Optimal Transport', '본문 한 줄.')}\n## 내 말로\n\n<!-- prism:mine restate -->\n${ownSentence}\n<!-- /prism:mine restate -->\n`)
+
+  const emptyMemory = JSON.parse((await call(client, 'read_note_memory', { node_id: memoryConcept })).content[0].text)
+  assert(emptyMemory.sections.length === 1 && emptyMemory.sections[0].section === 'asked' && emptyMemory.sections[0].lines.length === 0, `A concept offered the wrong memory sections: ${JSON.stringify(emptyMemory.sections)}`)
+
+  const remembered = JSON.parse((await call(client, 'remember', { node_id: memoryConcept, section: 'asked', lines: ['OT 경로가 왜 더 빠른가', '변위 보간이 무엇인가'] })).content[0].text)
+  assert(remembered.changed && remembered.lines.length === 2, `Remembering did not write: ${JSON.stringify(remembered)}`)
+  const afterRemember = await fs.readFile(conceptPath, 'utf8')
+  assert(afterRemember.includes('<!-- prism:auto asked -->') && afterRemember.includes('OT 경로가 왜 더 빠른가'), `The remembered lines are not in the note:\n${afterRemember}`)
+  assert(afterRemember.includes(ownSentence), 'Remembering changed what the researcher wrote.')
+
+  // Reading back is what makes an update replace rather than lose; then a shorter list is a correction.
+  const readBack = JSON.parse((await call(client, 'read_note_memory', { node_id: memoryConcept })).content[0].text)
+  assert(readBack.sections[0].lines.length === 2, `Reading memory back lost lines: ${JSON.stringify(readBack.sections)}`)
+  await call(client, 'remember', { node_id: memoryConcept, section: 'asked', lines: ['변위 보간이 무엇인가'] })
+  const corrected = await fs.readFile(conceptPath, 'utf8')
+  assert(!corrected.includes('OT 경로가 왜 더 빠른가') && corrected.includes('변위 보간이 무엇인가'), `A correction did not replace the list:\n${corrected}`)
+
+  // An empty list is how a conversation says this no longer belongs, and the section goes with it.
+  await call(client, 'remember', { node_id: memoryConcept, section: 'asked', lines: [] })
+  const emptied = await fs.readFile(conceptPath, 'utf8')
+  assert(!emptied.includes('prism:auto asked') && !emptied.includes('대화에서 물어본 것'), `Emptying memory left the section behind:\n${emptied}`)
+  assert(emptied.includes(ownSentence), 'Emptying memory changed what the researcher wrote.')
+
+  // What a conversation may write is decided by the tool, not by the conversation.
+  const wrongSection = await call(client, 'remember', { node_id: memoryConcept, section: 'confusion', lines: ['x'] })
+  assert(wrongSection.isError && wrongSection.content[0].text.includes('confusion'), `A paper-only section was accepted on a concept: ${JSON.stringify(wrongSection)}`)
+  const derived = await call(client, 'remember', { node_id: memoryConcept, section: 'sources', lines: ['x'] }).catch((reason) => ({ isError: true, content: [{ text: String(reason) }] }))
+  assert(derived.isError, 'A derived section was writable from a conversation.')
+  const mineSection = await call(client, 'remember', { node_id: memoryConcept, section: 'restate', lines: ['x'] }).catch((reason) => ({ isError: true, content: [{ text: String(reason) }] }))
+  assert(mineSection.isError, 'A section belonging to the researcher was writable from a conversation.')
+  assert((await fs.readFile(conceptPath, 'utf8')).includes(ownSentence), 'A rejected write still changed the note.')
   assert(listed.tools.every((tool) => tool.inputSchema?.type === 'object'), 'An MCP tool did not expose an object input schema.')
   assert(listed.tools.find((tool) => tool.name === 'search_knowledge')?.annotations?.readOnlyHint === true, 'Search was not declared read-only.')
   assert(listed.tools.find((tool) => tool.name === 'create_note_draft')?.annotations?.destructiveHint === false, 'Draft creation was not declared non-destructive.')
@@ -107,7 +144,7 @@ try {
   const missingPath = path.join(root, 'missing-vault')
   const missingExit = await new Promise((resolve) => { const child = spawn(process.execPath, [path.resolve('dist-electron/mcpServer.js'), '--vault', missingPath], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); let stderr = ''; child.stderr.on('data', (chunk) => { stderr += chunk }); child.on('exit', (code) => resolve({ code, stderr })) })
   assert(missingExit.code !== 0 && missingExit.stderr.includes('Vault') && !missingExit.stderr.includes(missingPath), 'A missing Vault did not fail safely without exposing its path.')
-  process.stdout.write('Knowledge MCP passed: seven stdio tools, schemas, hybrid search, approved-only evidence and relations, comparison, suggestions, live Reader anchor navigation, non-overwriting AI drafts, portable paths, and recoverable errors.\n')
+  process.stdout.write('Knowledge MCP passed: nine stdio tools, schemas, hybrid search, approved-only evidence and relations, comparison, suggestions, live Reader anchor navigation, conversation memory that only reaches its own sections, non-overwriting AI drafts, portable paths, and recoverable errors.\n')
 } finally {
   if (client) await client.close().catch(() => undefined)
   debuggerConnection?.socket.close()
