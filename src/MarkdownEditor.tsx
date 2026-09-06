@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { mineHeadings, minePrompts, type MineSection } from '../electron/noteContract'
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
@@ -8,7 +9,7 @@ import katex from 'katex'
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence' | 'graph'
-export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean }
+export type MarkdownEditorHandle = { applyBlock: (command: MarkdownBlockCommand) => void; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
 export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
@@ -750,20 +751,32 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
 }
 
 const headingPattern = /^#{1,6}\s/
+const markerPattern = /^<!--\s*\/?prism:(mine|auto)\s/
 
-/** Empty headings read as homework. Ghost text on the blank line under one says what belongs there. */
-const sectionHints: Record<string, string> = { '내 생각': '내 생각을 한두 줄 적어보세요', '메모': '리더에서 문장을 우클릭해 담거나, 여기에 바로 적어보세요' }
+/**
+ * Empty headings read as homework, so ghost text on the blank line under one says what belongs there. For the
+ * sections that are the researcher's, the ghost text is the question the section exists to ask — an empty box
+ * called "thoughts" is not answerable and "what is still unresolved?" is.
+ */
+const sectionHints: Record<string, string> = {
+  '내 생각': '내 생각을 한두 줄 적어보세요',
+  '메모': '리더에서 문장을 우클릭해 담거나, 여기에 바로 적어보세요',
+  ...Object.fromEntries(Object.entries(mineHeadings).map(([section, heading]) => [heading, minePrompts[section as MineSection]])),
+}
 function emptySectionHint(state: EditorState, heading: { number: number; text: string }) {
   const label = sectionHints[heading.text.replace(headingPattern, '').trim()]
   if (!label || heading.number >= state.doc.lines) return null
-  const below = state.doc.line(heading.number + 1)
-  if (below.text.trim()) return null
-  for (let number = heading.number + 2; number <= state.doc.lines; number += 1) {
+  // A marked section is empty when the only thing between its markers is blank, so the markers themselves
+  // are skipped rather than counted as content.
+  let below: ReturnType<EditorState['doc']['line']> | undefined
+  for (let number = heading.number + 1; number <= state.doc.lines; number += 1) {
     const next = state.doc.line(number)
     if (headingPattern.test(next.text)) break
-    if (next.text.trim()) return null
+    if (markerPattern.test(next.text.trim())) continue
+    if (!next.text.trim()) { below = below ?? next; continue }
+    return null
   }
-  return { from: below.from, label }
+  return below ? { from: below.from, label } : null
 }
 
 /** Puts the cursor on the blank line under a heading, so "write here" needs no aiming. */
@@ -783,6 +796,33 @@ function focusSection(view: EditorView, heading: string) {
     return true
   }
   return false
+}
+
+/**
+ * Puts the cursor inside a marked section, making a blank line to write on when the markers sit back to back.
+ * Aiming between two HTML comments the editor deliberately hides is not something to ask of anyone.
+ */
+function focusMineSection(view: EditorView, section: MineSection) {
+  const open = `<!-- prism:mine ${section} -->`
+  const at = view.state.doc.toString().indexOf(open)
+  if (at < 0) return false
+  const openLine = view.state.doc.lineAt(at).number
+  if (openLine >= view.state.doc.lines) return false
+  const first = view.state.doc.line(openLine + 1)
+  if (/^<!--\s*\/prism:mine\s/.test(first.text.trim())) {
+    view.dispatch({ changes: { from: first.from, insert: '\n' }, selection: { anchor: first.from }, scrollIntoView: true })
+    view.focus()
+    return true
+  }
+  let anchor = first.to
+  for (let number = openLine + 1; number <= view.state.doc.lines; number += 1) {
+    const next = view.state.doc.line(number)
+    if (/^<!--\s*\/prism:mine\s/.test(next.text.trim())) break
+    anchor = next.to
+  }
+  view.dispatch({ selection: { anchor }, scrollIntoView: true })
+  view.focus()
+  return true
 }
 
 /** Types the "/" that opens the block menu, adding a line break first when the cursor sits mid-sentence. */
@@ -935,7 +975,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ applyBlock: (command) => { if (viewRef.current) insertBlock(viewRef.current, command) }, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, focusMineSection: (section) => viewRef.current ? focusMineSection(viewRef.current, section) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return

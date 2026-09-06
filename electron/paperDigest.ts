@@ -3,7 +3,7 @@ import path from 'node:path'
 import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
-import { assertOnlyAutoChanged, autoHeadings, autoMarkers, noteAutomation, type AutoSection } from './noteContract.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
 
 export { noteAutomation, type NoteSectionRule } from './noteContract.js'
 
@@ -237,7 +237,7 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
     const at = title.index + title[0].length
     return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
   }
-  const anchorHeading = [`\n## ${userHeading}`, `\n## ${memoHeading}`].map((item) => normalized.indexOf(item)).filter((index) => index >= 0).sort((left, right) => left - right)[0]
+  const anchorHeading = [`\n## ${userHeading}`, `\n## ${memoHeading}`, ...Object.values(mineHeadings).map((heading) => `\n## ${heading}`)].map((item) => normalized.indexOf(item)).filter((index) => index >= 0).sort((left, right) => left - right)[0]
   if (anchorHeading !== undefined) return `${normalized.slice(0, anchorHeading)}${insertion}${normalized.slice(anchorHeading)}`
   return `${normalized.trimEnd()}\n${insertion}`
 }

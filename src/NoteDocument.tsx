@@ -6,6 +6,7 @@ import {
   autoSectionLabels, claimOriginLabels, fileName, nodePath, primaryRelationTypes, readingStatusLabels,
   relationLabels, relationTypesFor, scopeConflict, statusLabels, typeLabels,
 } from './knowledgeModel'
+import { insertMineSection, mineHeadings, minePrompts, noteMine, type MineSection } from '../electron/noteContract'
 
 type Picker =
   | { kind: 'link'; query: string }
@@ -69,6 +70,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     .filter((anchor) => !linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId))
     .map((anchor) => ({ id: `${anchor.paperId}-${anchor.anchorId}`, label: anchor.label, description: `${evidenceTypeLabel(anchor.type)} · ${anchor.paperTitle} · p.${anchor.page}`, searchText: `${anchor.paperTitle} ${anchor.source}`, markdown: evidenceMarkdown(anchor) })), [anchors, linkedEvidence])
   const nodeTemplates = useMemo(() => templates.filter((item) => item.nodeType === node.nodeType), [templates, node.nodeType])
+  const mineSections = useMemo(() => noteMine[node.nodeType] ?? [], [node.nodeType])
 
   useEffect(() => { nodeIdRef.current = node.id }, [node.id])
   useEffect(() => { contentRef.current = content }, [content])
@@ -144,9 +146,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     return () => { window.removeEventListener('beforeunload', flush); void save() }
   }, [node.id])
   /**
-   * Obsidian and the Reader write the same files, so an open note has to follow the disk. It used to ask the
-   * disk fifty times a minute — and asking cost a read of the whole library each time. Now the main process
-   * says which files moved and the note only re-reads when it is one of them.
+   * Obsidian and the Reader write the same files, so an open note has to follow the disk. It used to ask
+   * fifty times a minute, and asking cost a read of the whole library each time; now the main process names
+   * the files that moved and only a document that is one of them re-reads.
+   *
+   * The slow check stays, at a fifteenth of the old rate. An event is a single shot: one that arrives while
+   * this note is still loading, or a beat before the write it announces is readable, leaves the document
+   * permanently behind with nothing left to correct it. Polling was what made a missed signal self-heal, and
+   * that is worth one cached read every few seconds.
    */
   useEffect(() => {
     if (!snapshot) return
@@ -167,10 +174,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       finally { checking = false }
     }
     const stopWatching = window.prism.onVaultChanged(({ paths }) => { if (paths.some((item) => item.toLowerCase() === node.relativePath.toLowerCase())) void check() })
+    const timer = window.setInterval(() => void check(), 4000)
     const onFocus = () => void check()
     window.addEventListener('focus', onFocus)
-    return () => { disposed = true; stopWatching(); window.removeEventListener('focus', onFocus) }
-  }, [node.id, node.relativePath, snapshot?.revision])
+    // The tree reloads for its own reasons and carries a revision with it; following that as well means the
+    // document does not depend on any one signal arriving.
+    if (node.revision !== revisionRef.current) void check()
+    return () => { disposed = true; stopWatching(); window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
+  }, [node.id, node.relativePath, node.revision, snapshot?.revision])
 
   function edit(value: string) { contentRef.current = value; dirtyRef.current = true; setContent(value); setSaved(false) }
   /** Clicking a rendered evidence card jumps back to the PDF; the card itself is not editable text. */
@@ -375,6 +386,20 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       onNotify(`빈 섹션 ${result.removed.length}개를 지웠습니다: ${result.removed.join(', ')}`)
     } catch (reason) { onNotify(String(reason), 'error') }
   }
+  /**
+   * The one place in the note that is the researcher's. It is created when they ask for it and never before,
+   * so a note is never a page of empty headings; once it exists the cursor lands inside it, because aiming
+   * between two hidden HTML comments is not something to ask of anyone.
+   */
+  async function openMineSection(section: MineSection) {
+    if (editorRef.current?.focusMineSection(section)) return
+    const next = insertMineSection(contentRef.current, section)
+    if (next === contentRef.current) { editorRef.current?.moveToEnd(); return }
+    edit(next)
+    // The editor has to receive the new text before there is anywhere to put the cursor.
+    window.setTimeout(() => editorRef.current?.focusMineSection(section), 0)
+  }
+
   async function removeNode() {
     if (!deleteReady) { setDeleteReady(true); onNotify('한 번 더 누르면 이 노트를 휴지통으로 보냅니다.'); return }
     try { await window.prism.deleteKnowledgeNode(node.id); setMenuOpen(false); setDeleteReady(false); await onReloadNodes(); onNotify('노트를 휴지통으로 보냈습니다.') }
@@ -499,7 +524,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
             onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint"><button className="note-write-mine" title="자동 정리가 건드리지 않는, 나만 쓰는 칸으로 갑니다" onClick={() => { if (!editorRef.current?.focusSection('내 생각')) editorRef.current?.moveToEnd() }}><PenLine size={11} /> 내 생각 쓰기</button><button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting} title={node.nodeType === 'paper' ? '초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다' : '이 노트를 가리키는 노트와 대화를 다시 읽어 자동 구간을 갱신합니다'} onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button></p>
+          <p className="note-hint">{mineSections.map((section) => <button key={section} className="note-write-mine" title={`${minePrompts[section]} — 자동 기록이 절대 건드리지 않는 칸입니다`} onClick={() => void openMineSection(section)}><PenLine size={11} /> {mineHeadings[section]}</button>)}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting} title={node.nodeType === 'paper' ? '초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다' : '이 노트를 가리키는 노트와 대화를 다시 읽어 자동 구간을 갱신합니다'} onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button></p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>

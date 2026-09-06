@@ -107,9 +107,21 @@ export default function NotesWindow() {
   }
   useEffect(() => { setRelations([]); setBacklinks([]); setCitations(undefined); void reloadContext() }, [activeId, nodes.length])
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
-  // The library folder is shared with Obsidian and the Reader, so pick up outside changes without a manual refresh.
-  // The tree follows every write; the queue is expensive to compute, so it waits until the window is looked at.
-  useEffect(() => window.prism.onVaultChanged(() => { void reloadNodes(); void reloadUnread() }), [])
+  /**
+   * The library folder is shared with Obsidian and the Reader, so outside changes show up without a manual
+   * refresh. One save arrives as a burst of events and a sweep as one per note; reloading the tree, the
+   * templates and the anchors for each of them puts real work in front of whatever the researcher is
+   * actually waiting for, so a burst is answered once. The queue is more expensive still and waits until the
+   * window is looked at.
+   */
+  useEffect(() => {
+    let pending: number | undefined
+    const stop = window.prism.onVaultChanged(() => {
+      if (pending) window.clearTimeout(pending)
+      pending = window.setTimeout(() => { pending = undefined; void reloadNodes(); void reloadUnread() }, 300)
+    })
+    return () => { if (pending) window.clearTimeout(pending); stop() }
+  }, [])
   useEffect(() => {
     const onFocus = () => { void reloadNodes(); void reloadCuration(); void reloadUnread() }
     window.addEventListener('focus', onFocus)

@@ -214,6 +214,7 @@ try {
   mainConnection = await connect(await waitForPage('Prism'))
   await mainConnection.evaluate('window.prism.openNotes()')
   notesConnection = await connect(await waitForPage('Prism Notes'))
+  await notesConnection.evaluate(`(() => { window.__vaultEvents = []; window.prism.onVaultChanged((event) => window.__vaultEvents.push(event)) })()`)
   await notesConnection.send('Emulation.setDeviceMetricsOverride', { width: 1420, height: 900, deviceScaleFactor: 1, mobile: false })
   await sleep(500)
   previousClipboard = await readSystemClipboard()
@@ -265,6 +266,24 @@ try {
   await waitFor(async () => { try { await fs.stat(path.join(libraryPath, 'Concepts', 'Score matching.md')); return true } catch { return false } }, 'An unresolved wiki link did not become an inbox concept stub.', 12000)
   assert((await fs.readFile(path.join(libraryPath, 'Concepts', 'Score matching.md'), 'utf8')).includes('status: inbox'), 'The generated stub is not an inbox concept.')
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.classList.contains('is-stub') && button.textContent.includes('Score matching'))`), 'The new stub did not appear in the tree as a stub.', 8000)
+
+  // ---------- the researcher's own section is opened on request, never before ----------
+  // A paper offers exactly the two questions its kind of note asks, and neither exists in the file until asked for.
+  const mineButtons = await notesConnection.evaluate(`JSON.stringify([...document.querySelectorAll('.note-hint .note-write-mine')].map((button) => button.textContent.trim()))`)
+  assert(JSON.parse(mineButtons).join('|') === '아직 모르겠는 것|내 연구에 쓸 곳', `A paper note offered the wrong sections to write in: ${mineButtons}`)
+  assert(!(await fs.readFile(notePath, 'utf8')).includes('prism:mine'), 'A section belonging to the researcher was written into the file before they asked for one.')
+
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-hint .note-write-mine')].find((button) => button.textContent.includes('아직 모르겠는 것')).click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('<!-- prism:mine unresolved -->'), 'Asking for a section did not open one in the file.', 8000)
+  const ownSentence = '조건부 경로 부분이 아직 안 풀린다.'
+  await notesConnection.send('Input.insertText', { text: ownSentence })
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes(ownSentence), 'Writing in the opened section did not reach the file.', 8000)
+  const withOwnSection = await fs.readFile(notePath, 'utf8')
+  const marked = withOwnSection.slice(withOwnSection.indexOf('<!-- prism:mine unresolved -->'), withOwnSection.indexOf('<!-- /prism:mine unresolved -->'))
+  assert(marked.includes(ownSentence), `The sentence landed outside the section it was written for:\n${withOwnSection}`)
+  // The markers are how the rest of the app knows this is the researcher's; they are not something to read.
+  const shown = await notesConnection.evaluate(`JSON.stringify([...document.querySelectorAll('.note-body .cm-content .cm-line')].filter((line) => line.textContent.includes('prism:mine') && line.offsetHeight > 0).map((line) => line.textContent))`)
+  assert(shown === '[]', `The section markers are visible in the editor: ${shown}`)
 
   // ---------- block insertion through the single insert affordance ----------
   await notesConnection.evaluate(`document.querySelector('.note-hint .note-insert-block').click()`)
@@ -411,11 +430,14 @@ try {
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
-  // CodeMirror only renders the visible slice, so scroll to where the capture landed.
+  // CodeMirror renders only the slice it believes is visible, and setting the container's scrollTop does not
+  // make it look further. Scrolling to the last line it has rendered does, and repeating that walks the
+  // viewport to the end of the document a screen at a time.
   await waitFor(async () => {
-    await notesConnection.evaluate(`(() => { const scroller = document.querySelector('.note-doc-scroll'); if (scroller) scroller.scrollTop = scroller.scrollHeight })()`)
+    await notesConnection.evaluate(`(() => { const lines = document.querySelectorAll('.note-body .cm-line'); lines[lines.length - 1]?.scrollIntoView({ block: 'end' }) })()`)
+    await sleep(120)
     return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
-  }, 'The open note did not reload the externally captured memo.', 10000)
+  }, 'The open note did not reload the externally captured memo.', 20000)
 
   // ---------- what wrote itself is marked until it has been read ----------
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-auto-read button'))`), 'A note that wrote itself did not offer to be marked as read.', 10000)
@@ -492,7 +514,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
+  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)

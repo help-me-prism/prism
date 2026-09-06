@@ -121,6 +121,23 @@ export function hasOwnWriting(nodeType: string, content: string) {
 }
 
 /**
+ * Opens a section for the researcher to write in. Nothing is written on their behalf — the markers give the
+ * sentence a place to live and give the rest of the app something to ask about — and it is created only when
+ * they ask for it, so a note is never a page of empty headings waiting to be filled in.
+ */
+export function insertMineSection(content: string, section: MineSection) {
+  if (mineRegion(content, section)) return content
+  const { open, close } = mineMarkers(section)
+  const block = `## ${mineHeadings[section]}\n\n${open}\n\n${close}\n`
+  const normalized = content.replace(/\r\n/g, '\n')
+  // Reader captures pile up under 메모 and Notes and never stop, so a section the researcher just opened goes
+  // above the pile — otherwise their own sentence is pushed further down the note every time they read.
+  const pileAt = [/^##\s+메모\s*$/m, /^##\s+Notes\s*$/im].map((pattern) => normalized.search(pattern)).filter((at) => at >= 0).sort((left, right) => left - right)[0]
+  if (pileAt !== undefined) return `${normalized.slice(0, pileAt)}${block}\n${normalized.slice(pileAt)}`
+  return `${normalized.trimEnd()}\n\n${block}`
+}
+
+/**
  * Everything automation is allowed to change, removed. Two versions of a note that differ only inside
  * generated regions — including a generated section appearing or disappearing along with its heading —
  * reduce to the same string, and any other edit survives the reduction and shows up as a difference.
