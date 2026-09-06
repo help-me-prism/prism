@@ -372,6 +372,7 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
     ['overview', overviewBody, '_논문 본문과 초록을 아직 읽지 못했습니다._'],
     ['confusion', bulletList(confusionLines), '_이 논문에 대해 물어본 것이 아직 없습니다._'],
     ['focus', bulletList(focusLines), '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
+    ['relations', bulletList(typedRelationLines(knowledgeRelationViews(context.relationsOf(paper.id), context.byId, paper.id))), ''],
   ]
   for (const [section, filled, placeholder] of sections) {
     // A section the conversation has taken over is not the rules' to rewrite. They seeded it so a researcher
@@ -427,6 +428,13 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
 
 
 const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
+
+/** Approved relations that say something, as links. Plain `[[links]]` are already in the prose that made them. */
+function typedRelationLines(views: Array<{ type: string; direction: string; reviewStatus: string; origin?: string; other: { title: string; relativePath: string } }>) {
+  return [...new Set(views
+    .filter((item) => item.reviewStatus === 'approved' && item.origin !== 'link' && item.type !== 'link' && item.type !== 'mentions')
+    .map(relationLine))]
+}
 
 function relationLine(relation: { type: string; direction: string; other: { title: string; relativePath: string } }) {
   const wording = relationWording[relation.type] ?? relation.type
@@ -486,6 +494,7 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
         .map(relationLine)])
       continue
     }
+    if (rule.section === 'relations') { plan.push(['relations', typedRelationLines(relations)]); continue }
     if (rule.section === 'sources') { plan.push(['sources', sourceLines]); continue }
     if (rule.section === 'asked') { if (!claimedByChat(context.chatMemory, node.id, 'asked')) plan.push(['asked', askedLines]); continue }
     if (rule.by !== 'model') continue

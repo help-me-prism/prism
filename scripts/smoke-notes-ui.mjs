@@ -409,7 +409,13 @@ try {
   await fs.writeFile(path.resolve('tmp/ui/notes-scope-warning.png'), Buffer.from(scopeShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-scope-warning button')].find((button) => button.textContent.includes('그래도')).click()`)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.rel-chip')].some((chip) => chip.textContent.includes('청크가 길면'))`), 'The confirmed contradiction did not appear as a relation chip.', 8000)
-  assert((await fs.readFile(claimPath, 'utf8')).includes('> [!abstract] 관계 · 반박함'), 'The approved relation was not written as readable Markdown.')
+  // A relation is a sidecar and a line in a generated section, not a callout copied into the note: it used
+  // to be written once per edge, at the bottom, and only into the note the edge started from.
+  const claimAfterRelation = await fs.readFile(claimPath, 'utf8')
+  assert(!claimAfterRelation.includes('> [!abstract] 관계') && !claimAfterRelation.includes('prism-relation:'), `A relation was copied into the note:
+${claimAfterRelation}`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('<!-- prism:auto against -->'), 'The approved contradiction did not reach the generated section.', 10000)
+  assert((await fs.readFile(claimPath, 'utf8')).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 

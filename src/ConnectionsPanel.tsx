@@ -23,7 +23,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   const [showCitations, setShowCitations] = useState(false)
   const [secondHop, setSecondHop] = useState<Hop2[]>([])
   // Link relations belong in the graph: they are what the researcher actually wrote in the note.
-  const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && (item.origin === 'link' || item.type !== 'mentions')), [relations])
+  const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
   const edgeKey = approved.map((item) => item.id).join(',')
 
   useEffect(() => {

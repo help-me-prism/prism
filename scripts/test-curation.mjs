@@ -6,6 +6,7 @@ import { captureToPaperNote } from '../dist-electron/capture.js'
 import { listCurationQueue, mergeConcepts, promoteMemo } from '../dist-electron/curation.js'
 import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, migratePaperNotes, readKnowledgeNode, restoreKnowledgeNode, saveKnowledgeNode } from '../dist-electron/knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords, syncLinkRelations } from '../dist-electron/relations.js'
+import { refreshNoteDigest } from '../dist-electron/paperDigest.js'
 
 // The curation queue and its decisions (promote, merge, approve) run on plain Markdown in a throwaway vault.
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-curation-test-'))
@@ -106,8 +107,19 @@ try {
   // A concept that already carries a typed relation is not downgraded to a plain link.
   assert(!(await listKnowledgeRelationRecords(root)).some((relation) => relation.origin === 'link' && relation.targetId === 'concept-aaaaaaaa'), 'A typed relation was shadowed by a link relation.')
 
+  // A link is its own kind of edge now: it no longer borrows `mentions`, which meant something else.
+  assert((await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link').every((relation) => relation.type === 'link'), 'A link edge is still wearing another relation type.')
+
   const beforeUpgrade = await readKnowledgeNode(root, alpha.id)
   await createKnowledgeRelation(root, { sourceId: alpha.id, targetId: question.id, type: 'raises', creator: 'user', expectedRevision: beforeUpgrade.revision })
+  // A typed relation is a sidecar and a generated section, never a callout copied into the note.
+  const afterTyped = await readKnowledgeNode(root, alpha.id)
+  assert(!afterTyped.content.includes('> [!abstract] 관계') && !afterTyped.content.includes('prism-relation:'), `Creating a relation wrote a copy of it into the note:
+${afterTyped.content}`)
+  await refreshNoteDigest(root, alpha.id, [])
+  const withSection = (await readKnowledgeNode(root, alpha.id)).content
+  assert(withSection.includes('<!-- prism:auto relations -->') && withSection.includes('[[Questions/Open question|Open question]]'), `The relation did not reach the generated section:
+${withSection}`)
   linkRelations = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link' && relation.targetId === question.id)
   assert.equal(linkRelations.length, 0, 'A typed relation did not replace the plain link relation.')
   assert.equal((await syncLinkRelations(root, alpha.id)).added, 0, 'The link relation came back after it was upgraded.')
@@ -128,7 +140,7 @@ try {
   assert((await fs.stat(path.join(root, 'Questions', '지울 질문.md'))).isFile(), 'Undo did not put the note back in its folder.')
   await assert.rejects(restoreKnowledgeNode(root, '../outside.md'), /올바르지/)
 
-  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges with typed upgrades, and undoable deletion.\n')
+  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges of their own type with typed upgrades, relations that live in one generated section rather than a callout per edge, and undoable deletion.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

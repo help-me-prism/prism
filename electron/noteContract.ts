@@ -14,13 +14,13 @@
  * exactly the regions automation is allowed to touch, and every automatic write asserts that what remains is
  * unchanged — so a bug that reaches the researcher's writing fails loudly instead of quietly eating it.
  */
-export type AutoSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers' | 'asked' | 'definition' | 'stake'
+export type AutoSection = 'overview' | 'confusion' | 'focus' | 'sources' | 'support' | 'against' | 'answers' | 'asked' | 'definition' | 'stake' | 'relations'
 export type MineSection = 'unresolved' | 'apply' | 'restate' | 'belief' | 'matters'
 
 export const autoHeadings: Record<AutoSection, string> = {
   overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나',
   support: '지지 근거', against: '반박', answers: '지금까지 나온 답', asked: '대화에서 물어본 것',
-  definition: '정의', stake: '무엇에 달려 있나',
+  definition: '정의', stake: '무엇에 달려 있나', relations: '이 노트의 관계',
 }
 
 /**
@@ -59,10 +59,12 @@ export const noteAutomation: Partial<Record<string, NoteSectionRule[]>> = {
     { section: 'overview', by: 'machine' },
     { section: 'confusion', by: 'chat' },
     { section: 'focus', by: 'machine' },
+    { section: 'relations', by: 'machine' },
   ],
   concept: [
     { section: 'definition', by: 'model' },
     { section: 'sources', by: 'machine' },
+    { section: 'relations', by: 'machine' },
     { section: 'asked', by: 'chat' },
   ],
   claim: [
