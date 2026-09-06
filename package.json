@@ -18,6 +18,7 @@
     "test:capture": "npm run build && node scripts/test-capture.mjs && node scripts/test-curation.mjs && node scripts/test-knowledge-ai.mjs && node scripts/test-citations.mjs && node scripts/test-paper-digest.mjs",
     "test:structure": "npm run build && node scripts/test-latex-structure.mjs",
     "test:ui": "npm run build && node scripts/smoke-electron-ui.mjs",
+    "bench:vault": "npm run build && node scripts/bench-vault-scale.mjs",
     "test:notes-ui": "npm run build && node scripts/test-vault-compatibility.mjs && node scripts/smoke-notes-ui.mjs",
     "package:win": "npm run build && electron-builder --win portable --publish never",
     "package:mac": "npm run build && electron-builder --mac dmg --publish never",
