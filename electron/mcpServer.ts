@@ -29,7 +29,8 @@ function buildServer(libraryPath: string) {
   server.registerTool('remember', {
     title: 'Keep something in a note',
     description: [
-      'Record what this conversation established about one note, in the researcher\'s language.',
+      'Record what this conversation established about one note.',
+      'Write it in the language the researcher is using, in their words where you have them: this goes into their file, under their heading, and they will read it as their own note rather than as your summary.',
       'Call it when the conversation produced something worth having later: what they are stuck on, what they asked more than once, what turned out to be the answer. Do not call it for small talk, for what the note already says, or to summarise your own reply.',
       'The lines replace the section, so send the whole list: keeping it current means dropping what turned out to be wrong as much as adding what is new. An empty list removes the section.',
       'Sections: "confusion" on a paper is what the researcher has not resolved about it; "asked" on a concept, claim or question is what they wanted to know about that thing.',

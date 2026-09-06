@@ -5,6 +5,7 @@ import path from 'node:path'
 import { assertOnlyAutoChanged, autoMarkers, hasOwnWriting, isAutoSection, isMineSection, mineMarkers, mineRegion, withoutAutoSections } from '../dist-electron/noteContract.js'
 import { refreshNoteDigest, refreshVaultDigests } from '../dist-electron/paperDigest.js'
 import { listKnowledgeNodes, migratePaperNotes, readKnowledgeNode } from '../dist-electron/knowledge.js'
+import { mcpRemember } from '../dist-electron/knowledgeMcp.js'
 
 /**
  * A note has three layers and only one of them can be lost. Automation may rewrite what it generated; the
@@ -94,7 +95,27 @@ try {
   assert.doesNotThrow(() => assertOnlyAutoChanged(before, after, 'rerun'), 'A second run moved something outside a generated region.')
   assert.equal(mineRegion(after, 'unresolved').text, mineLines.unresolved, 'A second run changed the researcher\'s writing.')
 
-  process.stdout.write('Note contract passed: the three layers, section ownership per node type, reduction that keeps only what the researcher wrote, and a real sweep that rewrites its own regions while leaving marked and older user sections byte-for-byte intact.\n')
+  // ---------- the rules are a floor, and stand down where a conversation has spoken ----------
+  // Without a model configured the deterministic extraction still seeds what a conversation would have kept,
+  // so a note is never empty; the moment a conversation writes that section, the rules stop touching it.
+  const seeded = (await readKnowledgeNode(root, concept.id)).content
+  assert(seeded.includes('<!-- prism:auto asked -->') && seeded.includes('Optimal Transport'), `The floor did not seed a chat section:\n${seeded}`)
+
+  const remembered = '내가 진짜로 막힌 건 조건부 경로 쪽이다.'
+  await mcpRemember(root, concept.id, 'asked', [remembered])
+  assert((await readKnowledgeNode(root, concept.id)).content.includes(remembered), 'Remembering did not write the section.')
+
+  await refreshVaultDigests(root, [...messages, { role: 'user', text: 'Optimal Transport 이야기를 더 해봅시다. 왜 그런가요?', createdAt: 99 }])
+  const afterSweep = (await readKnowledgeNode(root, concept.id)).content
+  assert(afterSweep.includes(remembered), `A sweep overwrote what the conversation chose to keep:\n${afterSweep}`)
+  assert.equal(mineRegion(afterSweep, 'restate').text, mineLines.restate, 'A sweep after remembering changed the researcher\'s writing.')
+
+  // The tool decides what a conversation may write, and it is not the researcher's sections.
+  await assert.rejects(() => mcpRemember(root, concept.id, 'restate', ['x']), /대화가 쓸 수 있는 구간이 아닙니다/, 'A section belonging to the researcher was writable from a conversation.')
+  await assert.rejects(() => mcpRemember(root, concept.id, 'sources', ['x']), /대화가 쓸 수 있는 구간이 아닙니다/, 'A derived section was writable from a conversation.')
+  assert.equal(mineRegion((await readKnowledgeNode(root, concept.id)).content, 'restate').text, mineLines.restate, 'A rejected write still changed the note.')
+
+  process.stdout.write('Note contract passed: the three layers, section ownership per node type, reduction that keeps only what the researcher wrote, a real sweep that rewrites its own regions while leaving marked and older user sections byte-for-byte intact, and deterministic rules that seed a chat section and then stand down once a conversation has written it.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

@@ -274,10 +274,44 @@ class CodexAppServer {
 
 const codexServer = new CodexAppServer()
 
-function sendClaude(sender: WebContents, request: ChatRequest) {
+/**
+ * The chat can reach the vault through Prism's own MCP server, which is how a note gets updated by the model
+ * that is already answering rather than by a second pass that has to guess. The server runs the packaged
+ * `mcpServer.js` under Electron's Node, so there is nothing extra to install.
+ */
+const chatMcpTools = ['mcp__prism__search_knowledge', 'mcp__prism__get_claim_evidence', 'mcp__prism__find_related_concepts', 'mcp__prism__compare_papers', 'mcp__prism__read_note_memory', 'mcp__prism__remember']
+
+/**
+ * A tool the model never reaches for is a tool that does not exist. Left to itself it answers the question
+ * and moves on, which is exactly what it should do — remembering is a second intention, and every assistant
+ * that has a memory is told to have it.
+ */
+const chatMemoryInstruction = [
+  'You are answering inside Prism, a local research reading app. The Markdown notes in the vault belong to the researcher.',
+  'Remembering is the last thing you do in a turn. After you have answered, if the conversation showed what the researcher is stuck on or what they keep coming back to about a paper, concept, claim or question, call mcp__prism__remember on that note so it is waiting for them next time. Load that tool alongside the others rather than deciding at the end that you do not have it.',
+  'Call mcp__prism__read_note_memory first and send the whole list back, so an update corrects what is there instead of losing it.',
+  'Keeping it current is as much taking away as adding. Drop a line the moment this conversation resolves it — a record of what somebody is stuck on is worth having only while they are still stuck — and drop one that turned out to be wrong. Send the list without it. An empty list clears the section.',
+  'Do not remember small talk, or what the note already says, or a summary of your own answer. Say in one short clause what you kept, and nothing more.',
+  'Use mcp__prism__search_knowledge to find a note when you only know its title.',
+  'You cannot write anywhere else in a note, and you should not try: what the researcher wrote is theirs.',
+].join(' ')
+
+async function writeChatMcpConfig(libraryPath: string) {
+  const target = path.join(app.getPath('userData'), 'chat-mcp.json')
+  const config = { mcpServers: { prism: { command: process.execPath, args: [path.join(__dirname, 'mcpServer.js'), '--vault', libraryPath], env: { ELECTRON_RUN_AS_NODE: '1' } } } }
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  await fs.writeFile(target, JSON.stringify(config, null, 2), 'utf8')
+  return target
+}
+
+function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPath?: string) {
   const executable = findCli('claude')
   if (!executable) throw new Error('Claude CLI가 설치되어 있지 않습니다. 설치 후 다시 시도해 주세요.')
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'plan', '--model', request.model]
+  // Plan mode refuses every tool, including ours. Naming the tools it may use instead keeps the refusal for
+  // everything else — the CLI denies an unlisted tool outright when there is nobody to ask.
+  const args = mcpConfigPath
+    ? ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--allowedTools', chatMcpTools.join(','), '--mcp-config', mcpConfigPath, '--append-system-prompt', chatMemoryInstruction, '--model', request.model]
+    : ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'plan', '--model', request.model]
   if (request.providerThreadId) args.push('--resume', request.providerThreadId)
   const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { ...process.env, NO_COLOR: '1' }, windowsHide: true })
   activeChats.set(request.sessionId, { provider: 'claude', process: child })
@@ -1262,7 +1296,10 @@ ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   if (!['codex', 'claude'].includes(request.provider)) throw new Error('지원하지 않는 CLI입니다.')
   if (!/^[a-zA-Z0-9._:-]{1,100}$/.test(request.model)) throw new Error('올바르지 않은 모델 이름입니다.')
   if (activeChats.has(request.sessionId)) throw new Error('이 세션은 이미 답변을 생성하고 있습니다.')
-  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }); else sendClaude(event.sender, { ...request, prompt })
+  const settings = await readSettings()
+  // Without a library there is nothing to remember into, and the chat stays the read-only assistant it was.
+  const mcpConfigPath = settings.libraryPath ? await writeChatMcpConfig(settings.libraryPath).catch(() => undefined) : undefined
+  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }); else sendClaude(event.sender, { ...request, prompt }, mcpConfigPath)
   return { started: true }
 })
 ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {

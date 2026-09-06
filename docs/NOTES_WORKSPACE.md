@@ -166,3 +166,48 @@ PDF 문장 오버레이는 논문을 열고 나서 전체 페이지 구조를 �
 | Notes 창 열기 (전체 스윕) | 510ms · 438 reads | 약 16분 · 1,728,000 reads |
 
 500 노트에서 스윕은 2.2초이고 노드 수에 선형이다.
+
+## 2026-09-06 대화가 노트를 기억한다
+
+`routeChatIntoNotes`는 규칙으로 기억할 것을 골랐다. 사용자 메시지를 문장으로 쪼개고, 물음표나 의문사가 있는 것만 남기고, 어간으로 묶었다. 질문은 찾지만 대화가 정리한 나머지는 전부 놓치고, 답이 틀린 것으로 밝혀져도 스스로 고치지 못한 채 쌓기만 했다.
+
+이제 **답하고 있는 그 모델이 같은 턴 안에서 판단한다.** 메모리를 가진 어시스턴트들이 실제로 하는 방식이고, 추론이 한 번 더 들지 않는다.
+
+```text
+채팅 한 턴
+  └ Claude CLI ── Prism MCP 서버(mcpServer.js, Electron을 Node로 실행)
+                   ├ search_knowledge / read_note_memory  (읽기)
+                   └ remember(node_id, section, lines[])   (쓰기)
+```
+
+### 도구가 표현할 수 없는 쓰기는 일어나지 않는다
+
+안전장치는 모델에게 부탁하는 규칙이 아니라 **도구의 스키마**다. `remember`는 노드 id와 섹션 이름만 받는다 — 경로도, 끼워 넣을 Markdown도 받지 않는다. 그래서 사용자가 쓴 곳에 닿을 수 있는 인자 자체가 없다.
+
+1. 섹션 이름이 그 노드 종류에서 대화가 쓸 수 있는 것인지 (`isChatSection`)
+2. 쓰기는 `writeAutoSection`을 통과하므로 마커 사이만 바뀌고
+3. 저장 직전 `assertOnlyAutoChanged`가 나머지가 그대로인지 확인, 아니면 **저장 거부**
+
+`lines`는 구간을 통째로 대체한다. 최신 상태를 유지한다는 건 더하는 것만큼 **빼는 것**이기도 하다 — 해결된 것, 틀린 것은 빠진 목록으로 다시 보내면 되고, 빈 목록은 구간을 지운다.
+
+### 규칙은 바닥으로 남는다
+
+모델이 도구를 안 부를 수도 있고, CLI를 설정하지 않은 사용자도 있다. 그래서 예전 규칙 기반 추출은 **아직 대화가 손대지 않은 구간만 채우는 바닥**으로 남았다. 대화가 한 번 쓰면 그 구간에서 영구히 물러난다. 어느 구간을 대화가 맡았는지는 `.prism/cache/chat-memory.json`에 쌓이고(`electron/chatMemory.ts`), 지워도 노트는 멀쩡하다 — 규칙이 다시 씨를 뿌릴 뿐이다.
+
+| 노드 | 대화가 쓰는 구간 |
+| --- | --- |
+| 논문 | 내가 헷갈린 것 |
+| 개념 · 주장 · 질문 | 대화에서 물어본 것 |
+
+### CLI별 상태
+
+| CLI | 상태 |
+| --- | --- |
+| Claude | **동작.** `--permission-mode plan`은 MCP 도구까지 전부 막으므로, 쓸 도구를 `--allowedTools`로 이름 지어 열고 나머지는 그대로 거부하게 둔다(물어볼 사람이 없으면 CLI가 거부한다). 실측: `remember`는 통과, Write/Bash는 차단 |
+| Codex | **바닥만.** 0.151.0에서 MCP 도구 호출은 승인을 요구하는데 Prism의 `approvalPolicy: 'never'`가 이를 거부한다. app-server 프로토콜에는 명령·파일·권한 승인 RPC만 있고 **MCP 도구용 승인 RPC가 없어** Prism이 대신 답할 수도 없다. `apps.<server>.default_tools_approval_mode="auto"`도 통하지 않았다. Codex 사용자는 규칙 기반 바닥이 그대로 동작한다 |
+
+모델이 도구를 부르는 것은 두 번째 의도라 시켜야 한다. `electron/main.ts`의 `chatMemoryInstruction`이 `--append-system-prompt`로 붙는다. 도구를 지연 로딩하는 CLI에서는 "마지막에 부르라"는 순서까지 적어야 실제로 불렀다.
+
+### 검증
+
+`npm run test:capture`의 `test-note-contract.mjs`가 바닥이 씨를 뿌리고 대화가 쓴 뒤에는 물러나는 것을, `test-knowledge-mcp.mjs`가 `remember`가 자기 구간 밖으로 못 나가는 것을 확인한다. 실제 CLI 왕복은 임시 볼트로 확인했다 — 한국어로, 사용자 표현으로, 올바른 구간에 쓰고, 다음 턴에 해결된 항목을 지웠으며, `prism:mine` 구간은 그대로였다.
