@@ -502,6 +502,13 @@
   border-top: 1px solid #ddd9d1; background: #f4f2ed; color: #a09a90; font-size: 9px;
 }
 .notes-status .status-push { margin-left: auto; }
+/* The one setting that decides whether a note writes itself, where the writing happens. */
+.notes-status .status-model { display: flex; align-items: center; gap: 4px; color: #8c857a; }
+.notes-status .status-model select {
+  border: 1px solid transparent; border-radius: 4px; background: none; color: inherit;
+  font: inherit; font-size: 9px; padding: 1px 2px; cursor: pointer; max-width: 132px;
+}
+.notes-status .status-model select:hover, .notes-status .status-model select:focus-visible { border-color: #ddd9d1; background: #fff; color: #5b544a; }
 
 /* ---------- curation queue in the main column ---------- */
 .notes-main .curation-queue { min-height: 0; flex: 1; overflow: hidden; padding: 16px 24px 8px; }

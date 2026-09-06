@@ -214,6 +214,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
    */
   async function refreshDigest(useModel: boolean) {
     if (digesting) return
+    // Asking for a model rewrite without a model configured used to run the free pass and report "nothing to
+    // update", which is true and useless. The choice is one click away in the status bar; say so.
+    if (useModel) {
+      const settings = await window.prism.getSettings().catch(() => undefined)
+      if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI를 고르면 모델이 요약과 정의를 다시 씁니다.'); return }
+    }
     setDigesting(true)
     try {
       const result = await window.prism.refreshPaperDigest(node.id, { useModel })
@@ -241,7 +247,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   async function runModelSuggestions() {
     if (node.nodeType !== 'paper' || suggesting) return
     const settings = await window.prism.getSettings().catch(() => undefined)
-    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('리더 설정에서 지식 제안 CLI를 먼저 고르면 읽음 표시할 때 관계를 제안합니다.'); return }
+    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI를 고르면 읽음 표시할 때 관계를 제안합니다.'); return }
     setSuggesting(true); onNotify(`${settings.knowledgeModel}이(가) 이 노트를 읽고 관계와 승격 후보를 제안하는 중입니다.`)
     try {
       const summary = await window.prism.runModelSuggestions(node.id)

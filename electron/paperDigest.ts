@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import { readPaperBody, type PaperBody } from './paperBody.js'
 import path from 'node:path'
 import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
@@ -257,7 +258,7 @@ const overviewCues: Array<[string, RegExp]> = [
  * result gives the note something the abstract does not: a shape. Korean is used wherever the paper has
  * already been translated, because that is the language the researcher writes their own lines in.
  */
-export function overviewFromAbstract(abstract: string, translations: TranslationLookup) {
+export function overviewFromAbstract(abstract: string, translations: Pick<PaperBody, 'find'>) {
   const sentences = sentenceSplit(abstract).filter((item) => item.length >= 20)
   if (!sentences.length) return []
   const used = new Set<number>()
@@ -272,47 +273,6 @@ export function overviewFromAbstract(abstract: string, translations: Translation
   return sentences.slice(0, 2).map((sentence) => shorten(translations.find(sentence) ?? sentence))
 }
 function shorten(value: string) { const text = normalizeSpace(value); return text.length > 170 ? `${text.slice(0, 170).trimEnd()}…` : text }
-function quoteKey(value: string) { return normalizeSpace(value).replace(/\s+/g, '').toLocaleLowerCase() }
-
-export type TranslationLookup = { find: (sentence: string) => string | undefined }
-
-/**
- * The abstract in the note comes from arXiv's metadata while the translated sentences come from the paper's
- * own text, so the same sentence reaches us twice in slightly different words — "in an encoder-decoder
- * configuration" against "that include an encoder and a decoder". Keyed lookup misses, and one bullet of a
- * Korean summary is left standing in English. Two long sentences that open the same way are the same
- * sentence.
- */
-function looseMatch(entries: ReadonlyArray<readonly [string, string]>, key: string) {
-  if (key.length < 40) return undefined
-  let best: string | undefined
-  let bestShared = 0
-  for (const [candidate, translation] of entries) {
-    if (candidate.length < 40) continue
-    let shared = 0
-    while (shared < key.length && shared < candidate.length && key[shared] === candidate[shared]) shared += 1
-    if (shared <= bestShared || shared < 40 || shared / Math.min(key.length, candidate.length) < 0.6) continue
-    bestShared = shared; best = translation
-  }
-  return best
-}
-
-/** The Korean the reader already paid for: translated sentences, looked up by their source text. */
-export async function readTranslations(libraryPath: string, arxivId: string): Promise<TranslationLookup> {
-  const exact = new Map<string, string>()
-  const entries: Array<readonly [string, string]> = []
-  try {
-    const raw = await fs.readFile(path.join(libraryPath, 'papers', arxivId, 'translation.ko.json'), 'utf8')
-    for (const segment of (JSON.parse(raw) as { segments?: Array<{ source?: string; translation?: string }> }).segments ?? []) {
-      if (!segment.source || !segment.translation) continue
-      const key = quoteKey(segment.source)
-      exact.set(key, segment.translation)
-      entries.push([key, segment.translation] as const)
-    }
-  } catch { /* a paper that was never translated simply keeps its own language */ }
-  return { find: (sentence) => { const key = quoteKey(sentence); return exact.get(key) ?? looseMatch(entries, key) } }
-}
-
 function bulletList(lines: string[]) { return lines.map((line) => `- ${line}`).join('\n') }
 
 /** True when the note already shows real generated text for a section, as opposed to a placeholder or nothing. */
@@ -326,22 +286,27 @@ export function hasGeneratedContent(content: string, section: PaperDigestSection
   return body.length > 0 && !/^_[^_]*_$/.test(body)
 }
 
-function buildPrompt(title: string, abstract: string, questions: string[], anchors: string[]) {
+/**
+ * A summary drafted from the abstract is the abstract again in different words. The reader has already paid
+ * to have every sentence of the paper translated, so the model gets the shape of the argument — the opening
+ * lines of each section, in the language the researcher reads — and is asked for the one thing an abstract
+ * does not give: what the paper is doing and what it costs, in a few sentences somebody can act on.
+ */
+function buildPrompt(title: string, abstract: string, outline: string[]) {
   return [
-    'You are drafting the mechanical parts of a researcher\'s paper note in Korean. Be terse and factual.',
-    'Never invent findings. Never write the researcher\'s opinion.',
+    'You are writing the summary at the top of a researcher\'s note about a paper, in Korean.',
+    'One paragraph, at most four sentences, and keep each one short — one idea per sentence. Say what problem it takes on, what it actually does, what it gets, and what it costs or assumes.',
+    'Be concrete: name the method and the number rather than writing "a new approach" and "strong performance". Be selective: the one limitation that matters, not every caveat the paper lists.',
+    'Use only what is below. Never invent a number, a comparison or a limitation. Never write the researcher\'s opinion.',
     '',
     `TITLE: ${title}`,
     `ABSTRACT: ${abstract || '(none)'}`,
     '',
-    'THEIR QUESTIONS ABOUT THIS PAPER (verbatim, may be empty):',
-    ...(questions.length ? questions.map((item) => `- ${item}`) : ['- none']),
+    'THE PAPER, SECTION BY SECTION (may be empty):',
+    ...(outline.length ? outline.map((item) => `- ${item}`) : ['- none']),
     '',
-    'WHAT THEY POINTED AT (may be empty):',
-    ...(anchors.length ? anchors.map((item) => `- ${item}`) : ['- none']),
-    '',
-    'Return ONLY JSON: {"overview":["3 short Korean bullets: problem, method, result"],"confusion":["at most 3 Korean bullets naming what THEY were unsure about, each grounded in their questions"]}',
-    'If they asked nothing, return an empty confusion array. Do not restate the abstract in confusion.',
+    'Return ONLY JSON: {"overview":"<the paragraph>"}',
+    'If there is not enough here to say anything true, return {"overview":""}. An empty summary is correct; an invented one is not.',
   ].join('\n')
 }
 
@@ -350,9 +315,10 @@ function parseModelJson(text: string) {
   const body = fenced ? fenced[1] : text
   const start = body.indexOf('{'); const end = body.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('모델 응답에서 JSON을 찾지 못했습니다.')
-  const value = JSON.parse(body.slice(start, end + 1)) as { overview?: unknown; confusion?: unknown }
-  const list = (input: unknown) => Array.isArray(input) ? input.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map(normalizeSpace).slice(0, 5) : []
-  return { overview: list(value.overview), confusion: list(value.confusion) }
+  const value = JSON.parse(body.slice(start, end + 1)) as { overview?: unknown }
+  // Older runs answered with a list; a paragraph is what is wanted now, and either reads as one.
+  const overview = Array.isArray(value.overview) ? value.overview.filter((item): item is string => typeof item === 'string').join(' ') : typeof value.overview === 'string' ? value.overview : ''
+  return { overview: normalizeSpace(overview).slice(0, 1_200) }
 }
 
 /**
@@ -382,39 +348,39 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   const focus = focusFromChat(paperMessages, paper.arxivId)
   const topics = topicsOf(paper.title, abstract, ...focus.map((item) => `${item.label} ${item.source ?? ''}`))
   const confusion = confusionFromChat(paperMessages, topics)
-  const translations = await readTranslations(libraryPath, paper.arxivId)
+  const body = await readPaperBody(libraryPath, paper.arxivId)
 
-  let overviewLines = overviewFromAbstract(abstract, translations)
-  let confusionLines = confusion.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}`)
+  // Without a model the abstract is all there is, and three cued sentences out of it beat reading it again.
+  let overviewBody = bulletList(overviewFromAbstract(abstract, body))
   let usedModel = false
-  if (runPrompt && (abstract || confusion.length)) {
+  if (runPrompt && (abstract || body.sections.length)) {
     try {
-      const parsed = parseModelJson(await runPrompt(buildPrompt(paper.title, abstract, confusion.map((item) => item.text), focus.map((item) => `${item.label}${item.page ? ` p.${item.page}` : ''}: ${normalizeSpace(item.source ?? '').slice(0, 160)}`))))
-      if (parsed.overview.length) { overviewLines = parsed.overview; usedModel = true }
-      if (parsed.confusion.length) { confusionLines = parsed.confusion; usedModel = true }
+      const parsed = parseModelJson(await runPrompt(buildPrompt(paper.title, abstract, body.outline(2, 40))))
+      if (parsed.overview) { overviewBody = parsed.overview; usedModel = true }
     } catch { /* the deterministic digest is still worth writing */ }
   }
 
   const focusLines = focus.map((item) => {
-    const quote = item.source ? translations.find(item.source) ?? item.source : ''
+    const quote = item.source ? body.find(item.source) ?? item.source : ''
     return `${item.label}${item.page ? ` (p.${item.page})` : ''}${item.count > 1 ? ` · ${item.count}번 참조` : ''}${quote ? ` — ${normalizeSpace(quote).slice(0, 120)}` : ''}`
   })
+  const confusionLines = confusion.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}`)
 
   let next = snapshot.content
   const written: PaperDigestSection[] = []
-  const sections: Array<[PaperDigestSection, string[], string]> = [
-    ['overview', overviewLines, '_초록이 없어 요약을 만들지 못했습니다._'],
-    ['confusion', confusionLines, '_이 논문에 대해 물어본 것이 아직 없습니다._'],
-    ['focus', focusLines, '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
+  const sections: Array<[PaperDigestSection, string, string]> = [
+    ['overview', overviewBody, '_논문 본문과 초록을 아직 읽지 못했습니다._'],
+    ['confusion', bulletList(confusionLines), '_이 논문에 대해 물어본 것이 아직 없습니다._'],
+    ['focus', bulletList(focusLines), '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
   ]
-  for (const [section, lines, placeholder] of sections) {
+  for (const [section, filled, placeholder] of sections) {
     // A section the conversation has taken over is not the rules' to rewrite. They seeded it so a researcher
     // with no model configured is not left with nothing; once a model has spoken they stand down for good.
     if (isChatSection('paper', section) && claimedByChat(context.chatMemory, paper.id, section)) continue
     // Never trade written content for a placeholder: chat may be momentarily unreadable, and a note that
     // loses what it showed a minute ago is worse than one that is slightly stale.
-    if (!lines.length && hasGeneratedContent(next, section)) continue
-    const updated = writeAutoSection(next, section, lines.length ? bulletList(lines) : placeholder)
+    if (!filled && hasGeneratedContent(next, section)) continue
+    const updated = writeAutoSection(next, section, filled || placeholder)
     if (updated !== next) { next = updated; written.push(section) }
   }
   if (next === snapshot.content) return { updated: false, chatMessages: paperMessages.length, sections: [], usedModel }
@@ -504,7 +470,13 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const paperTitles = new Map(nodes.filter((item) => item.nodeType === 'paper' && item.arxivId).map((item) => [item.arxivId!, item.title]))
   const asked = mentionsFromChat(messages, node.title, paperTitles)
   const askedLines = asked.map((item) => `${item.text}${item.count > 1 ? ` (${item.count}번 물어봄)` : ''}${item.paper ? ` — ${item.paper}` : ''}`)
-  const grounding = groundingFor(node.title, snapshot.content, backlinks, approved, sentencesFromLinkingNotes(context, node.title, backlinks))
+  // Reading the papers this note links to costs real file reads, so it happens only if a model asks for it.
+  let grounding: ReturnType<typeof groundingFor>
+  let groundingReady = false
+  const groundingFor_ = async () => {
+    if (!groundingReady) { groundingReady = true; grounding = groundingFor(node.title, snapshot.content, backlinks, approved, await sentencesAboutConcept(libraryPath, context, node.title, backlinks)) }
+    return grounding
+  }
 
   const rules = noteAutomation[node.nodeType] ?? []
   const order = rules.map((rule) => rule.section)
@@ -522,8 +494,10 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
     if (rule.by !== 'model') continue
     // A model section that cannot be written is left exactly as it is: no model today does not mean the
     // definition written yesterday was wrong.
-    if (!runPrompt || !grounding) continue
-    const lines = await modelSection(rule.section, node.title, grounding, asked.map((item) => item.text), runPrompt)
+    if (!runPrompt) continue
+    const material = await groundingFor_()
+    if (!material) continue
+    const lines = await modelSection(rule.section, node.title, material, asked.map((item) => item.text), runPrompt)
     if (!lines.length) continue
     usedModel = true
     plan.push([rule.section, lines])
@@ -553,20 +527,27 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
  * the model's memory of the term is somebody else's note in the researcher's file.
  */
 /**
- * A concept that only exists because a paper mentioned it has almost nothing in its own file, and a
- * definition drafted from that says only "it was mentioned". The papers that link to it do have the
- * sentences — in their abstracts — so those are read too, and only the ones that name the concept are kept.
+ * A concept that exists only because a paper mentioned it has almost nothing in its own file, and a definition
+ * drafted from that says only "it was mentioned" — which is what the notes in the real vault said.
+ *
+ * The papers that link to it do have the sentences. Their abstracts name the term in passing; the paragraph
+ * that actually explains it is in the body, already translated, and was going unread. Both are taken, body
+ * first, and only sentences that name the concept are kept.
  */
-function sentencesFromLinkingNotes(context: DigestContext, title: string, backlinks: Array<{ nodeId: string }>) {
+async function sentencesAboutConcept(libraryPath: string, context: DigestContext, title: string, backlinks: Array<{ nodeId: string }>) {
   const names = titleMatcher(title)
-  const sentences: string[] = []
+  const fromBody: string[] = []
+  const fromAbstract: string[] = []
   for (const item of backlinks.slice(0, 5)) {
     // A note renamed or deleted since the backlink was indexed simply has nothing to contribute.
     const other = context.vault.contents.get(item.nodeId)
     if (!other) continue
-    for (const sentence of sentenceSplit(abstractOf(other))) if (names(sentence) && sentence.length > 30) sentences.push(sentence)
+    for (const sentence of sentenceSplit(abstractOf(other))) if (names(sentence) && sentence.length > 30) fromAbstract.push(sentence)
+    const arxivId = context.byId.get(item.nodeId)?.arxivId
+    if (!arxivId) continue
+    fromBody.push(...(await readPaperBody(libraryPath, arxivId)).mentioning(names, 4))
   }
-  return sentences
+  return [...fromBody, ...fromAbstract]
 }
 
 function groundingFor(title: string, content: string, backlinks: Array<{ title: string; excerpt?: string }>, relations: Array<{ type: string; direction: string; other: { title: string } }>, linked: string[]) {
@@ -574,13 +555,15 @@ function groundingFor(title: string, content: string, backlinks: Array<{ title: 
   const rows = [...content.matchAll(/^\|(?!\s*-)([^\n]+)\|\s*$/gm)].map((match) => normalizeSpace(match[1].replace(/\\\|/g, '|'))).filter((row) => row.length > 30)
   const around = backlinks.map((item) => sourceSentence(normalizeSpace(item.excerpt ?? ''), title)).filter((line) => line.length > 12)
   const related = relations.map((item) => `${item.direction === 'incoming' ? '←' : '→'} ${relationWording[item.type] ?? item.type}: ${item.other.title}`)
-  const material = [...new Set([...linked, ...quotes, ...rows, ...around])].slice(0, 12)
+  // The comparison table is the note's own answer to "how do papers define this", so it leads; then the
+  // paragraphs from the papers that explain it, then what the researcher quoted, then the linking sentences.
+  const material = [...new Set([...rows, ...linked, ...quotes, ...around])].slice(0, 24)
   if (!material.length && !related.length) return undefined
   return { material, related: related.slice(0, 12) }
 }
 
 const modelSectionAsk: Partial<Record<PaperDigestSection, string>> = {
-  definition: 'Write 1-2 short Korean lines saying what this term means, using ONLY the material. If the material names more than one reading of it, say so in the second line.',
+  definition: 'Write 1-2 short Korean lines saying what this term IS, using ONLY the material. Say what it does or what it is defined as — never that it "was mentioned" or "appears in" a paper, which tells the reader nothing they did not already know. If the material gives more than one reading of it, say so in the second line.',
   stake: 'Write 1-2 short Korean lines saying what this claim rests on and what would overturn it, using ONLY the material.',
 }
 

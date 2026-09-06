@@ -499,6 +499,11 @@ try {
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('충돌 테스트 편집.'), 'Overwriting with my version did not save.', 8000)
   assert(!(await fs.readFile(notePath, 'utf8')).includes('외부 편집기가 추가한 줄.'), 'The conflict resolution kept the discarded disk version.')
 
+  // ---------- the model that writes notes is chosen where the writing happens ----------
+  const cliOptions = await notesConnection.evaluate(`JSON.stringify([...document.querySelector('.notes-status .status-model select').options].map((option) => option.value))`)
+  assert(JSON.parse(cliOptions)[0] === '' && JSON.parse(cliOptions).length > 1, `The Notes window does not offer a knowledge CLI: ${cliOptions}`)
+  assert(!(await notesConnection.evaluate(`Boolean(document.querySelectorAll('.notes-status .status-model select')[1])`)), 'A model list is showing before a CLI has been chosen.')
+
   // ---------- search ----------
   await setInput(notesConnection, '노트 검색', '역확산')
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].length === 1 && document.querySelector('.tree-file').textContent.includes('역확산')`), 'Typing did not filter the tree.')
@@ -514,7 +519,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
+  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)

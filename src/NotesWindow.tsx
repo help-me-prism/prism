@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, Plus, Search, Settings2, Trash2, Undo2, X } from 'lucide-react'
+import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import NoteDocument from './NoteDocument'
 import ConnectionsPanel from './ConnectionsPanel'
 import CurationQueue from './CurationQueue'
@@ -38,6 +38,11 @@ export default function NotesWindow() {
   const [citations, setCitations] = useState<CitationLinks>()
   const [citationsLoading, setCitationsLoading] = useState(false)
   const [sideOpen, setSideOpen] = useState(() => window.localStorage.getItem('prism.notes.sideOpen') !== 'off')
+  // Everything a model writes in a note is off until a CLI is chosen, and the choice used to live in the
+  // Reader's translation toolbar — another window, next to an unrelated setting. It belongs where the writing
+  // it turns on happens.
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [settings, setSettings] = useState<AppSettings>()
   const searchRef = useRef<HTMLInputElement>(null)
   const activeIdRef = useRef<string | undefined>(undefined)
   const nodesRef = useRef<KnowledgeNodeRecord[]>([])
@@ -62,9 +67,9 @@ export default function NotesWindow() {
 
   async function reloadNodes() {
     try {
-      const settings = await window.prism.getSettings()
-      setLibraryPath(settings.libraryPath)
-      if (!settings.libraryPath) { setNodes([]); return }
+      const next = await window.prism.getSettings()
+      setLibraryPath(next.libraryPath); setSettings(next)
+      if (!next.libraryPath) { setNodes([]); return }
       const [nextNodes, nextTemplates, nextAnchors] = await Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors()])
       setNodes(nextNodes); setTemplates(nextTemplates); setAnchors(nextAnchors)
       setOpenIds((current) => current.filter((id) => nextNodes.some((node) => node.id === id)))
@@ -96,6 +101,12 @@ export default function NotesWindow() {
   }
 
   useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(writeEveryNote).then(reloadUnread) }, [])
+  useEffect(() => { window.prism.listProviders().then(setProviders).catch(() => setProviders([])) }, [])
+
+  async function chooseKnowledgeModel(patch: Partial<AppSettings>) {
+    try { setSettings(await window.prism.updateSettings(patch)) }
+    catch (reason) { notify(String(reason), 'error') }
+  }
 
   /**
    * A library where only the note you happened to open is written is not a library that is written. The whole
@@ -334,7 +345,20 @@ export default function NotesWindow() {
       <span>{libraryPath ? libraryPath.split(/[\\/]/).filter(Boolean).at(-1) : '라이브러리 없음'}</span>
       <span>노드 {nodes.length}</span>
       {active && <span>이 노트 · 관계 {relationCount} · 백링크 {backlinks.length}</span>}
-      <span className="status-push">markdown</span>
+      <label className="status-model status-push" title="자동 정리와 관계 제안이 쓰는 CLI입니다. 고르지 않으면 기계가 쓸 수 있는 구간만 채워집니다.">
+        <Sparkles size={11} />
+        <select
+          aria-label="AI 정리 CLI" value={settings?.knowledgeProvider ?? ''}
+          onChange={(event) => { const id = event.target.value as ProviderId | ''; void chooseKnowledgeModel(id ? { knowledgeProvider: id, knowledgeModel: providers.find((item) => item.id === id)?.models[0]?.id } : { knowledgeProvider: null as unknown as undefined }) }}
+        >
+          <option value="">AI 정리 없음</option>
+          {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}
+        </select>
+        {settings?.knowledgeProvider && <select aria-label="AI 정리 모델" value={settings.knowledgeModel ?? ''} onChange={(event) => void chooseKnowledgeModel({ knowledgeModel: event.target.value })}>
+          {providers.find((provider) => provider.id === settings.knowledgeProvider)?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+        </select>}
+      </label>
+      <span>markdown</span>
     </footer>
 
     {templatesOpen && <TemplateManager onClose={() => { setTemplatesOpen(false); void reloadNodes() }} />}
