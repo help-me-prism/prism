@@ -146,6 +146,7 @@ function migratedPaperNote(source: string, folderName: string) {
 type VaultFileRecord = { mtimeMs: number; size: number; snapshot: NoteSnapshot; parsed?: ReturnType<typeof parseNode> }
 type NodeEntry = { filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }
 const vaultFiles = new Map<string, Map<string, VaultFileRecord>>()
+const nodePaths = new Map<string, Map<string, string>>()
 const vaultPrepared = new Set<string>()
 
 function vaultKey(libraryPath: string) { return path.resolve(libraryPath).toLowerCase() }
@@ -161,8 +162,8 @@ function vaultCache(libraryPath: string) {
 
 /** Drops cached files. No argument clears everything; a path clears one library, or one file inside it. */
 export function invalidateKnowledgeCache(libraryPath?: string, filePath?: string) {
-  if (!libraryPath) { vaultFiles.clear(); vaultPrepared.clear(); return }
-  if (!filePath) { vaultFiles.get(vaultKey(libraryPath))?.clear(); return }
+  if (!libraryPath) { vaultFiles.clear(); nodePaths.clear(); vaultPrepared.clear(); return }
+  if (!filePath) { vaultFiles.get(vaultKey(libraryPath))?.clear(); nodePaths.delete(vaultKey(libraryPath)); return }
   vaultFiles.get(vaultKey(libraryPath))?.delete(fileKey(filePath))
 }
 onNoteWritten((notePath) => { const key = fileKey(notePath); for (const cache of vaultFiles.values()) cache.delete(key) })
@@ -186,27 +187,42 @@ async function markdownFiles(libraryPath: string) {
   return files
 }
 
+async function readEntry(libraryPath: string, filePath: string, paperFolder?: string) {
+  const key = fileKey(filePath)
+  const cache = vaultCache(libraryPath)
+  let stat: Awaited<ReturnType<typeof fs.stat>>
+  try { stat = await fs.stat(filePath) } catch { cache.delete(key); return undefined }
+  const cached = cache.get(key)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached
+  const snapshot = await readNoteSnapshot(filePath)
+  const record: VaultFileRecord = { mtimeMs: stat.mtimeMs, size: stat.size, snapshot, parsed: parseNode(snapshot.content, paperFolder) }
+  cache.set(key, record)
+  return record
+}
+
+/** A paper note is identified by the folder it sits in, so a direct read has to recover that from the path. */
+function paperFolderOf(libraryPath: string, filePath: string) {
+  const parts = path.relative(libraryPath, filePath).split(path.sep)
+  return parts.length === 3 && parts[0].toLowerCase() === 'papers' ? parts[1] : undefined
+}
+
 async function nodeEntries(libraryPath: string): Promise<NodeEntry[]> {
   // Seeding templates and creating the vault folders is first-run work, not per-read work.
   if (!vaultPrepared.has(vaultKey(libraryPath))) { await listTemplates(libraryPath); vaultPrepared.add(vaultKey(libraryPath)) }
   const files = await markdownFiles(libraryPath)
   const cache = vaultCache(libraryPath)
   const live = new Set<string>()
+  const routes = new Map<string, string>()
   const entries: NodeEntry[] = []
   for (const { filePath, paperFolder } of files) {
-    const key = fileKey(filePath)
-    live.add(key)
-    let stat: Awaited<ReturnType<typeof fs.stat>>
-    try { stat = await fs.stat(filePath) } catch { continue }
-    let record = cache.get(key)
-    if (!record || record.mtimeMs !== stat.mtimeMs || record.size !== stat.size) {
-      const snapshot = await readNoteSnapshot(filePath)
-      record = { mtimeMs: stat.mtimeMs, size: stat.size, snapshot, parsed: parseNode(snapshot.content, paperFolder) }
-      cache.set(key, record)
-    }
-    if (record.parsed) entries.push({ filePath, snapshot: record.snapshot, parsed: record.parsed })
+    live.add(fileKey(filePath))
+    const record = await readEntry(libraryPath, filePath, paperFolder)
+    if (!record?.parsed) continue
+    entries.push({ filePath, snapshot: record.snapshot, parsed: record.parsed })
+    routes.set(record.parsed.id, filePath)
   }
   for (const key of [...cache.keys()]) if (!live.has(key)) cache.delete(key)
+  nodePaths.set(vaultKey(libraryPath), routes)
   return entries
 }
 
@@ -228,7 +244,17 @@ export async function migratePaperNotes(libraryPath: string) {
   }
   return migrated
 }
-async function findNode(libraryPath: string, id: string) {
+/**
+ * Saving one note used to stat every file in the library to find out which one it was, which turned a sweep
+ * over N notes into N² stat calls. Where a node lives changes only when files move, so the last known path is
+ * tried first and the full walk is what happens when that answer is wrong.
+ */
+async function findNode(libraryPath: string, id: string): Promise<NodeEntry | undefined> {
+  const known = nodePaths.get(vaultKey(libraryPath))?.get(id)
+  if (known) {
+    const record = await readEntry(libraryPath, known, paperFolderOf(libraryPath, known))
+    if (record?.parsed?.id === id) return { filePath: known, snapshot: record.snapshot, parsed: record.parsed }
+  }
   return (await nodeEntries(libraryPath)).find((entry) => entry.parsed.id === id)
 }
 

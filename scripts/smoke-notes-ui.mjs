@@ -456,6 +456,15 @@ try {
   const obsidianTarget = new URL((await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/)[0]).searchParams.get('path')
   assert(obsidianTarget === notePath, `The Obsidian URI did not preserve the native absolute path: ${obsidianTarget}`)
 
+  // ---------- external change with nothing unsaved: the note follows the disk ----------
+  // Prism used to find this out by re-reading the file on a timer; now the main process names the file that
+  // moved, so this is what proves an open note still notices Obsidian writing underneath it.
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'The note never reached a saved state before the external write.', 8000)
+  const followLine = '외부 편집기가 조용히 추가한 줄.'
+  await fs.writeFile(notePath, `${await fs.readFile(notePath, 'utf8')}\n\n${followLine}\n`, 'utf8')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content').textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
+  assert(!(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-conflict'))`)), 'A note with nothing unsaved raised a conflict instead of following the disk.')
+
   // ---------- external change and conflict resolution ----------
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
   await notesConnection.send('Input.insertText', { text: '\n\n충돌 테스트 편집.' })
@@ -483,7 +492,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, conflict resolution, search, and templates.\n')
+  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)

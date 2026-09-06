@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type VaultSnapshot } from './knowledge.js'
+import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
 
@@ -362,11 +362,15 @@ function parseModelJson(text: string) {
  * whole library — nodes, contents, backlinks, relations — for every note in turn. A sweep hands the same
  * context to every note, so opening the Notes window reads the library once rather than once per note.
  */
-export type DigestContext = { vault: VaultSnapshot; relations: KnowledgeRelationRecord[] }
+export type DigestContext = { vault: VaultSnapshot; byId: Map<string, KnowledgeNodeRecord>; relationsOf: (nodeId: string) => KnowledgeRelationRecord[] }
 
 export async function buildDigestContext(libraryPath: string): Promise<DigestContext> {
   const [vault, relations] = await Promise.all([readVaultSnapshot(libraryPath), listKnowledgeRelationRecords(libraryPath)])
-  return { vault, relations }
+  const byId = new Map(vault.records.map((node) => [node.id, node]))
+  // Grouped once by endpoint: scanning every relation for every note is the other quiet quadratic.
+  const byNode = new Map<string, KnowledgeRelationRecord[]>()
+  for (const relation of relations) for (const endpoint of new Set([relation.sourceId, relation.targetId])) byNode.set(endpoint, [...(byNode.get(endpoint) ?? []), relation])
+  return { vault, byId, relationsOf: (nodeId) => byNode.get(nodeId) ?? [] }
 }
 async function digestContext(libraryPath: string, context?: DigestContext) { return context ?? buildDigestContext(libraryPath) }
 
@@ -526,7 +530,7 @@ export async function refreshNoteDigest(libraryPath: string, nodeId: string, mes
   const snapshot = { content: context.vault.contents.get(node.id) ?? '', revision: node.revision }
   const backlinks = context.vault.backlinks.get(node.id) ?? []
   let relations: ReturnType<typeof knowledgeRelationViews> = []
-  try { relations = knowledgeRelationViews(context.relations, nodes, node.id) } catch { /* the note vanished between the read and now */ }
+  try { relations = knowledgeRelationViews(context.relationsOf(node.id), context.byId, node.id) } catch { /* the note vanished between the read and now */ }
   const approved = relations.filter((item) => item.reviewStatus === 'approved')
   const written: PaperDigestSection[] = []
   let next = snapshot.content

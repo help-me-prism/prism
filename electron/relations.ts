@@ -102,9 +102,11 @@ export async function syncLinkRelations(libraryPath: string, nodeId: string) {
 }
 function compactNode(node: KnowledgeNodeRecord) { return { id: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath } }
 
-/** The same view the IPC returns, built from state a caller already holds — no second walk of the vault. */
-export function knowledgeRelationViews(all: KnowledgeRelationRecord[], nodes: KnowledgeNodeRecord[], nodeId: string): KnowledgeRelationView[] {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
+/**
+ * The same view the IPC returns, built from state a caller already holds — no second walk of the vault. It
+ * takes the node lookup rather than the list, so a caller resolving many nodes builds that map once.
+ */
+export function knowledgeRelationViews(all: KnowledgeRelationRecord[], byId: Map<string, KnowledgeNodeRecord>, nodeId: string): KnowledgeRelationView[] {
   if (!byId.has(nodeId)) throw new Error('지식 노트를 찾을 수 없습니다.')
   const result: KnowledgeRelationView[] = []
   for (const relation of all) {
@@ -116,7 +118,7 @@ export function knowledgeRelationViews(all: KnowledgeRelationRecord[], nodes: Kn
 
 export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {
   const [nodes, all] = await Promise.all([listKnowledgeNodes(libraryPath), records(libraryPath)])
-  return knowledgeRelationViews(all, nodes, nodeId)
+  return knowledgeRelationViews(all, new Map(nodes.map((node) => [node.id, node])), nodeId)
 }
 function markdownBlock(relation: KnowledgeRelationRecord, target: KnowledgeNodeRecord) {
   const metadata = encodeURIComponent(JSON.stringify({ id: relation.id, sourceId: relation.sourceId, targetId: relation.targetId, type: relation.type, creator: relation.creator, reviewStatus: relation.reviewStatus, evidenceAnchor: relation.evidenceAnchor }))
