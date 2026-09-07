@@ -420,12 +420,32 @@ ${claimAfterRelation}`)
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
   // ---------- graph and backlinks in the standing panel ----------
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .graph-node').length >= 2`), 'The connections graph did not draw the new edge.')
-  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .graph-edge.contra'))`), 'A contradiction was not drawn as a contradiction edge.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
+  // The layout has to put the note the panel is about in the middle, whatever else it decides.
+  const centreOffset = await notesConnection.evaluate(`(() => {
+    const circle = document.querySelector('.side-graph .mini-node.is-center circle')
+    return circle ? Math.hypot(Number(circle.getAttribute('cx')) - 160, Number(circle.getAttribute('cy')) - 125) : -1
+  })()`)
+  assert(centreOffset >= 0 && centreOffset < 1, `The open note is not at the centre of its own graph: ${centreOffset}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '2홉').click()`)
   await sleep(400)
   const graphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-panel.png'), Buffer.from(graphShot.data, 'base64'))
+
+  // ---------- the whole vault as one graph ----------
+  const vaultGraph = await notesConnection.evaluate(`window.prism.listKnowledgeGraph().then((graph) => ({ nodes: graph.nodes.length, edges: graph.edges.length, links: graph.edges.filter((edge) => edge.origin === 'link').length }))`)
+  assert(vaultGraph.nodes >= 4 && vaultGraph.edges >= 2, `The vault graph is missing nodes or edges: ${JSON.stringify(vaultGraph)}`)
+  assert(vaultGraph.links >= 1, 'A [[link]] written in the note did not become an edge of the vault graph.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('그래프')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.graph-view .graph-canvas-full')) && !document.querySelector('.graph-view-empty')`), 'The full graph view did not draw.', 8000)
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.graph-types .graph-chip').length >= 2`), 'The full graph is missing its type filters.')
+  const graphStatus = await notesConnection.evaluate(`document.querySelector('.graph-status span').textContent`)
+  assert(/\d+/.test(graphStatus), `The full graph does not report what it is showing: ${graphStatus}`)
+  await sleep(500)
+  const fullGraphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
+  await fs.writeFile(path.resolve('tmp/ui/notes-graph-view.png'), Buffer.from(fullGraphShot.data, 'base64'))
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('노트')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Score matching')).click()`)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-links .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The backlink panel did not show the note that links here.', 8000)
 

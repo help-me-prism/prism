@@ -15,6 +15,7 @@ import { performance } from 'node:perf_hooks'
  */
 const { listKnowledgeBacklinks, invalidateKnowledgeCache, listKnowledgeNodes, readVaultSnapshot } = await import('../dist-electron/knowledge.js')
 const { refreshVaultDigests } = await import('../dist-electron/paperDigest.js')
+const { listKnowledgeGraph } = await import('../dist-electron/knowledgeGraph.js')
 
 let reads = 0
 const realReadFile = fsp.readFile
@@ -92,6 +93,11 @@ invalidateKnowledgeCache()
 console.log(row(await counted('readVaultSnapshot (cold)', () => readVaultSnapshot(libraryPath))))
 console.log(row(await counted('readVaultSnapshot (warm)', () => readVaultSnapshot(libraryPath))))
 console.log(row(await counted('listKnowledgeNodes (warm)', () => listKnowledgeNodes(libraryPath))))
+
+// Opening the graph reads the whole vault once; it must not cost more than opening the window does.
+const graph = await counted('listKnowledgeGraph (warm)', () => listKnowledgeGraph(libraryPath))
+console.log(row(graph))
+console.log(`  ${''.padEnd(34)} ${''.padStart(9)} ${`${graph.value.nodes.length} nodes / ${graph.value.edges.length} edges`.padStart(14)}`)
 
 const sample = (await listKnowledgeNodes(libraryPath)).slice(0, 5)
 
