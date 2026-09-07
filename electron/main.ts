@@ -12,7 +12,7 @@ import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFav
 import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
-import { listKnowledgeGraph } from './knowledgeGraph.js'
+import { listKnowledgeGraph, listKnowledgeGraphInsights } from './knowledgeGraph.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
 import { searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
@@ -1151,6 +1151,10 @@ ipcMain.handle('knowledge:evidence:copy', async (_event, request: KnowledgeEvide
 ipcMain.handle('knowledge:graph', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeGraph(settings.libraryPath)
+})
+ipcMain.handle('knowledge:graph:insights', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeGraphInsights(settings.libraryPath)
 })
 ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

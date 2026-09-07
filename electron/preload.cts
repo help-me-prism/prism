@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('prism', {
   listKnowledgeBacklinks: (id: string) => ipcRenderer.invoke('knowledge:backlinks', id),
   copyKnowledgeEvidence: (request: unknown) => ipcRenderer.invoke('knowledge:evidence:copy', request),
   listKnowledgeGraph: () => ipcRenderer.invoke('knowledge:graph'),
+  listKnowledgeGraphInsights: () => ipcRenderer.invoke('knowledge:graph:insights'),
   listKnowledgeRelations: (id: string) => ipcRenderer.invoke('knowledge:relations:list', id),
   createKnowledgeRelation: (request: unknown) => ipcRenderer.invoke('knowledge:relations:create', request),
   deleteKnowledgeRelation: (request: unknown) => ipcRenderer.invoke('knowledge:relations:delete', request),

@@ -7,7 +7,7 @@
  * roughly what a hundred-node one does per tick.
  */
 
-export type SimulationNode = { id: string; x: number; y: number; vx: number; vy: number; radius: number; degree: number; pinned: boolean }
+export type SimulationNode = { id: string; x: number; y: number; vx: number; vy: number; radius: number; degree: number; pinned: boolean; group?: string }
 export type SimulationEdge = { sourceId: string; targetId: string }
 export type SimulationOptions = { width: number; height: number; linkDistance?: number; charge?: number; gravity?: number }
 
@@ -59,15 +59,23 @@ export class GraphSimulation {
     this.reheat(0.5)
   }
 
+  /**
+   * How hard a node is drawn toward the others in its group. Zero draws the graph as it is; above zero the
+   * groups pull themselves into separate regions, which is the only way a region can be labelled without the
+   * labels landing on top of each other.
+   */
+  groupPull = 0
+
   /** Keeps the position of every node that is still here, so a filter change moves the graph instead of redrawing it. */
-  setGraph(nodes: Array<{ id: string; radius: number; degree: number }>, edges: SimulationEdge[]) {
+  setGraph(nodes: Array<{ id: string; radius: number; degree: number; group?: string }>, edges: SimulationEdge[]) {
     const next = new Map<string, SimulationNode>()
     for (const node of nodes) {
       const previous = this.byId.get(node.id)
       const seed = previous ?? { ...seedPosition(node.id, this.width, this.height, nodes.length, this.linkDistance), vx: 0, vy: 0, pinned: false }
-      next.set(node.id, { id: node.id, x: seed.x, y: seed.y, vx: seed.vx, vy: seed.vy, pinned: seed.pinned, radius: node.radius, degree: node.degree })
+      next.set(node.id, { id: node.id, x: seed.x, y: seed.y, vx: seed.vx, vy: seed.vy, pinned: seed.pinned, radius: node.radius, degree: node.degree, group: node.group })
     }
     const changed = next.size !== this.byId.size || [...next.keys()].some((id) => !this.byId.has(id))
+      || [...next.values()].some((node) => this.byId.get(node.id)?.group !== node.group)
     this.byId = next
     this.nodes = [...next.values()]
     this.edges = edges.filter((edge) => next.has(edge.sourceId) && next.has(edge.targetId))
@@ -146,6 +154,24 @@ export class GraphSimulation {
      * weak enough for ten, and a thousand drift until the whole graph is a speck on screen. Dividing by the
      * graph's own radius makes the force say "inward", and leaves the spacing to repulsion and the springs.
      */
+    // Group cohesion, when a view has asked for it: each node leans toward the middle of its own group, and
+    // ordinary repulsion then pushes the groups apart on its own.
+    if (this.groupPull > 0) {
+      const centroids = new Map<string, { x: number; y: number; count: number }>()
+      for (const node of this.nodes) {
+        if (!node.group) continue
+        const centroid = centroids.get(node.group) ?? { x: 0, y: 0, count: 0 }
+        centroid.x += node.x; centroid.y += node.y; centroid.count += 1
+        centroids.set(node.group, centroid)
+      }
+      for (const node of this.nodes) {
+        const centroid = node.group ? centroids.get(node.group) : undefined
+        if (!centroid) continue
+        node.vx += (centroid.x / centroid.count - node.x) * this.groupPull * alpha
+        node.vy += (centroid.y / centroid.count - node.y) * this.groupPull * alpha
+      }
+    }
+
     const centerX = this.width / 2
     const centerY = this.height / 2
     const pull = this.gravity * this.linkDistance * alpha

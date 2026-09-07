@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Crosshair, Focus, Maximize2, RefreshCw, Search, X } from 'lucide-react'
+import { Crosshair, Focus, Link2, Maximize2, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
 import { allNodeTypes, defaultGraphFilter, graphView, neighbourhood, neighbours, type GraphFilter, type GraphViewNode, type GraphView as GraphViewData } from './graph/model'
 import { GraphSimulation } from './graph/layout'
@@ -12,12 +12,23 @@ import { edgeLegend, edgeStyle, nodeColor } from './graph/palette'
  * Drawn on a canvas rather than in SVG: a vault of a few thousand notes is an ordinary outcome of a few years
  * of reading, and that many DOM nodes will not pan at sixty frames a second.
  */
+/**
+ * `all` draws the vault. The other two draw the same nodes and ask something of them: what the vault nearly
+ * connected, and what it has quietly become about. Both are computed, not stored, and both show the number
+ * that says whether to believe them.
+ */
+type GraphMode = 'all' | 'missing' | 'groups'
+const modeLabels: Record<GraphMode, string> = { all: '전체', missing: '놓친 연결', groups: '덩어리' }
+
 export default function GraphView({ activeId, onOpenNode, onNotify }: {
   activeId?: string
   onOpenNode: (id: string) => void
   onNotify: (text: string, tone?: 'info' | 'error') => void
 }) {
   const [graph, setGraph] = useState<KnowledgeGraph>()
+  const [insights, setInsights] = useState<KnowledgeGraphInsights>()
+  const [insightsLoading, setInsightsLoading] = useState(false)
+  const [mode, setMode] = useState<GraphMode>('all')
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<GraphFilter>(defaultGraphFilter)
   const [selectedId, setSelectedId] = useState<string>()
@@ -52,17 +63,44 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     return map
   }, [view])
 
+  /** The suggestions, keyed for drawing, with anything the researcher has since connected dropped. */
+  const suggestions = useMemo(() => {
+    if (mode !== 'missing' || !insights) return []
+    return insights.similar.pairs.filter((pair) => byId.has(pair.a) && byId.has(pair.b))
+  }, [mode, insights, byId])
+  const suggestionEnds = useMemo(() => new Set(suggestions.flatMap((pair) => [pair.a, pair.b])), [suggestions])
+  const groupOf = useMemo(() => {
+    const map = new Map<string, { index: number; name: string }>()
+    if (mode !== 'groups' || !insights?.clusters.clear) return map
+    insights.clusters.clusters.forEach((cluster, index) => {
+      for (const member of cluster.members) map.set(member, { index, name: cluster.name })
+    })
+    return map
+  }, [mode, insights])
+  /** Six hues that do not collide with the node-type colours, so a group reads as a region rather than a kind. */
+  const groupColor = (index: number) => `hsl(${(index * 47 + 18) % 360} 34% 52%)`
+
   const load = useCallback(async (announce?: boolean) => {
     setLoading(true)
     try {
       const next = await window.prism.listKnowledgeGraph()
       setGraph(next)
+      setInsights(undefined)
       if (announce) onNotify(`그래프를 다시 읽었습니다. 노드 ${next.nodes.length} · 연결 ${next.edges.length}`)
     } catch (reason) { onNotify(String(reason), 'error') }
     finally { setLoading(false) }
   }, [onNotify])
 
+  const loadInsights = useCallback(async () => {
+    setInsightsLoading(true)
+    try { setInsights(await window.prism.listKnowledgeGraphInsights()) }
+    catch (reason) { onNotify(String(reason), 'error') }
+    finally { setInsightsLoading(false) }
+  }, [onNotify])
+
   useEffect(() => { void load() }, [load])
+  // The groups and the near-misses cost a second pass over the vault, so they wait until they are asked for.
+  useEffect(() => { if (mode !== 'all' && !insights && !insightsLoading) void loadInsights() }, [mode, insights, insightsLoading, loadInsights])
   // Narrowing to "the note I have open" has to keep meaning that when a different note is opened.
   useEffect(() => { setFocusCenter((current) => current === undefined ? undefined : activeId) }, [activeId])
   // A save arrives as a burst of file events; the whole graph is too expensive to rebuild once per event.
@@ -98,8 +136,12 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
   useEffect(() => {
     if (!simulation.current) simulation.current = new GraphSimulation({ width: size.current.width, height: size.current.height })
     const sim = simulation.current
-    sim.setGraph(view.nodes.map((node) => ({ id: node.id, radius: node.radius, degree: node.degree })), view.edges.map((edge) => ({ sourceId: edge.sourceId, targetId: edge.targetId })))
-    const signature = `${view.nodes.length}:${view.edges.length}:${focusCenter ?? ''}`
+    sim.groupPull = mode === 'groups' && groupOf.size ? 0.055 : 0
+    sim.setGraph(
+      view.nodes.map((node) => ({ id: node.id, radius: node.radius, degree: node.degree, group: mode === 'groups' ? groupOf.get(node.id)?.name : undefined })),
+      view.edges.map((edge) => ({ sourceId: edge.sourceId, targetId: edge.targetId })),
+    )
+    const signature = `${view.nodes.length}:${view.edges.length}:${focusCenter ?? ''}:${mode}:${groupOf.size}`
     if (fitted.current !== signature) {
       // A big vault takes a couple of seconds to come to rest, and a frozen window is a worse thing to look at
       // than a moving one: settle a small graph outright, and let a large one settle where it can be watched.
@@ -109,7 +151,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       fitted.current = signature
     }
     dirty.current = true
-  }, [view, focusCenter, fit])
+  }, [view, focusCenter, fit, mode, groupOf])
 
   useEffect(() => {
     const element = wrapRef.current
@@ -170,13 +212,51 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     }
 
     context.lineCap = 'round'
+    // The groups are drawn under everything: a region you can point at, not another thing on top of the lines.
+    if (mode === 'groups' && groupOf.size) {
+      const regions = new Map<number, { x: number; y: number; count: number; name: string; maxX: number; maxY: number; minX: number; minY: number }>()
+      for (const node of view.nodes) {
+        const group = groupOf.get(node.id)
+        const point = sim.byId.get(node.id)
+        if (!group || !point) continue
+        const screen = toScreen(point.x, point.y)
+        const region = regions.get(group.index) ?? { x: 0, y: 0, count: 0, name: group.name, minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+        region.x += screen.x; region.y += screen.y; region.count += 1
+        region.minX = Math.min(region.minX, screen.x); region.maxX = Math.max(region.maxX, screen.x)
+        region.minY = Math.min(region.minY, screen.y); region.maxY = Math.max(region.maxY, screen.y)
+        regions.set(group.index, region)
+      }
+      for (const [index, region] of regions) {
+        const padding = 26 * Math.min(k, 1.4)
+        context.globalAlpha = 0.09
+        context.fillStyle = groupColor(index)
+        const x = region.minX - padding; const y = region.minY - padding
+        const width_ = region.maxX - region.minX + padding * 2; const height_ = region.maxY - region.minY + padding * 2
+        const radius = Math.min(46, width_ / 2, height_ / 2)
+        context.beginPath()
+        context.moveTo(x + radius, y)
+        context.arcTo(x + width_, y, x + width_, y + height_, radius)
+        context.arcTo(x + width_, y + height_, x, y + height_, radius)
+        context.arcTo(x, y + height_, x, y, radius)
+        context.arcTo(x, y, x + width_, y, radius)
+        context.closePath()
+        context.fill()
+        context.globalAlpha = 1
+        context.fillStyle = groupColor(index)
+        context.font = `600 ${Math.min(Math.max(13 * k, 11), 17)}px Inter, system-ui, sans-serif`
+        context.textAlign = 'center'
+        context.textBaseline = 'bottom'
+        context.fillText(region.name, region.x / region.count, y - 5)
+      }
+    }
     for (const edge of view.edges) {
       const source = sim.byId.get(edge.sourceId)
       const target = sim.byId.get(edge.targetId)
       if (!source || !target) continue
       const style = edgeStyle(edge.type, edge.origin, edge.approved)
       const incident = edge.sourceId === highlight || edge.targetId === highlight
-      const alpha = highlight ? (incident ? 0.95 : 0.05) : searching ? 0.14 : 0.55
+      // In the suggestion mode the existing structure steps back so the proposals are the only bright thing.
+      const alpha = highlight ? (incident ? 0.95 : 0.05) : searching ? 0.14 : mode === 'missing' ? 0.22 : 0.55
       if (alpha < 0.08) continue
       const from = toScreen(source.x, source.y)
       const to = toScreen(target.x, target.y)
@@ -206,6 +286,24 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       }
     }
 
+    if (mode === 'missing') {
+      context.setLineDash([5, 4])
+      for (const pair of suggestions) {
+        const a = sim.byId.get(pair.a); const b = sim.byId.get(pair.b)
+        if (!a || !b) continue
+        const from = toScreen(a.x, a.y); const to = toScreen(b.x, b.y)
+        const lit = !highlight || pair.a === highlight || pair.b === highlight
+        context.globalAlpha = lit ? 0.9 : 0.12
+        context.strokeStyle = '#7760aa'
+        context.lineWidth = (0.9 + pair.score * 2.4) * Math.min(k, 1.5)
+        context.beginPath()
+        context.moveTo(from.x, from.y)
+        context.lineTo(to.x, to.y)
+        context.stroke()
+      }
+      context.setLineDash([])
+    }
+
     const onScreen: Array<{ node: GraphViewNode; x: number; y: number; radius: number }> = []
     for (const node of view.nodes) {
       const point = sim.byId.get(node.id)
@@ -214,7 +312,8 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       if (screen.x < -60 || screen.y < -60 || screen.x > width + 60 || screen.y > height + 60) continue
       const radius = Math.max(point.radius * k, 2.2)
       onScreen.push({ node, x: screen.x, y: screen.y, radius })
-      context.globalAlpha = dim(node.id)
+      const faded = mode === 'missing' && suggestionEnds.size && !suggestionEnds.has(node.id)
+      context.globalAlpha = dim(node.id) * (faded ? 0.3 : 1)
       context.fillStyle = nodeColor(node.nodeType)
       context.beginPath()
       context.arc(screen.x, screen.y, radius, 0, Math.PI * 2)
@@ -239,7 +338,8 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     context.textBaseline = 'top'
     context.lineJoin = 'round'
     const priority = (node: GraphViewNode) =>
-      (node.id === highlight ? 1e6 : 0) + (node.id === activeId ? 5e5 : 0) + (node.match ? 2e5 : 0) + (related?.has(node.id) ? 1e5 : 0) + node.degree
+      (node.id === highlight ? 1e6 : 0) + (node.id === activeId ? 5e5 : 0) + (node.match ? 2e5 : 0)
+      + (mode === 'missing' && suggestionEnds.has(node.id) ? 4e5 : 0) + (related?.has(node.id) ? 1e5 : 0) + node.degree
     // Node circles claim their own space first: a name written across a node hides the thing it is naming.
     const claimed: Array<[number, number, number, number]> = onScreen.map(({ x, y, radius }) => [x - radius, y - radius, x + radius, y + radius])
     // The status line and the legend sit over the canvas; a name written under them is a name nobody can read.
@@ -275,7 +375,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       context.fillText(label, x, top)
     }
     context.globalAlpha = 1
-  }, [view, byId, adjacency, hoverId, selectedId, activeId, filter.query])
+  }, [view, byId, adjacency, hoverId, selectedId, activeId, filter.query, mode, suggestions, suggestionEnds, groupOf])
 
   useEffect(() => {
     const loop = () => {
@@ -377,6 +477,28 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
   const activeNode = activeId ? graph?.nodes.find((node) => node.id === activeId) : undefined
 
   return <div className="graph-view">
+    <div className="graph-modes" role="tablist" aria-label="그래프 보기">
+      {(['all', 'missing', 'groups'] as GraphMode[]).map((value) => <button
+        key={value} role="tab" aria-selected={mode === value} className={mode === value ? 'on' : ''}
+        onClick={() => { setMode(value); setSelectedId(undefined) }}
+      >
+        {value === 'missing' ? <Link2 size={12} /> : value === 'groups' ? <Sparkles size={12} /> : null}
+        {modeLabels[value]}
+      </button>)}
+      {mode === 'missing' && <span className="graph-mode-note">
+        {insightsLoading ? '볼트를 읽는 중…'
+          : !insights ? ''
+            : suggestions.length ? `내용이 가까운데 이어지지 않은 ${suggestions.length}쌍 · 기준 ${insights.similar.threshold.toFixed(2)} (이 볼트 중앙값 ${insights.similar.median.toFixed(2)})`
+              : '이 볼트에서는 이어질 만한데 안 이어진 쌍이 없습니다.'}
+      </span>}
+      {mode === 'groups' && <span className="graph-mode-note">
+        {insightsLoading ? '볼트를 읽는 중…'
+          : !insights ? ''
+            : insights.clusters.clear ? `덩어리 ${insights.clusters.clusters.length}개 · 뚜렷함 Q=${insights.clusters.modularity.toFixed(2)}`
+              : `덩어리가 뚜렷하지 않습니다 (Q=${insights.clusters.modularity.toFixed(2)}). 연결이 더 쌓이면 갈라집니다.`}
+      </span>}
+    </div>
+
     <div className="graph-toolbar">
       <div className="graph-types">
         {allNodeTypes.filter((type) => counts.get(type)).map((type) => <button
@@ -438,6 +560,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       <div className="graph-status">
         <span>노트 {view.nodes.length} · 연결 {view.edges.length}{view.hidden && filter.hideIsolated ? ` · 혼자 있는 노트 ${view.hidden} 숨김` : ''}</span>
         {focusCenter && activeNode && <span className="graph-status-focus">‘{activeNode.title}’ 주변 2단계만</span>}
+        {mode === 'missing' && suggestions.length ? <span className="graph-status-focus">제안 {suggestions.length}쌍</span> : null}
         <span>{Math.round(zoom * 100)}%</span>
       </div>
       <div className="graph-legend graph-legend-full">
@@ -446,6 +569,55 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
         </span>)}
       </div>
     </div>
+
+    {mode === 'missing' && !selected && <aside className="graph-inspect" aria-label="놓친 연결">
+      <header><Link2 size={13} /><strong>이어볼 만한 쌍</strong></header>
+      <div className="graph-inspect-meta">
+        <span>{suggestions.length}쌍</span>
+        {insights && <span>{insights.similar.compared}쌍 비교</span>}
+        {insights?.similar.thin.length ? <span>{insights.similar.thin.length}개는 내용이 적어 제외</span> : null}
+      </div>
+      <div className="graph-inspect-list">
+        {insightsLoading && <p className="side-empty">유사도를 계산하는 중…</p>}
+        {!insightsLoading && !suggestions.length && <p className="side-empty">이 볼트에는 제안할 쌍이 없습니다. 노트를 더 쓰면 다시 봐 주세요.</p>}
+        {suggestions.map((pair) => {
+          const a = byId.get(pair.a)!; const b = byId.get(pair.b)!
+          return <button
+            key={`${pair.a}|${pair.b}`} className="pair-row"
+            onMouseEnter={() => setHoverId(pair.a)} onMouseLeave={() => setHoverId(undefined)}
+            onClick={() => setSelectedId(pair.a)} onDoubleClick={() => onOpenNode(pair.a)}
+          >
+            <span className="pair-score">{pair.score.toFixed(2)}</span>
+            {/* One note per line: two long titles side by side turn every row into a paragraph. */}
+            <span className="pair-end"><i className={`kind-dot kind-${a.nodeType}`} /><b>{a.title}</b></span>
+            <span className="pair-end"><em>⟷</em><i className={`kind-dot kind-${b.nodeType}`} /><b>{b.title}</b></span>
+            {/* The words the two notes share, so the suggestion can be judged rather than trusted. */}
+            <small>{pair.shared.join(' · ')}</small>
+          </button>
+        })}
+      </div>
+    </aside>}
+
+    {mode === 'groups' && !selected && <aside className="graph-inspect" aria-label="덩어리">
+      <header><Sparkles size={13} /><strong>이 볼트의 덩어리</strong></header>
+      <div className="graph-inspect-meta">
+        <span title="모듈러리티: 덩어리 안의 연결이 우연보다 얼마나 조밀한가. 0.3 위면 갈라진 것이 뜻이 있습니다.">Q {insights?.clusters.modularity.toFixed(2) ?? '–'}</span>
+        {insights?.clusters.loose.length ? <span>{insights.clusters.loose.length}개는 어디에도 안 묶임</span> : null}
+      </div>
+      <div className="graph-inspect-list">
+        {insightsLoading && <p className="side-empty">덩어리를 찾는 중…</p>}
+        {!insightsLoading && !insights?.clusters.clear && insights
+          && <p className="side-empty">연결이 아직 고르게 퍼져 있어 갈래가 나뉘지 않습니다. 관계를 더 승인하면 달라집니다.</p>}
+        {insights?.clusters.clear && insights.clusters.clusters.map((cluster, index) => <button
+          key={cluster.id} className="group-row"
+          onMouseEnter={() => setHoverId(cluster.nameId)} onMouseLeave={() => setHoverId(undefined)}
+          onClick={() => setSelectedId(cluster.nameId)} onDoubleClick={() => onOpenNode(cluster.nameId)}
+        >
+          <span className="group-name"><i style={{ background: groupColor(index) }} />{cluster.name}</span>
+          <small>노트 {cluster.members.length} · 안쪽 연결 {cluster.inside} · 밖으로 {cluster.crossing}</small>
+        </button>)}
+      </div>
+    </aside>}
 
     {selected && <aside className="graph-inspect" aria-label="선택한 노트">
       <header>

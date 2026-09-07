@@ -57,6 +57,32 @@ The graph is read at a glance or not at all, so ink is spent where it changes a 
 
 Three properties hold it together at vault scale, and each was a visible failure first: nothing moves more than half a link per tick (a spring stretched across the canvas asks for a step that overshoots, and the overshoot comes back harder — 1200 notes tore out to 26,000px); the centring pull is normalised by the graph's own radius (a pull proportional to distance is either too weak to gather a thousand notes or strong enough to crush ten into a dot); and the starting spread grows with the square root of the node count. A vault too big to settle before the first paint settles on screen and is framed again when it comes to rest.
 
+## What the graph says about itself
+
+Two derived views, both computed on the same walk of the vault and neither stored: `knowledge:graph:insights`.
+
+### 놓친 연결 — similarity
+
+Deliberately *not* the search index. Search hashes words **and character 2/3-grams** into 384 buckets, which is right for finding a note from a half-remembered phrase and wrong here: n-grams make any two Korean notes look alike for sharing syllables, and 384 buckets collide constantly. Where similarity is the only signal, that produces confident nonsense. So:
+
+- **Words only**, endings stripped, mixed-script tokens split (`matching와` → `matching`).
+- **Exact sparse cosine**, no hashing, so no collisions.
+- **Only what the researcher wrote** — `prism:auto` regions and headings are removed first, or two notes score high for being made from the same template.
+- **A threshold read off the vault** (median + 4×MAD, floor 0.18). Cosine is not comparable between libraries; a fixed cut floods a focused vault and finds nothing in a broad one.
+- **Notes with fewer than 10 distinct words are excluded** and reported as `thin`, so a stub never gets suggested.
+- **Every suggestion names the words it is based on.** A number alone cannot be judged; `noise · schedule · solver · ode` can.
+
+### 덩어리 — clustering
+
+Modularity optimisation (Louvain local moving over two levels), not label propagation: propagation depends on visit order, breaks ties arbitrarily, collapses a well-connected vault into one label, and reports nothing about whether the split means anything.
+
+- **Q is returned and shown.** Below 0.3 the view says the groups are not clear rather than drawing them as if they were.
+- **Deterministic.** A fixed sweep order and index tie-breaks; the same vault in a different order gives the same groups.
+- **Named for what is characteristic, not what is busy** — inside-degree × the share of that node's edges staying inside, with concepts preferred. A hub every group touches names none of them.
+- `[[link]]` edges count 0.6 against a typed relation's 1: a link restating a relation should not vote twice.
+
+`scripts/test-knowledge-insights.mjs` plants three subjects with disjoint vocabulary, wires them into three groups, gives every note the same generated boilerplate, and checks that both measures recover what was planted — including that order does not change the answer and that adding a note does not reshuffle the vault.
+
 ## Verification
 
 `scripts/test-knowledge-graph.mjs` builds a throwaway vault and checks the node and edge sets, the Obsidian-written link that has no sidecar record, and that a rejected relation stays out.
