@@ -84,3 +84,5 @@
 .map-expand { position: absolute; z-index: 3; min-width: 26px; height: 18px; padding: 0 5px; border: 1px solid #d0ccc3; border-radius: 9px; background: #f2f0ea; color: #6f6c65; font-size: 9px; font-weight: 600; line-height: 1; cursor: pointer; box-shadow: 0 1px 2px #292a270f; }
 .map-expand:hover { border-color: var(--role-method); background: #eeebff; color: #5544ba; }
 .map-expand.open { background: #e7e3f9; border-color: #c3bce8; color: #5544ba; }
+.map-note.done { border-color: #cfe0d3; background: #eef6f0; color: #3d6a4d; }
+.map-refresh:disabled { opacity: .55; cursor: default; }

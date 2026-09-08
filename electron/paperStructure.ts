@@ -214,11 +214,243 @@ export function mergeRefinement(outline: PaperStructure, stored: PaperStructure)
   const seen = new Set(outline.edges.map((edge) => `${edge.from}->${edge.to}`))
   const extra = stored.edges.filter((edge) => edge.origin === 'model' && known.has(edge.from) && known.has(edge.to)
     && edge.from !== edge.to && !seen.has(`${edge.from}->${edge.to}`))
-  return { ...outline, source: 'model', nodes, edges: [...outline.edges, ...extra], notes: stored.notes ?? [], model: stored.model }
+  // A refused run is stored too, for its notes. It must not come back looking like a reading of the paper.
+  const fromModel = stored.source === 'model'
+  return {
+    ...outline, source: fromModel ? 'model' : 'outline', nodes, edges: [...outline.edges, ...extra],
+    notes: stored.notes ?? [], model: fromModel ? stored.model : undefined,
+  }
 }
 
 export async function writePaperStructure(libraryPath: string, arxivId: string, structure: PaperStructure) {
   const file = structurePath(libraryPath, arxivId)
   await fs.mkdir(path.dirname(file), { recursive: true })
   await atomicWriteFile(file, JSON.stringify(structure, null, 2))
+}
+
+/* ------------------------------------------------------------------ the model pass */
+
+/**
+ * What the model is allowed to do, and how it is stopped from doing anything else.
+ *
+ * It is asked two small questions instead of one large one. First, what kind of thing is each section — a
+ * classification over ids that already exist, with the paper's own sentences in front of it. Then, given those
+ * sections, which of them stand in a relation the paper itself supports. Both answers are checked against the
+ * outline before anything is kept: an id that is not in the paper is dropped, a role that is not a role is
+ * dropped, an edge that would make the argument circular is dropped, and if what survives is too thin the run
+ * is refused outright and the reader keeps the outline it already trusted.
+ */
+
+export type RunPrompt = (prompt: string) => Promise<string>
+export type StructureRunSummary = {
+  paperId: string
+  provider: string
+  model: string
+  ranAt: string
+  sections: number
+  rolesChanged: number
+  summaries: number
+  edgesAdded: number
+  dropped: number
+  notes: string[]
+}
+
+const roleNames: StructureRole[] = ['problem', 'background', 'method', 'component', 'rationale', 'experiment', 'result', 'limit']
+const modelEdgeTypes: StructureEdgeType[] = ['needs', 'supports', 'branches', 'contrasts']
+/** A paper with more sections than this is asked about in pieces, so no answer has to hold the whole outline in view. */
+const CHUNK = 10
+const MAX_EDGES = 8
+
+const roleGuide = [
+  'problem — what the paper says is wrong or missing',
+  'background — prior work and what it could not do',
+  'method — what this paper proposes',
+  'component — a part of that method',
+  'rationale — the argument for why the method should work',
+  'experiment — how it was tested',
+  'result — what the test produced',
+  'limit — what is left open, or what the paper cannot do',
+].join('\n')
+
+export function buildRolePrompt(title: string, nodes: StructureNode[], quotes: Map<string, string[]>) {
+  return [
+    'You are labelling the sections of a research paper so that a reader can see its argument at a glance.',
+    'You never write new facts. Every summary must describe what the listed section does, using only the lines quoted from it.',
+    '',
+    `PAPER: ${title}`,
+    '',
+    'ROLES:',
+    roleGuide,
+    '',
+    'SECTIONS (only these ids may appear in your answer):',
+    ...nodes.map((node) => {
+      const lines = (quotes.get(node.id) ?? []).map((line) => `    "${line}"`).join('\n')
+      return `- ${node.id} | S${node.section} | ${node.label}${lines ? `\n${lines}` : ''}`
+    }),
+    '',
+    'Return ONLY a JSON object and nothing else:',
+    '{"sections":[{"id":"<one listed id>","role":"<one role>","summary":"<Korean, under 20 words>"}]}',
+    'Rules: use only the ids listed above, one entry per section. The summary says what that section does in this paper, in Korean, and must not state a number or a finding that is not in the quoted lines. If the quoted lines say nothing useful, give the role and leave the summary empty.',
+  ].join('\n')
+}
+
+export function buildEdgePrompt(title: string, nodes: StructureNode[]) {
+  return [
+    'These are the sections of one research paper, in the order the paper puts them. That order is already drawn.',
+    'Name only the relations between them that the paper itself supports, beyond the ordering.',
+    '',
+    `PAPER: ${title}`,
+    '',
+    'SECTIONS:',
+    ...nodes.map((node) => `- ${node.id} | S${node.section} | ${node.role} | ${node.label}${node.summary ? ` | ${node.summary}` : ''}`),
+    '',
+    'RELATION TYPES:',
+    'needs — the second section assumes what the first one establishes',
+    'supports — the first section is evidence for what the second one claims',
+    'branches — the second section is a further experiment or variant of the first',
+    'contrasts — the second section is an alternative the paper compares against the first',
+    '',
+    'Return ONLY a JSON object and nothing else:',
+    '{"relations":[{"from":"<id>","to":"<id>","type":"needs|supports|branches|contrasts","why":"<Korean, under 15 words>"}]}',
+    `Rules: use only the ids listed. Never relate a section to itself. At most ${MAX_EDGES} relations, and prefer few well-grounded ones over many. Prefer relations that point forwards through the paper. Do not restate the section order itself.`,
+  ].join('\n')
+}
+
+/** The same JSON-out-of-a-chat-reply reading the knowledge suggestions use: fenced, bare, or wrapped in prose. */
+function extractJson(text: string) {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const body = fenced ? fenced[1] : text
+  const start = body.indexOf('{'); const end = body.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('모델 응답에서 JSON을 찾지 못했습니다.')
+  return JSON.parse(body.slice(start, end + 1)) as Record<string, unknown>
+}
+
+export type RolePatch = { id: string; role: StructureRole; summary?: string }
+
+export function parseRoleResponse(text: string, allowed: Set<string>): RolePatch[] {
+  const value = extractJson(text)
+  const rows = Array.isArray(value.sections) ? value.sections : []
+  const seen = new Set<string>()
+  const patches: RolePatch[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const { id, role, summary } = row as { id?: unknown; role?: unknown; summary?: unknown }
+    if (typeof id !== 'string' || !allowed.has(id) || seen.has(id)) continue
+    if (typeof role !== 'string' || !roleNames.includes(role as StructureRole)) continue
+    seen.add(id)
+    const line = typeof summary === 'string' ? summary.replace(/\s+/g, ' ').trim().slice(0, 120) : ''
+    patches.push({ id, role: role as StructureRole, summary: line || undefined })
+  }
+  return patches
+}
+
+export function parseEdgeResponse(text: string, allowed: Set<string>, existing: StructureEdge[] = []): StructureEdge[] {
+  const value = extractJson(text)
+  const rows = Array.isArray(value.relations) ? value.relations : []
+  const already = new Set(existing.map((edge) => `${edge.from}->${edge.to}`))
+  const edges: StructureEdge[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const { from, to, type, why } = row as { from?: unknown; to?: unknown; type?: unknown; why?: unknown }
+    if (typeof from !== 'string' || typeof to !== 'string' || from === to) continue
+    if (!allowed.has(from) || !allowed.has(to)) continue
+    if (typeof type !== 'string' || !modelEdgeTypes.includes(type as StructureEdgeType)) continue
+    const key = `${from}->${to}`
+    if (already.has(key)) continue
+    already.add(key)
+    edges.push({
+      id: `m-${from}-${to}`, from, to, type: type as StructureEdgeType, origin: 'model',
+      why: typeof why === 'string' ? why.replace(/\s+/g, ' ').trim().slice(0, 90) || undefined : undefined,
+    })
+    if (edges.length >= MAX_EDGES) break
+  }
+  return edges
+}
+
+/**
+ * Keeps the picture a flow. An edge that closes a loop cannot be laid out left to right and, more to the point,
+ * claims the paper both leads to and follows from the same section — so it is refused rather than drawn
+ * somewhere misleading.
+ */
+export function withoutCycles(base: StructureEdge[], proposed: StructureEdge[]) {
+  const out = new Map<string, string[]>()
+  const add = (edge: StructureEdge) => out.set(edge.from, [...(out.get(edge.from) ?? []), edge.to])
+  const reaches = (from: string, to: string) => {
+    const seen = new Set<string>(); const stack = [from]
+    while (stack.length) {
+      const at = stack.pop()!
+      if (at === to) return true
+      if (seen.has(at)) continue
+      seen.add(at)
+      stack.push(...(out.get(at) ?? []))
+    }
+    return false
+  }
+  for (const edge of base) add(edge)
+  const kept: StructureEdge[] = []
+  const dropped: StructureEdge[] = []
+  for (const edge of proposed) {
+    if (reaches(edge.to, edge.from)) { dropped.push(edge); continue }
+    add(edge); kept.push(edge)
+  }
+  return { kept, dropped }
+}
+
+/** Two or three of a section's own sentences: enough to say what it is about, short enough to stay in view. */
+function quotesFor(nodes: StructureNode[], anchors: Anchor[]) {
+  const text = new Map(anchors.map((anchor) => [anchor.id, anchor.source.replace(/\s+/g, ' ').trim()]))
+  return new Map(nodes.map((node) => [node.id, node.evidence.slice(0, 3)
+    .map((id) => (text.get(id) ?? '').slice(0, 220)).filter((line) => line.length > 40)]))
+}
+
+export async function refinePaperStructure(
+  libraryPath: string, arxivId: string, title: string,
+  provider: string, model: string, runPrompt: RunPrompt,
+): Promise<StructureRunSummary> {
+  const [anchors, korean] = await Promise.all([readAnchors(libraryPath, arxivId), readKoreanLabels(libraryPath, arxivId)])
+  const outline = buildOutline(arxivId, anchors, korean)
+  if (outline.nodes.length < 2) throw new Error('먼저 원문을 열어 논문 구조를 분석해 주세요.')
+
+  const allowed = new Set(outline.nodes.map((node) => node.id))
+  const quotes = quotesFor(outline.nodes, anchors)
+  const notes: string[] = []
+
+  const patches = new Map<string, RolePatch>()
+  for (let at = 0; at < outline.nodes.length; at += CHUNK) {
+    const chunk = outline.nodes.slice(at, at + CHUNK)
+    try {
+      for (const patch of parseRoleResponse(await runPrompt(buildRolePrompt(title, chunk, quotes)), allowed)) patches.set(patch.id, patch)
+    } catch (reason) {
+      notes.push(`구간 ${at + 1}–${at + chunk.length}의 역할 분석을 쓰지 못했습니다: ${reason instanceof Error ? reason.message : String(reason)}`)
+    }
+  }
+  // Too few sections came back to call this a reading of the paper, so the outline stands and says why.
+  if (patches.size < Math.ceil(outline.nodes.length / 2)) {
+    notes.push('모델이 논문의 절반도 설명하지 못해 결과를 쓰지 않았습니다. 논문 목차만 표시합니다.')
+    await writePaperStructure(libraryPath, arxivId, { ...outline, notes })
+    return { paperId: arxivId, provider, model, ranAt: new Date().toISOString(), sections: outline.nodes.length, rolesChanged: 0, summaries: 0, edgesAdded: 0, dropped: 0, notes }
+  }
+
+  const nodes = outline.nodes.map((node) => {
+    const patch = patches.get(node.id)
+    return patch ? { ...node, role: patch.role, roleOrigin: 'model' as const, summary: patch.summary } : node
+  })
+
+  let proposed: StructureEdge[] = []
+  try { proposed = parseEdgeResponse(await runPrompt(buildEdgePrompt(title, nodes)), allowed, outline.edges) }
+  catch (reason) { notes.push(`연결 분석을 쓰지 못했습니다: ${reason instanceof Error ? reason.message : String(reason)}`) }
+  const { kept, dropped } = withoutCycles(outline.edges, proposed)
+  if (dropped.length) notes.push(`앞뒤가 순환하는 연결 ${dropped.length}개를 버렸습니다.`)
+
+  const ranAt = new Date().toISOString()
+  await writePaperStructure(libraryPath, arxivId, {
+    ...outline, source: 'model', nodes, edges: [...outline.edges, ...kept], notes,
+    model: { provider, model, ranAt },
+  })
+  return {
+    paperId: arxivId, provider, model, ranAt, sections: outline.nodes.length,
+    rolesChanged: nodes.filter((node, index) => node.role !== outline.nodes[index].role).length,
+    summaries: nodes.filter((node) => node.summary).length,
+    edgesAdded: kept.length, dropped: dropped.length, notes,
+  }
 }

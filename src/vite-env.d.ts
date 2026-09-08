@@ -54,6 +54,7 @@ type StructureEdgeType = 'then' | 'part' | 'needs' | 'supports' | 'branches' | '
 type StructureOrigin = 'outline' | 'model'
 type StructureNode = { id: string; role: StructureRole; label: string; labelKo?: string; section: string; level: number; page: number; anchorId: string; evidence: string[]; summary?: string; roleOrigin: StructureOrigin }
 type StructureEdge = { id: string; from: string; to: string; type: StructureEdgeType; origin: StructureOrigin; why?: string }
+type StructureRunSummary = { paperId: string; provider: string; model: string; ranAt: string; sections: number; rolesChanged: number; summaries: number; edgesAdded: number; dropped: number; notes: string[] }
 type PaperStructure = { version: 1; paperId: string; generatedAt: string; source: StructureOrigin; sourceHash: string; nodes: StructureNode[]; edges: StructureEdge[]; notes: string[]; model?: { provider: string; model: string; ranAt: string } }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
@@ -138,6 +139,7 @@ interface Window {
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
     readPaperStructure: (arxivId: string) => Promise<PaperStructure>
+    refinePaperStructure: (arxivId: string) => Promise<StructureRunSummary>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
     reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>
     promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>

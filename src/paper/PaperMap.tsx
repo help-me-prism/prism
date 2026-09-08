@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { LoaderCircle, Network, RefreshCw } from 'lucide-react'
+import { LoaderCircle, Network, RefreshCw, Sparkles } from 'lucide-react'
 import { NODE_HEIGHT, NODE_WIDTH, edgePath, layoutMap } from './mapLayout'
 import './paper-map.css'
 
@@ -50,6 +50,8 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
   const [hovered, setHovered] = useState<string>()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [available, setAvailable] = useState(880)
+  const [running, setRunning] = useState(false)
+  const [runNote, setRunNote] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async (id: string) => {
@@ -121,6 +123,21 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
   const focusedNode = focused ? nodesById.get(focused) : undefined
   const focusedPlace = focused ? placement.byId.get(focused) : undefined
 
+  /**
+   * The model pass. It can only change roles, write summaries, and relate sections that already exist; if too
+   * little of it survives validation the main process keeps the outline and says so in the map's own notes.
+   */
+  async function analyse() {
+    if (!paperId || running) return
+    setRunning(true); setRunNote(''); setError('')
+    try {
+      const run = await window.prism.refinePaperStructure(paperId)
+      setRunNote(`${run.model} · 역할 ${run.rolesChanged}개 · 요약 ${run.summaries}개 · 연결 ${run.edgesAdded}개${run.dropped ? ` · 버린 연결 ${run.dropped}개` : ''}`)
+      await load(paperId)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setRunning(false) }
+  }
+
   function choose(node: StructureNode) {
     setSelected(node.id)
     onOpenAnchor(node.anchorId, node.page)
@@ -132,15 +149,19 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
     <div className="map-bar">
       <span className="map-source">
         <i className={structure?.source === 'model' ? 'model' : 'outline'} />
-        {structure?.source === 'model' ? '모델 분석' : '논문 목차'}
+        {structure?.source === 'model' ? `모델 분석${structure.model ? ` · ${structure.model.model}` : ''}` : '논문 목차'}
       </span>
       {structure?.nodes.length ? <span className="map-count">{visibleNodes.length}/{structure.nodes.length}개 구간</span> : undefined}
       {childrenOf.size > 0 && <button className="map-refresh" onClick={() => setExpanded((current) => new Set(current.size ? [] : childrenOf.keys()))}>{expanded.size ? '세부 접기' : '세부 펼치기'}</button>}
       <span className="map-spacer" />
-      {loading && <LoaderCircle className="spin" size={13} />}
+      {(loading || running) && <LoaderCircle className="spin" size={13} />}
+      <button className="map-refresh" disabled={running} title="설정한 지식 CLI가 각 구간의 역할과 구간 사이의 관계를 읽습니다. 논문에 없는 것은 저장 전에 버려집니다." onClick={() => void analyse()}>
+        <Sparkles size={12} /> {running ? '분석 중…' : '모델로 분석'}
+      </button>
       <button className="map-refresh" title="구조를 다시 읽습니다" onClick={() => paperId && void load(paperId)}><RefreshCw size={12} /> 새로고침</button>
     </div>
 
+    {runNote && <p className="map-note done">{runNote}</p>}
     {structure?.notes.map((note) => <p key={note} className="map-note">{note}</p>)}
     {error && <p className="map-note error">{error}</p>}
 
