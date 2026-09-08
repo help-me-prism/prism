@@ -3,9 +3,14 @@ import * as pdfjs from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, Columns2, Download, ExternalLink, FileText,
-  FolderOpen, Image, Languages, Link2, LoaderCircle, PanelLeftClose, Plus, Search,
+  FolderOpen, Image, Languages, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
   Settings2, Sigma, Sparkles, Square, Table2, Tag, Unlink2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
+import PaperPanes from './paper/PaperPanes'
+import {
+  activateKind, closeKind, describeLayout, groupHolding, moveKindToGroup, openKinds, paneGroups, paneKinds,
+  panePresets, paneShortTitles, parseLayout, splitGroupWithKind, type PaneKind, type PaneNode,
+} from './paper/panes'
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -13,7 +18,36 @@ type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
 type PdfTextItem = { str: string; width: number; height: number; transform: number[]; hasEOL?: boolean; fontName?: string }
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
 type ItemRect = { left: number; top: number; width: number; height: number }
-type ViewMode = 'original' | 'translated' | 'dual'
+/** Which windows this reader can draw. The structure map joins the list once it exists. */
+const readerKinds: PaneKind[] = ['original', 'translated']
+
+/**
+ * A paper reopens in the arrangement it was left in. This is view state, not research, so it stays in the
+ * renderer's own storage: nothing about it belongs in the vault, in settings, or in an IPC round trip.
+ */
+const layoutStorageKey = (arxivId: string) => `prism.reader.layout.${arxivId}`
+/**
+ * `stored` matters as much as the layout: a paper the researcher has already arranged must not have windows
+ * opened back up under them by the translation loader. Only a paper being opened for the first time gets one.
+ */
+function readStoredLayout(arxivId: string): { layout: PaneNode; stored: boolean } {
+  try {
+    const raw = window.localStorage.getItem(layoutStorageKey(arxivId))
+    const parsed = raw ? parseLayout(JSON.parse(raw), readerKinds) : undefined
+    if (parsed) return { layout: parsed, stored: true }
+  } catch { /* a layout we cannot read is a layout we do not use */ }
+  return { layout: panePresets.original(), stored: false }
+}
+function writeStoredLayout(arxivId: string, layout: PaneNode) {
+  try { window.localStorage.setItem(layoutStorageKey(arxivId), JSON.stringify(layout)) } catch { /* private mode, quota, or no storage at all */ }
+}
+
+/** Opening the translation puts it beside the original rather than replacing whatever is on screen. */
+function withTranslated(layout: PaneNode): PaneNode {
+  if (openKinds(layout).includes('translated')) return activateKind(layout, 'translated')
+  const host = groupHolding(layout, 'original') ?? paneGroups(layout)[0]
+  return host ? splitGroupWithKind(layout, host.id, 'translated', 'right') : panePresets.dual()
+}
 
 function shortHash(value: string) {
   let hash = 2166136261
@@ -420,7 +454,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
   const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
-  const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [viewMode, setViewMode] = useState<ViewMode>('original')
+  const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
   const [cacheExists, setCacheExists] = useState(false)
   const [backlinkPanel, setBacklinkPanel] = useState<{ anchor: ContextAnchor; items: EvidenceBacklink[]; loading: boolean; error?: string }>()
   const [captureMemo, setCaptureMemo] = useState(''); const [captureStatus, setCaptureStatus] = useState('')
@@ -429,10 +463,22 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [translating, setTranslating] = useState(false); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
-  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(true); const [dualRatio, setDualRatio] = useState(50); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
-  const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const documentLayoutRef = useRef<HTMLDivElement>(null); const syncLock = useRef(false)
+  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(true); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
+  const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
   const activePaper = library.find((paper) => paper.arxivId === activeId); const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
+  const openPanes = openKinds(layout)
+  const bothDocumentsOpen = openPanes.includes('original') && openPanes.includes('translated')
+  /** Every arrangement change goes through here, so the tree, the ref async loaders read, and storage agree. */
+  function applyLayout(next: PaneNode, forPaper = activeIdRef.current) { layoutRef.current = next; arrangedRef.current = true; setLayout(next); if (forPaper) writeStoredLayout(forPaper, next) }
+  /** Opening a closed window: into an empty group if the researcher left one, otherwise beside the original. */
+  function openPane(kind: PaneKind) {
+    const empty = paneGroups(layout).find((group) => !group.tabs.length)
+    if (empty) return applyLayout(moveKindToGroup(layout, empty.id, kind))
+    if (kind === 'translated') return applyLayout(withTranslated(layout))
+    const host = groupHolding(layout, 'original') ?? paneGroups(layout)[0]
+    applyLayout(host ? splitGroupWithKind(layout, host.id, kind, 'right') : panePresets.original())
+  }
   const translationMap = useMemo(() => new Map(translation.map((segment) => [segment.id, segment.translation ?? ''])), [translation])
   const translatableSegments = allSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind))
   const translatedCount = translation.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length
@@ -487,7 +533,8 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   useEffect(() => {
     if (!activePaper) { setPdf(undefined); return }
-    let disposed = false; setPageNumber(1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError(''); setViewMode('original'); setLoadStatus({ phase: 'pdf', completed: 0, total: 0 })
+    let disposed = false; setPageNumber(1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError('')
+    const stored = readStoredLayout(activePaper.arxivId); layoutRef.current = stored.layout; arrangedRef.current = stored.stored; setLayout(stored.layout); setLoadStatus({ phase: 'pdf', completed: 0, total: 0 })
     Promise.all([window.prism.readPaperPdf(activePaper.arxivId), window.prism.readLatexStructure(activePaper.arxivId), window.prism.readPaperFigures(activePaper.arxivId)]).then(async ([data, latex, figures]) => {
       void Promise.all(figures.map(prepareFigureAsset)).then((preparedFigures) => { if (!disposed) setFigureAssets(preparedFigures) })
       const loaded = await pdfjs.getDocument({ data }).promise; if (disposed) return; setPdf(loaded); setLoadStatus({ phase: 'analyzing', completed: 0, total: loaded.numPages })
@@ -507,10 +554,10 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment.translation]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
         const restored = source.segments.map((segment) => ({ ...segment, translation: byId.get(segment.id) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) })).filter((segment) => segment.translation)
-        setCacheExists(true); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); setViewMode('dual')
+        setCacheExists(true); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
       else if (settings.autoTranslate && translationProvider?.available && !autoStartedRef.current.has(activePaper.arxivId)) {
-        autoStartedRef.current.add(activePaper.arxivId); setTranslating(true); setTranslationProgress({ completed: 0, total: translatable }); setViewMode('dual')
+        autoStartedRef.current.add(activePaper.arxivId); setTranslating(true); setTranslationProgress({ completed: 0, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
         void window.prism.startTranslation(activePaper.arxivId, source.segments, { force: false }).catch((reason) => { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) })
       }
       setLoadStatus(undefined)
@@ -521,7 +568,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   function closeTab(id: string) { setTabs((current) => { const next = current.filter((value) => value !== id); if (activeId === id) setActiveId(next.at(-1)); return next }) }
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { const papers = await window.prism.listLibrary(); setSettings(next); setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId); if (!papers.length) setFinderOpen(true) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
-  async function startTranslation() { if (!activePaper || !allSegments.length) return; const force = hasCachedTranslation; setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); setViewMode('dual'); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
+  async function startTranslation() { if (!activePaper || !allSegments.length) return; const force = hasCachedTranslation; setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
   async function captureAnchor() {
@@ -577,7 +624,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const pairs: Array<[HTMLDivElement | null, 'original' | 'translated']> = [[sourceScrollRef.current, 'original'], [translatedScrollRef.current, 'translated']]
     const cleanups = pairs.flatMap(([pane, mode]) => { if (!pane) return []; const zoomWheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); changeZoom(mode, event.deltaY < 0 ? 1 : -1) }; pane.addEventListener('wheel', zoomWheel, { passive: false }); return [() => pane.removeEventListener('wheel', zoomWheel)] })
     return () => cleanups.forEach((cleanup) => cleanup())
-  }, [sourceScale, translatedScale, syncZoomEnabled, activePaper?.arxivId, pdf, viewMode])
+  }, [sourceScale, translatedScale, syncZoomEnabled, activePaper?.arxivId, pdf, layout])
   useEffect(() => {
     const anchor = zoomAnchorRef.current
     if (!anchor) return
@@ -591,24 +638,43 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     syncLock.current = true; restoreScrollAnchor(to, scrollAnchor(from))
     requestAnimationFrame(() => { syncLock.current = false })
   }
-  function startResize(event: ReactPointerEvent<HTMLDivElement>) { const layout = documentLayoutRef.current; if (!layout) return; event.currentTarget.setPointerCapture(event.pointerId); const move = (moveEvent: PointerEvent) => { const rect = layout.getBoundingClientRect(); setDualRatio(Math.max(25, Math.min(75, (moveEvent.clientX - rect.left) / rect.width * 100))) }; const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }; window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop) }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
   const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onVisible={setPageNumber} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  /**
+   * The arrangements the toolbar names. Dragging a tab can reach shapes no button offers; these are the four
+   * worth one click, and the first three are exactly the modes the reader used to have.
+   */
+  const layoutChoices = [
+    { id: 'original', label: '원문', title: '원문 PDF만', make: panePresets.original, shape: describeLayout(panePresets.original()), icon: undefined },
+    { id: 'translated', label: '한국어', title: '한국어 문서만', make: panePresets.translated, shape: describeLayout(panePresets.translated()), icon: undefined },
+    { id: 'dual', label: ' 병기', title: '원문과 한국어를 좌우로', make: panePresets.dual, shape: describeLayout(panePresets.dual()), icon: <Columns2 size={13} /> },
+    { id: 'stacked', label: ' 상하', title: '원문과 한국어를 위아래로', make: panePresets.stacked, shape: describeLayout(panePresets.stacked()), icon: <Rows2 size={13} /> },
+  ]
   const paneZoom = (mode: 'original' | 'translated') => { const value = mode === 'original' ? sourceScale : translatedScale; return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select value={value} onChange={(event) => setPaneZoom(mode, Number(event.target.value))}>{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div> }
 
   return <section className="reader-pane paper-workspace">
-    <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <button key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`} onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span><i onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i></button> : null })}<button className="add-tab" onClick={() => setFinderOpen(true)}><Plus size={15} /></button></div></div>
-    {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId} · {sourceStatus.mode === 'latex' ? `LaTeX 우선 ${sourceStatus.matched}/${sourceStatus.total}` : 'PDF fallback'} · 소스 피겨 {figureAssets.length}</small></div><div className="reader-actions"><div className="document-mode"><button className={viewMode === 'original' ? 'active' : ''} onClick={() => setViewMode('original')}>원문</button><button className={viewMode === 'translated' ? 'active' : ''} onClick={() => setViewMode('translated')}>한국어</button><button className={viewMode === 'dual' ? 'active' : ''} onClick={() => setViewMode('dual')}><Columns2 size={13} /> 병기</button></div>{viewMode === 'dual' && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button><button title="현재 PDF 페이지를 참조하는 지식 노트" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 관련 노트</button></div></div>
+    <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
+      <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>
+      {id === activeId && <span className="tab-views">{readerKinds.map((kind) => <button key={kind} className={openPanes.includes(kind) ? 'open' : ''} title={`${paneShortTitles[kind]} ${openPanes.includes(kind) ? '닫기' : '열기'}`} onClick={() => openPanes.includes(kind) ? applyLayout(closeKind(layout, kind)) : openPane(kind)}>{paneShortTitles[kind]}</button>)}</span>}
+      <i title="논문 닫기" onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i>
+    </div> : null })}<button className="add-tab" onClick={() => setFinderOpen(true)}><Plus size={15} /></button></div></div>
+    {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.arxivId} · {sourceStatus.mode === 'latex' ? `LaTeX 우선 ${sourceStatus.matched}/${sourceStatus.total}` : 'PDF fallback'} · 소스 피겨 {figureAssets.length}</small></div><div className="reader-actions"><div className="document-mode">{layoutChoices.map((choice) => <button key={choice.id} className={describeLayout(layout) === choice.shape ? 'active' : ''} title={choice.title} onClick={() => applyLayout(choice.make())}>{choice.icon}{choice.label}</button>)}</div>{bothDocumentsOpen && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button><button title="현재 PDF 페이지를 참조하는 지식 노트" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 관련 노트</button></div></div>
       {backlinkPanel && <section className="reader-evidence-backlinks" aria-label="PDF 근거 관련 노트"><header><div><BookOpen size={14} /><span><strong>{backlinkPanel.anchor.label} 관련 노트</strong><small>{backlinkPanel.anchor.paperTitle} · p.{backlinkPanel.anchor.page}</small></span></div><button aria-label="관련 노트 닫기" onClick={() => setBacklinkPanel(undefined)}><X size={13} /></button></header>{backlinkPanel.anchor.type !== 'page' && backlinkPanel.anchor.source && <blockquote className="reader-capture-source">{backlinkPanel.anchor.source}</blockquote>}<form className="reader-capture" onSubmit={(event) => { event.preventDefault(); void captureAnchor() }}><input autoFocus aria-label="노트 메모" value={captureMemo} onChange={(event) => setCaptureMemo(event.target.value)} placeholder="한 줄 메모 (선택) · Enter로 논문 노트에 담기" /><div className="reader-capture-row"><input list="prism-concept-options" aria-label="정의하는 개념" value={captureConcept} onChange={(event) => setCaptureConcept(event.target.value)} placeholder="이 문장이 정의하는 개념 (선택)" /><datalist id="prism-concept-options">{conceptOptions.map((title) => <option key={title} value={title} />)}</datalist><button type="submit" aria-label="논문 노트에 담기"><Plus size={12} /> 노트에 담기</button></div></form>{captureStatus && <p className="reader-capture-status" role="status">{captureStatus}</p>}<div>{backlinkPanel.loading ? <p>관련 노트를 찾는 중…</p> : backlinkPanel.error ? <p>{backlinkPanel.error}</p> : backlinkPanel.items.length ? backlinkPanel.items.map((item) => <button key={item.nodeId} onClick={() => void window.prism.openKnowledgeNodeInNotes(item.nodeId)}><span><small>{item.nodeType} · {item.relativePath}</small><strong>{item.title}</strong><p>{item.excerpt}</p></span><ExternalLink size={13} /></button>) : <p>이 PDF 위치를 참조하는 지식 노트가 없습니다.</p>}</div></section>}
       <div className="translation-control knowledge-control" title="논문을 읽음으로 표시하거나 모델 제안을 누르면 이 CLI가 관계·승격 후보를 제안합니다. 제안은 모두 검토 대기 상태로 들어갑니다."><Sparkles size={14} /><label><span>지식 제안 CLI</span><select value={settings.knowledgeProvider ?? ''} onChange={(event) => { const provider = event.target.value as ProviderId | ''; void updateSettings(provider ? { knowledgeProvider: provider, knowledgeModel: providers.find((item) => item.id === provider)?.models[0]?.id } : { knowledgeProvider: null as unknown as undefined }) }}><option value="">사용 안 함</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label>{settings.knowledgeProvider && <label><span>모델</span><select value={settings.knowledgeModel ?? ''} onChange={(event) => void updateSettings({ knowledgeModel: event.target.value })}>{providers.find((provider) => provider.id === settings.knowledgeProvider)?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>}</div>
       <div className="translation-control"><Languages size={14} /><label><span>번역 CLI</span><select value={settings.translationProvider} disabled={translating} onChange={(event) => { const provider = event.target.value as ProviderId; void updateSettings({ translationProvider: provider, translationModel: providers.find((item) => item.id === provider)?.models[0]?.id }) }}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label><label><span>모델</span><select value={settings.translationModel} disabled={translating} onChange={(event) => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label><label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => void updateSettings({ autoTranslate: event.target.checked })} /> 자동 번역</label>{(translating || hasCachedTranslation) && <div className="translation-meter" title={`${translationProgress.completed || translatedCount} / ${translationProgress.total || translatableSegments.length}문장`}><span><i style={{ width: `${translationPercent}%` }} /></span><strong>{translating ? `${translationProgress.completed}/${translationProgress.total}문장 · ${translationPercent}%` : `${translatedCount}문장 번역됨`}</strong></div>}<button className={translating ? 'cancel-translation' : ''} onClick={() => translating ? void cancelTranslation() : void startTranslation()} disabled={!translating && (!translationProvider?.available || !allSegments.length)}>{translating ? <><Square size={11} fill="currentColor" /> 번역 중지</> : hasCachedTranslation ? '재번역' : '번역 시작'}</button>{figureSelect && <strong className="capture-hint">피겨를 클릭하거나 영역을 드래그하세요</strong>}</div>
       {loadStatus?.phase === 'analyzing' && <div className="paper-analysis-status" role="status"><LoaderCircle className="spin" size={13} /><span>논문 구조와 참조 위치를 분석하고 있어요</span><div><i style={{ width: `${loadStatus.total ? loadStatus.completed / loadStatus.total * 100 : 0}%` }} /></div><strong>{loadStatus.completed} / {loadStatus.total}페이지</strong></div>}
       {error && <div className="paper-error">{error}<button onClick={() => setError('')}><X size={13} /></button></div>}
-      <div ref={documentLayoutRef} className={`paper-content document-layout mode-${viewMode}`} style={viewMode === 'dual' ? { gridTemplateColumns: `${dualRatio}% 7px calc(${100 - dualRatio}% - 7px)` } : undefined}>
-        {(viewMode === 'original' || viewMode === 'dual') && <div className="document-column"><header><span><FileText size={13} /> 원문 PDF</span>{paneZoom('original')}</header><div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => viewMode === 'dual' && syncScrollEnabled && syncScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div></div>}
-        {viewMode === 'dual' && <div className="panel-resizer" onPointerDown={startResize} title="드래그하여 원문/한국어 패널 너비 조절"><span /></div>}
-        {(viewMode === 'translated' || viewMode === 'dual') && <div className="document-column translated-document"><header><span><Languages size={13} /> 한국어 문서 <i>{translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</i></span>{paneZoom('translated')}</header><div className="document-scroll" ref={translatedScrollRef} onScroll={(event) => viewMode === 'dual' && syncScrollEnabled && syncScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div></div>}
-      </div>
+      <PaperPanes
+        layout={layout} onLayout={applyLayout}
+        views={{
+          original: <div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div>,
+          translated: <div className="document-scroll translated-document" ref={translatedScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div>,
+        }}
+        headers={{
+          original: paneZoom('original'),
+          translated: <><span className="pane-note">{translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</span>{paneZoom('translated')}</>,
+        }}
+      />
     </> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '논문 워크스페이스'}</h1><p>{settings.libraryPath ? 'arXiv에서 논문을 찾아 라이브러리에 추가하세요.' : '먼저 PDF와 노트를 저장할 라이브러리 폴더를 선택하세요.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? 'arXiv 논문 찾기' : '라이브러리 폴더 선택'}</button></div>}
     {finderOpen && <Finder library={library} settings={settings} onChooseFolder={() => void chooseFolder()} onOpen={openPaper} onDownloaded={(paper) => { setLibrary((current) => current.some((item) => item.arxivId === paper.arxivId) ? current : [paper, ...current]); openPaper(paper); setFinderOpen(false) }} onSettings={(patch) => void updateSettings(patch)} onClose={() => setFinderOpen(false)} />}
   </section>
