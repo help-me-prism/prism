@@ -6,7 +6,15 @@ type ProviderInfo = { id: ProviderId; name: string; installed: boolean; availabl
 type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
 type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[] }
 type PaperDigestResult = { updated: boolean; chatMessages: number; sections: Array<'overview' | 'confusion' | 'focus'>; usedModel: boolean }
-type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number }
+// 컨텍스트 점유량은 "직전 요청이 실제로 보낸 대화 전체" 다. 턴마다 쌓이는 누적 토큰과는 다른 값이라
+// 누적치로 계산하면 대화가 길어질수록 잔량을 과대하게 깎아 보여준다.
+type ChatContextUsage = { usedTokens: number; contextWindow: number }
+type ChatUsage = { context?: ChatContextUsage }
+// Codex 는 초기화 시각을 epoch 로 주고 Claude 는 "Sep 12 at 6am" 같은 문장으로 준다.
+// 계산해서 보여줄 수 있으면 resetsAt 을, 아니면 받은 문장을 그대로 쓴다.
+type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDurationMins?: number; resetsAt?: number; resetsText?: string }
+type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
+type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
@@ -159,6 +167,7 @@ interface Window {
     onChatEvent: (callback: (event: unknown) => void) => () => void
     onChatDone: (callback: (event: unknown) => void) => () => void
     onChatError: (callback: (event: unknown) => void) => () => void
+    onProviderRateLimits: (callback: (event: ProviderRateLimits & { provider: ProviderId }) => void) => () => void
     onTranslationProgress: (callback: (event: unknown) => void) => () => void
     onTranslationDone: (callback: (event: unknown) => void) => () => void
     onTranslationError: (callback: (event: unknown) => void) => () => void

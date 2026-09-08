@@ -29,6 +29,8 @@ import { chatMemoryInstruction } from './noteContract.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 type ProviderId = 'codex' | 'claude'
+// renderer 의 src/vite-env.d.ts 와 같은 모양을 유지한다.
+type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDurationMins?: number; resetsAt?: number; resetsText?: string }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
@@ -123,6 +125,73 @@ function spawnCli(executable: string, args: string[], options: SpawnOptionsWitho
 
 function safeSend(sender: WebContents, channel: string, payload: unknown) {
   if (!sender.isDestroyed()) sender.send(channel, payload)
+}
+
+function rateLimitWindow(value: unknown, label: string): ProviderRateLimitWindow | undefined {
+  const window = value as Record<string, unknown> | undefined
+  const usedPercent = Number(window?.usedPercent)
+  if (!Number.isFinite(usedPercent)) return undefined
+  return { label, usedPercent, windowDurationMins: Number(window?.windowDurationMins ?? 0), resetsAt: Number(window?.resetsAt ?? 0) }
+}
+
+// 계정 단위 사용 한도라 특정 대화에 속하지 않는다. 열려 있는 창 모두에 같은 값을 보낸다.
+function broadcastRateLimits(provider: ProviderId, primary?: ProviderRateLimitWindow, secondary?: ProviderRateLimitWindow) {
+  if (!primary && !secondary) return
+  for (const window of BrowserWindow.getAllWindows()) safeSend(window.webContents, 'provider:ratelimits', { provider, primary, secondary })
+}
+
+/**
+ * Claude 는 Codex 처럼 한도를 밀어주지 않는 대신 아무 때나 물어볼 수 있다. `/usage` 는 모델을 부르지
+ * 않는 로컬 명령이라 토큰도 비용도 들지 않는다. 다만 사람이 읽는 문장으로 오므로, 문구가 바뀌어
+ * 읽지 못하면 잘못된 숫자를 지어내지 말고 그냥 표시하지 않는다.
+ */
+function parseClaudeUsageText(text: string) {
+  const read = (pattern: RegExp, label: string) => {
+    const match = text.match(pattern)
+    if (!match) return undefined
+    const usedPercent = Number(match[1])
+    if (!Number.isFinite(usedPercent)) return undefined
+    return { label, usedPercent, resetsText: match[2]?.trim() ? `${match[2].trim()} 초기화` : undefined }
+  }
+  return {
+    primary: read(/Current session:\s*(\d+)%\s*used(?:[^\S\n]*·[^\S\n]*resets\s*([^\n]+?))?\s*$/m, '세션 한도'),
+    secondary: read(/Current week[^:\n]*:\s*(\d+)%\s*used(?:[^\S\n]*·[^\S\n]*resets\s*([^\n]+?))?\s*$/m, '주간 한도'),
+  }
+}
+
+/**
+ * Codex 는 턴이 끝날 때 한도를 밀어주지만, 그 전까지는 화면이 비어 있다.
+ * app-server 에 직접 물어보면 모델을 부르지 않고 같은 값을 바로 받을 수 있어,
+ * 앱을 켜자마자 첫 메시지 전에도 보여줄 수 있다.
+ */
+async function refreshCodexRateLimits() {
+  try {
+    await codexServer.ensureReady()
+    const result = await codexServer.request('account/rateLimits/read', {})
+    const limits = result.rateLimits as Record<string, unknown> | undefined
+    broadcastRateLimits('codex', rateLimitWindow(limits?.primary, '5시간 한도'), rateLimitWindow(limits?.secondary, '주간 한도'))
+  } catch { /* 한도는 부가 정보다. 못 읽으면 조용히 넘어간다. */ }
+}
+
+async function refreshClaudeRateLimits() {
+  const executable = findCli('claude')
+  if (!executable) return
+  try {
+    const text = await new Promise<string>((resolve, reject) => {
+      const child = spawnCli(executable, ['-p', '/usage', '--output-format', 'json'], { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
+      let stdout = ''
+      const timer = setTimeout(() => { child.kill(); reject(new Error('usage 조회 시간 초과')) }, 20_000)
+      child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { stdout += chunk })
+      child.stderr.resume()
+      child.on('error', (error) => { clearTimeout(timer); reject(error) })
+      child.on('close', () => { clearTimeout(timer); resolve(stdout) })
+      child.stdin.end()
+    })
+    const parsed = JSON.parse(text) as { result?: unknown }
+    if (typeof parsed.result !== 'string') return
+    const { primary, secondary } = parseClaudeUsageText(parsed.result)
+    broadcastRateLimits('claude', primary, secondary)
+  } catch { /* 한도는 부가 정보다. 못 읽으면 조용히 넘어간다. */ }
 }
 
 function codexModels() {
@@ -227,9 +296,26 @@ class CodexAppServer {
       return
     }
     if (!message.method || !message.params) return
+    // 사용 한도는 계정 단위라 thread 가 없다. 어느 대화에 속한 값이 아니므로 창 전체에 알린다.
+    if (message.method === 'account/rateLimits/updated') {
+      const limits = message.params.rateLimits as Record<string, unknown> | undefined
+      broadcastRateLimits('codex', rateLimitWindow(limits?.primary, '5시간 한도'), rateLimitWindow(limits?.secondary, '주간 한도'))
+      return
+    }
     const threadId = typeof message.params.threadId === 'string' ? message.params.threadId : undefined
     const owner = threadId ? sessionOwners.get(threadId) : undefined
     if (!owner) return
+    if (message.method === 'thread/tokenUsage/updated') {
+      const usage = message.params.tokenUsage as Record<string, unknown> | undefined
+      const last = usage?.last as Record<string, unknown> | undefined
+      const contextWindow = Number(usage?.modelContextWindow)
+      // last 는 직전 요청에 담긴 대화 전체다. total 은 턴마다 쌓이는 청구량이라 잔량 계산에 쓰면 안 된다.
+      const usedTokens = Number(last?.inputTokens ?? 0) + Number(last?.outputTokens ?? 0)
+      if (contextWindow > 0 && usedTokens > 0) {
+        safeSend(owner.sender, 'chat:event', { type: 'usage', sessionId: owner.sessionId, context: { usedTokens, contextWindow } })
+      }
+      return
+    }
     if (message.method === 'item/agentMessage/delta' && typeof message.params.delta === 'string') {
       safeSend(owner.sender, 'chat:event', { type: 'text.delta', sessionId: owner.sessionId, messageId: owner.messageId, text: message.params.delta })
     } else if (message.method === 'turn/completed') {
@@ -340,6 +426,10 @@ function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPath?: s
         if (event.type === 'result' && !receivedDelta && typeof event.result === 'string') {
           safeSend(sender, 'chat:event', { type: 'text.delta', sessionId: request.sessionId, messageId: request.messageId, text: event.result })
         }
+        if (event.type === 'result') {
+          const usage = claudeUsage(event, request.model)
+          if (usage) safeSend(sender, 'chat:event', { type: 'usage', sessionId: request.sessionId, ...usage })
+        }
       } catch { /* diagnostics are reported from stderr on failure */ }
     }
   })
@@ -350,8 +440,29 @@ function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPath?: s
     activeChats.delete(request.sessionId)
     if (code && stderr.trim()) safeSend(sender, 'chat:error', { sessionId: request.sessionId, message: stderr.trim() })
     safeSend(sender, 'chat:done', { sessionId: request.sessionId, code })
+    // 방금 쓴 몫이 반영된 한도를 뒤따라 갱신한다. 답변 표시를 막지 않도록 기다리지 않는다.
+    void refreshClaudeRateLimits()
   })
   child.stdin.end(request.prompt)
+}
+
+/**
+ * Claude 의 result 메시지에서 컨텍스트 점유량과 이번 턴 비용을 뽑는다.
+ * input_tokens 만 보면 캐시된 대화가 통째로 빠져 컨텍스트가 거의 비어 보인다.
+ * 실제로 모델에 들어간 양은 캐시 읽기와 캐시 기록까지 더한 값이다.
+ */
+function claudeUsage(event: Record<string, unknown>, model: string) {
+  const usage = event.usage as Record<string, unknown> | undefined
+  if (!usage) return undefined
+  const usedTokens = Number(usage.input_tokens ?? 0) + Number(usage.cache_read_input_tokens ?? 0)
+    + Number(usage.cache_creation_input_tokens ?? 0) + Number(usage.output_tokens ?? 0)
+  // 부제목 생성 같은 곁작업에 다른 모델이 섞여 들어오므로, 대화에 쓰인 모델의 창 크기를 골라야 한다.
+  const models = Object.entries((event.modelUsage ?? {}) as Record<string, Record<string, unknown>>)
+  const named = models.find(([key, entry]) => key.includes(model) || String(entry.canonicalModel ?? '').includes(model))
+  const busiest = models.slice().sort((a, b) => Number(b[1].inputTokens ?? 0) - Number(a[1].inputTokens ?? 0))[0]
+  const contextWindow = Number((named ?? busiest)?.[1]?.contextWindow ?? 0)
+  if (!(contextWindow > 0 && usedTokens > 0)) return undefined
+  return { context: { usedTokens, contextWindow } }
 }
 
 function sessionsPath() { return path.join(app.getPath('userData'), 'sessions.json') }
@@ -839,7 +950,14 @@ async function checkMcpAnchorRequest() {
   mainWindow?.show(); mainWindow?.focus()
 }
 
-ipcMain.handle('providers:list', () => providerInfo())
+ipcMain.handle('providers:list', () => {
+  const info = providerInfo()
+  // 앱을 켜자마자, 그리고 상태를 새로고침할 때마다 한도를 받아온다. 둘 다 모델을 부르지 않아 공짜다.
+  // 로그인된 CLI 에만 물어본다 — 안 쓰는 쪽 프로세스를 괜히 띄우지 않으려고.
+  if (info.find((provider) => provider.id === 'codex')?.available) void refreshCodexRateLimits()
+  if (info.find((provider) => provider.id === 'claude')?.available) void refreshClaudeRateLimits()
+  return info
+})
 
 ipcMain.handle('provider:login', (event, providerId: unknown) => {
   if (providerId !== 'codex' && providerId !== 'claude') throw new Error('지원하지 않는 CLI입니다.')

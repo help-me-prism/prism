@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('prism', {
   onChatEvent: (callback: (event: unknown) => void) => subscribe('chat:event', callback),
   onChatDone: (callback: (event: unknown) => void) => subscribe('chat:done', callback),
   onChatError: (callback: (event: unknown) => void) => subscribe('chat:error', callback),
+  onProviderRateLimits: (callback: (event: unknown) => void) => subscribe('provider:ratelimits', callback),
   onTranslationProgress: (callback: (event: unknown) => void) => subscribe('translation:progress', callback),
   onTranslationDone: (callback: (event: unknown) => void) => subscribe('translation:done', callback),
   onTranslationError: (callback: (event: unknown) => void) => subscribe('translation:error', callback),
