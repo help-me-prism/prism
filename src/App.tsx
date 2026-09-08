@@ -93,6 +93,63 @@ function withoutReferences(text: string) { return text.replace(referencePattern,
 
 function placementKey(anchor: ContextAnchor) { return anchor.placementId ?? `${anchor.paperId}-${anchor.anchorId}` }
 
+function compactTokens(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(value)
+}
+
+function resetsIn(window: ProviderRateLimitWindow) {
+  const minutes = Math.round(((window.resetsAt ?? 0) * 1000 - Date.now()) / 60_000)
+  // 남은 시간을 셀 수 있으면 그렇게 보여주고, 아니면 CLI 가 준 문장을 그대로 쓴다.
+  if (!Number.isFinite(minutes) || minutes <= 0) return window.resetsText
+  if (minutes < 60) return `${minutes}분 후 초기화`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours}시간 후 초기화` : `${Math.round(hours / 24)}일 후 초기화`
+}
+
+function UsageMeter({ label, percent, detail, title }: { label: string; percent: number; detail?: string; title?: string }) {
+  const clamped = Math.max(0, Math.min(100, percent))
+  // 남은 양이 얼마 없을 때만 색으로 알린다. 평소에는 조용히 있어야 매번 쳐다보지 않는다.
+  const level = clamped >= 95 ? 'critical' : clamped >= 80 ? 'warn' : 'calm'
+  return (
+    <div className={`usage-meter ${level}`} title={title}>
+      <span className="usage-label">{label}</span>
+      <span className="usage-track"><span className="usage-fill" style={{ width: `${clamped}%` }} /></span>
+      <span className="usage-value">{clamped < 10 ? clamped.toFixed(1) : Math.round(clamped)}%</span>
+      {detail && <small>{detail}</small>}
+    </div>
+  )
+}
+
+function SessionUsage({ session, rateLimits }: { session: ChatSession; rateLimits?: ProviderRateLimits }) {
+  const context = session.usage?.context
+  const plan = rateLimits
+  if (!context && !plan) return null
+  return (
+    <div className="session-usage">
+      {context && <UsageMeter
+        label="컨텍스트"
+        percent={(context.usedTokens / context.contextWindow) * 100}
+        detail={`${compactTokens(context.usedTokens)} / ${compactTokens(context.contextWindow)}`}
+        title="직전 요청이 담고 간 대화 전체가 모델 컨텍스트에서 차지하는 비율"
+      />}
+      {plan?.primary && <UsageMeter
+        label={plan.primary.label ?? '세션 한도'}
+        percent={plan.primary.usedPercent}
+        detail={resetsIn(plan.primary)}
+        title="요금제의 단기 사용 한도 — 이 계정으로 다른 곳에서 쓴 몫까지 함께 쌓인다"
+      />}
+      {plan?.secondary && <UsageMeter
+        label={plan.secondary.label ?? '주간 한도'}
+        percent={plan.secondary.usedPercent}
+        detail={resetsIn(plan.secondary)}
+        title="요금제의 주간 사용 한도 — 이 계정으로 다른 곳에서 쓴 몫까지 함께 쌓인다"
+      />}
+    </div>
+  )
+}
+
 function textWithPlacedReferences(text: string, anchors: ContextAnchor[]) {
   return anchors.map((anchor, index) => ({ anchor, index })).filter(({ anchor }) => typeof anchor.textOffset === 'number').sort((a, b) => (b.anchor.textOffset ?? 0) - (a.anchor.textOffset ?? 0) || b.index - a.index).reduce((value, { anchor }) => {
     const offset = Math.max(0, Math.min(text.length, anchor.textOffset ?? 0))
@@ -170,6 +227,7 @@ function App() {
   const [trashedSessions, setTrashedSessions] = useState<ChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [rateLimits, setRateLimits] = useState<Partial<Record<ProviderId, ProviderRateLimits>>>({})
   const [runningIds, setRunningIds] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -254,6 +312,13 @@ function App() {
           return { ...session, messages, updatedAt: Date.now() }
         }))
       }
+      if (event.type === 'usage') {
+        const context = event.context as ChatContextUsage | undefined
+        if (!context) return
+        setSessions((current) => current.map((session) => session.id === sessionId
+          ? { ...session, usage: { ...session.usage, context } }
+          : session))
+      }
     })
     const offDone = window.prism.onChatDone((payload) => {
       if (!payload || typeof payload !== 'object') return
@@ -268,7 +333,12 @@ function App() {
         setRunningIds((current) => current.filter((id) => id !== event.sessionId))
       }
     })
-    return () => { offEvent(); offDone(); offError() }
+    // 사용 한도는 계정 단위라 대화가 아니라 앱 전체에 걸린다.
+    const offRateLimits = window.prism.onProviderRateLimits((event) => {
+      if (!event || typeof event !== 'object') return
+      setRateLimits((current) => ({ ...current, [event.provider]: { primary: event.primary, secondary: event.secondary } }))
+    })
+    return () => { offEvent(); offDone(); offError(); offRateLimits() }
   }, [])
 
   useEffect(() => {
@@ -570,6 +640,7 @@ function App() {
             <label><span>CLI</span><select value={activeSession.provider} disabled={isRunning} onChange={(event) => changeProvider(event.target.value as ProviderId)}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label>
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
+          <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
           <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.arxivId).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>AI가 보고 있는 논문</header>{workspaceState.library.map((paper) => { const selected = contextPaperIds.includes(paper.arxivId); return <button key={paper.arxivId} onClick={() => setContextPaperIds((current) => selected ? current.filter((id) => id !== paper.arxivId) : [...current, paper.arxivId])}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>
