@@ -263,8 +263,11 @@ try {
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-save')?.textContent.includes('저장됨')`), 'The save indicator stayed busy after autosave.', 8000)
 
   // Unresolved [[links]] become inbox concept stubs once editing settles.
-  await waitFor(async () => { try { await fs.stat(path.join(libraryPath, 'Concepts', 'Score matching.md')); return true } catch { return false } }, 'An unresolved wiki link did not become an inbox concept stub.', 12000)
-  assert((await fs.readFile(path.join(libraryPath, 'Concepts', 'Score matching.md'), 'utf8')).includes('status: inbox'), 'The generated stub is not an inbox concept.')
+  // Wait for what is being asserted, not for the file to exist: a stub is created and then given its
+  // properties, so a read that arrives between the two sees a concept without a status and fails for timing.
+  await waitFor(async () => {
+    try { return (await fs.readFile(path.join(libraryPath, 'Concepts', 'Score matching.md'), 'utf8')).includes('status: inbox') } catch { return false }
+  }, 'An unresolved wiki link did not become an inbox concept stub.', 12000)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.classList.contains('is-stub') && button.textContent.includes('Score matching'))`), 'The new stub did not appear in the tree as a stub.', 8000)
 
   // ---------- the researcher's own section is opened on request, never before ----------
