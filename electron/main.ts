@@ -52,7 +52,9 @@ function findCli(name: string): string | null {
     try { accessSync(override, fsConstants.X_OK); return override } catch { /* continue with discovery */ }
   }
   const command = process.platform === 'win32' ? 'where.exe' : 'which'
-  const result = spawnSync(command, [name], { encoding: 'utf8', windowsHide: true })
+  // 보정한 PATH 로 조회한다. DMG 의 제한된 PATH 로는 which 가 늘 실패해 아래 고정 후보로만
+  // 폴백했고, nvm/volta 처럼 그 목록에 없는 곳에 깐 CLI 는 끝내 찾지 못했다.
+  const result = spawnSync(command, [name], { encoding: 'utf8', windowsHide: true, env: buildCliEnv() })
   if (result.status === 0) {
     const candidates = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     const discovered = candidates.find((candidate) => process.platform !== 'win32' || candidate.toLowerCase().endsWith('.exe')) ?? candidates[0]
@@ -101,14 +103,18 @@ function buildCliEnv(): NodeJS.ProcessEnv {
   const nodenvShims = path.join(home, '.nodenv', 'shims')
   try { accessSync(nodenvShims, fsConstants.X_OK); extra.unshift(nodenvShims) } catch { /* nodenv 없음 */ }
 
+  // 원래 PATH 를 앞에 두고 보정 경로는 뒤에 붙인다. 터미널 실행처럼 PATH 가 이미 온전하면
+  // 고르는 node 가 그대로라 nvm 사용자의 버전이 바뀌지 않고, DMG 처럼 node 가 없을 때만 보정이 쓰인다.
   const current = process.env.PATH ?? ''
-  const merged = [...extra, ...current.split(':')].filter(Boolean)
+  const merged = [...current.split(':'), ...extra].filter(Boolean)
   const deduped = [...new Set(merged)]
   return { ...process.env, PATH: deduped.join(':') }
 }
 
 function spawnCli(executable: string, args: string[], options: SpawnOptionsWithoutStdio): ChildProcessWithoutNullStreams {
-  const env = options.env ?? buildCliEnv()
+  // options.env 는 보정된 CLI 환경을 대체하지 않고 그 위에 얹는다. 예전에는 덮어쓰는 구조라
+  // NO_COLOR 하나 넘기려던 호출부가 PATH 보정까지 잃고 DMG 에서 node 를 못 찾아 즉시 죽었다.
+  const env = { ...buildCliEnv(), ...options.env }
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable)) {
     return spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${executable}"`, ...args], { ...options, env, stdio: ['pipe', 'pipe', 'pipe'] })
   }
@@ -157,9 +163,11 @@ function providerInfo() {
       claudeStatus = claudeAuth?.error ? '로그인 상태 확인 실패' : 'CLI 설치됨 · 로그인 필요'
     }
   }
+  // installed 는 available 과 다르다. 설치는 됐지만 로그인만 안 된 상태와, CLI 자체가 없는 상태는
+  // 사용자가 해야 할 일이 다르므로 화면에서도 다른 버튼을 보여줘야 한다.
   return [
-    { id: 'codex', name: 'Codex', available: codexAvailable, status: codexStatus, models: codexModels() },
-    { id: 'claude', name: 'Claude', available: claudeAvailable, status: claudeStatus, models: [
+    { id: 'codex', name: 'Codex', installed: Boolean(codexExecutable), available: codexAvailable, status: codexStatus, models: codexModels() },
+    { id: 'claude', name: 'Claude', installed: Boolean(claudeExecutable), available: claudeAvailable, status: claudeStatus, models: [
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
       { id: 'haiku', name: 'Claude Haiku', description: '빠르고 효율적인 응답' },
@@ -183,7 +191,7 @@ class CodexAppServer {
   private async start() {
     const executable = findCli('codex')
     if (!executable) throw new Error('Codex CLI를 찾지 못했습니다.')
-    this.process = spawnCli(executable, ['app-server', '--stdio'], { cwd: app.getPath('documents'), env: { ...process.env, NO_COLOR: '1' }, windowsHide: true })
+    this.process = spawnCli(executable, ['app-server', '--stdio'], { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
     this.process.stdout.setEncoding('utf8')
     this.process.stdout.on('data', (chunk: string) => this.onData(chunk))
     this.process.stderr.setEncoding('utf8')
@@ -310,7 +318,7 @@ function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPath?: s
     ? ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--allowedTools', chatMcpTools.join(','), '--mcp-config', mcpConfigPath, '--append-system-prompt', chatMemoryInstruction, '--model', request.model]
     : ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'plan', '--model', request.model]
   if (request.providerThreadId) args.push('--resume', request.providerThreadId)
-  const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { ...process.env, NO_COLOR: '1' }, windowsHide: true })
+  const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
   activeChats.set(request.sessionId, { provider: 'claude', process: child })
   let buffer = ''; let stderr = ''; let receivedDelta = false
   child.stdout.setEncoding('utf8')
@@ -720,7 +728,7 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   const args = provider === 'codex'
     ? ['exec', '--json', '--color', 'never', '--sandbox', 'read-only', '--skip-git-repo-check', '--model', model, '-']
     : ['-p', '--output-format', 'json', '--permission-mode', 'plan', '--model', model]
-  const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { ...process.env, NO_COLOR: '1' }, windowsHide: true })
+  const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
   translationJobs.set(jobKey, child)
   let stdout = ''; let stderr = ''
   child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { stdout += chunk })

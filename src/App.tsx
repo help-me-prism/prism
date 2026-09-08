@@ -5,7 +5,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import {
-  BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, FileText, FolderOpen, Image,
+  BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, ExternalLink, FileText, FolderOpen, Image,
   MessageSquareText, Plus, RefreshCw, RotateCcw, SendHorizontal, Settings2, Sigma, Table2,
   Sparkles, Square, StickyNote, TextQuote, Trash2, Undo2, X,
 } from 'lucide-react'
@@ -18,6 +18,12 @@ const suggestions = [
   '연구 방법론의 한계는 무엇일까?',
   '처음 읽는 사람을 위한 배경지식을 설명해줘',
 ]
+
+// CLI \uAC00 \uC124\uCE58\uB418\uC9C0 \uC54A\uC558\uC744 \uB54C \uC548\uB0B4\uD560 \uACF5\uC2DD \uC124\uCE58 \uBB38\uC11C. \uC571\uC774 \uB300\uC2E0 \uC124\uCE58\uD558\uC9C0\uB294 \uC54A\uB294\uB2E4.
+const installGuides: Record<ProviderId, string> = {
+  codex: 'https://github.com/openai/codex',
+  claude: 'https://code.claude.com/docs/en/setup',
+}
 
 const composerCaretSentinel = '\u200B'
 
@@ -612,9 +618,11 @@ function App() {
               <div className="provider-auth-actions">
                 {provider.available
                   ? <button className="provider-auth-btn" onClick={() => void logoutProvider(provider.id)} disabled={authInProgress !== null}>로그아웃</button>
-                  : authInProgress === provider.id
-                    ? <span className="provider-auth-waiting">로그인 중…</span>
-                    : <button className="provider-auth-btn provider-auth-btn--login" onClick={() => void loginProvider(provider.id)} disabled={authInProgress !== null}>로그인</button>
+                  : !provider.installed
+                    ? <button className="provider-auth-btn" onClick={() => window.open(installGuides[provider.id], '_blank', 'noopener')}>설치 방법 <ExternalLink size={12} /></button>
+                    : authInProgress === provider.id
+                      ? <span className="provider-auth-waiting">로그인 중…</span>
+                      : <button className="provider-auth-btn provider-auth-btn--login" onClick={() => void loginProvider(provider.id)} disabled={authInProgress !== null}>로그인</button>
                 }
               </div>
             </div>
