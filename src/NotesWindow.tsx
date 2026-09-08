@@ -237,7 +237,7 @@ export default function NotesWindow() {
       <button aria-label="정리 대기열" title="정리 대기열" aria-pressed={view === 'curation'} onClick={() => { setView('curation'); void reloadCuration() }}>
         <Inbox size={17} />{curation?.total ? <em>{curation.total}</em> : null}<b>정리</b>
       </button>
-      <button aria-label="그래프" title="볼트 전체 그래프" aria-pressed={view === 'graph'} onClick={() => setView('graph')}><Network size={17} /><b>그래프</b></button>
+      <button aria-label="지식 그래프" title="볼트 전체 지식 그래프 — 노트 사이의 관계. 논문 한 편의 구조는 리더의 구조 맵에 있습니다." aria-pressed={view === 'graph'} onClick={() => setView('graph')}><Network size={17} /><b>지식 그래프</b></button>
       <button aria-label="검색" title="볼트 검색" onClick={() => searchRef.current?.focus()}><Search size={17} /><b>검색</b></button>
       <span className="rail-spacer" />
       <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><PanelRight size={17} /><b>연결</b></button>
@@ -311,7 +311,7 @@ export default function NotesWindow() {
           <button className="tab-close" aria-label={`${node.title} 탭 닫기`} onClick={() => closeTab(node.id)}><X size={11} /></button>
         </div>)}
         {view === 'curation' && <div className="notes-tab on"><button role="tab" aria-selected="true"><Inbox size={11} /> 정리 대기열</button></div>}
-        {view === 'graph' && <div className="notes-tab on"><button role="tab" aria-selected="true"><Network size={11} /> 전체 그래프</button></div>}
+        {view === 'graph' && <div className="notes-tab on"><button role="tab" aria-selected="true"><Network size={11} /> 볼트 지식 그래프</button></div>}
       </div>
 
       {notice && <div className={`notes-notice${notice.tone === 'error' ? ' is-error' : ''}`} role="status">

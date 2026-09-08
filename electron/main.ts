@@ -21,6 +21,7 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo, type MergeConceptsRequest, type PromoteApplyRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
+import { readPaperStructure, refinePaperStructure } from './paperStructure.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 import { decideCodexServerRequest } from './codexApproval.js'
@@ -1153,6 +1154,21 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   if (options !== undefined && (typeof options !== 'object' || options === null || (options.refresh !== undefined && typeof options.refresh !== 'boolean'))) throw new Error('인용 조회 옵션이 올바르지 않습니다.')
   if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
   return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
+})
+ipcMain.handle('paper:structure', async (_event, arxivId: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  return readPaperStructure(settings.libraryPath, arxivId)
+})
+ipcMain.handle('paper:structure:refresh', async (_event, arxivId: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
+  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  const jobKey = `structure-${arxivId}-${Date.now()}`
+  return refinePaperStructure(settings.libraryPath, arxivId, record?.title ?? arxivId, provider, model,
+    (prompt) => runTranslationCli(provider, model, prompt, jobKey))
 })
 ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, options?: { useModel?: boolean }) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
