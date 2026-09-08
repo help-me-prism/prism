@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('prism', {
   onVaultChanged: (callback: (event: unknown) => void) => subscribe('knowledge:vault-changed', callback),
   restoreKnowledgeNode: (trashedRelativePath: string) => ipcRenderer.invoke('knowledge:restore', trashedRelativePath),
   listPaperCitations: (arxivId: string, options?: unknown) => ipcRenderer.invoke('paper:citations', arxivId, options),
+  readPaperStructure: (arxivId: string) => ipcRenderer.invoke('paper:structure', arxivId),
   runModelSuggestions: (paperNodeId: string) => ipcRenderer.invoke('research:suggest:model', paperNodeId),
   reviewModelSuggestion: (request: unknown) => ipcRenderer.invoke('research:suggest:model:review', request),
   promoteMemo: (request: unknown) => ipcRenderer.invoke('knowledge:curation:promote-memo', request),

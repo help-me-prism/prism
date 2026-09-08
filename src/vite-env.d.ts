@@ -49,6 +49,12 @@ type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; 
 type CitationEntry = { arxivId?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
 type CitationLinks = { arxivId: string; fetchedAt: string; references: CitationEntry[]; citations: CitationEntry[]; stale: boolean; error?: string }
 type MergeConceptsRequest = { sourceId: string; targetId: string }
+type StructureRole = 'problem' | 'background' | 'method' | 'component' | 'rationale' | 'experiment' | 'result' | 'limit'
+type StructureEdgeType = 'then' | 'part' | 'needs' | 'supports' | 'branches' | 'contrasts'
+type StructureOrigin = 'outline' | 'model'
+type StructureNode = { id: string; role: StructureRole; label: string; labelKo?: string; section: string; level: number; page: number; anchorId: string; evidence: string[]; summary?: string; roleOrigin: StructureOrigin }
+type StructureEdge = { id: string; from: string; to: string; type: StructureEdgeType; origin: StructureOrigin; why?: string }
+type PaperStructure = { version: 1; paperId: string; generatedAt: string; source: StructureOrigin; sourceHash: string; nodes: StructureNode[]; edges: StructureEdge[]; notes: string[]; model?: { provider: string; model: string; ranAt: string } }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
 type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
@@ -131,6 +137,7 @@ interface Window {
     onVaultChanged: (callback: (event: { paths: string[] }) => void) => () => void
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
+    readPaperStructure: (arxivId: string) => Promise<PaperStructure>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
     reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>
     promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>

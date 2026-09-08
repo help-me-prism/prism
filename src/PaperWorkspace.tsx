@@ -6,6 +6,7 @@ import {
   FolderOpen, Image, Languages, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
   Settings2, Sigma, Sparkles, Square, Table2, Tag, Unlink2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
+import PaperMap from './paper/PaperMap'
 import PaperPanes from './paper/PaperPanes'
 import {
   activateKind, closeKind, describeLayout, groupHolding, moveKindToGroup, openKinds, paneGroups, paneKinds,
@@ -19,7 +20,7 @@ type PdfTextItem = { str: string; width: number; height: number; transform: numb
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
 type ItemRect = { left: number; top: number; width: number; height: number }
 /** Which windows this reader can draw. The structure map joins the list once it exists. */
-const readerKinds: PaneKind[] = ['original', 'translated']
+const readerKinds: PaneKind[] = ['original', 'translated', 'map']
 
 /**
  * A paper reopens in the arrangement it was left in. This is view state, not research, so it stays in the
@@ -587,6 +588,12 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     try { setBacklinkPanel({ anchor, items: await window.prism.listEvidenceBacklinks(anchor), loading: false }) }
     catch (reason) { setBacklinkPanel({ anchor, items: [], loading: false, error: String(reason) }) }
   }
+  /** A node in the structure map points at a heading; the reader goes there the same way a note link does. */
+  function openAnchorFromMap(anchorId: string, page: number) {
+    setPageNumber(page)
+    const anchor = anchorCatalog.find((item) => item.anchorId === anchorId)
+    if (anchor) setPendingAnchor(anchor); else scrollToPage(page)
+  }
   function findSegmentNotes(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) void showBacklinks(anchor) }
   async function saveFigure(page: number, dataUrl: string, preview: string, rect: { x: number; y: number; width: number; height: number }, sourceFigure?: PaperFigureAsset) { if (!activePaper) return; const number = Date.now().toString(36); const figureId = sourceFigure ? `source-${sourceFigure.id}-${number}` : `figure-p${page}-${number}`; try { const imagePath = await window.prism.savePaperFigure(activePaper.arxivId, figureId, dataUrl, { page, rect, sourceFigureId: sourceFigure?.id, sourcePath: sourceFigure?.sourcePath, caption: sourceFigure?.caption }); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: figureId, type: 'figure', page, label: `피겨${page}-${sourceFigure ? sourceFigure.order + 1 : number.slice(-3)}`, source: `${sourceFigure ? `Matched LaTeX figure ${sourceFigure.order + 1}. Caption: ${sourceFigure.caption ?? 'unknown'}. Source asset: ${sourceFigure.sourcePath ?? 'unavailable'}. ` : ''}Saved figure image: ${imagePath}. Normalized bounds: ${JSON.stringify(rect)}`, preview }); if (!sourceFigure) setFigureSelect(false) } catch (reason) { setError(String(reason)) } }
   function scrollAnchor(pane: HTMLDivElement | null) {
@@ -668,6 +675,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
         layout={layout} onLayout={applyLayout}
         views={{
           original: <div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div>,
+          map: <PaperMap paperId={activePaper?.arxivId} revision={allSegments.length} onOpenAnchor={openAnchorFromMap} />,
           translated: <div className="document-scroll translated-document" ref={translatedScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div>,
         }}
         headers={{
