@@ -2,17 +2,20 @@
 
 export const typeLabels: Record<KnowledgeNodeType, string> = { paper: '논문', concept: '개념', claim: '주장', insight: '해석', question: '질문', project: '프로젝트' }
 export const typeFolders: Record<KnowledgeNodeType, string> = { paper: 'papers', concept: 'concepts', claim: 'claims', insight: 'insights', question: 'questions', project: 'projects' }
-export const statusLabels: Record<KnowledgeStatus, string> = { inbox: '수집됨', developing: '발전 중', established: '정리됨', archived: '보관됨' }
+export const statusLabels: Record<KnowledgeStatus, string> = { inbox: '수집됨', developing: '발전 중', understood: '이해함', established: '정리됨', archived: '보관됨' }
 export const readingStatusLabels: Record<KnowledgeReadingStatus, string> = { to_read: '읽을 예정', reading: '읽는 중', read: '읽음', paused: '보류' }
-export const levelLabels: Record<KnowledgeLevel, string> = { low: '낮음', medium: '보통', high: '높음' }
 export const claimOriginLabels: Record<ClaimOrigin, string> = { paper: '논문의 주장', mine: '내 해석' }
-export const evidenceKindLabels: Record<EvidenceKind, string> = { theory: '이론', experiment: '실험', anecdote: '일화', idea: '아이디어' }
 export const relationLabels: Record<KnowledgeRelationType, string> = {
   defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문 제기', answers: '답함',
+  link: '링크',
   mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련',
 }
-/** Types offered when creating a note. Insight and Project stay readable but are no longer authored as nodes. */
-export const creatableTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question']
+/**
+ * Types offered when creating a note. Project is here because the vault has one axis that is in no paper —
+ * what the researcher is actually working on — and it is what makes "everything related to X" a question this
+ * library can answer. Insight stays readable but is no longer authored: it was absorbed into Claim.
+ */
+export const creatableTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'project']
 export const treeTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'insight', 'project']
 export const primaryRelationTypes: KnowledgeRelationType[] = ['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers']
 
@@ -38,8 +41,15 @@ export function scopeConflict(left: KnowledgeNodeRecord, right: KnowledgeNodeRec
   return undefined
 }
 
-export function nodePath(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.replace(/\.md$/i, '') }
-export function fileName(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.split('/').at(-1) ?? node.relativePath }
-export function splitList(value: string) { return value.split(/[,、]/).map((item) => item.trim()).filter(Boolean) }
 /** A concept that only exists because something linked to it: no body yet, waiting in the queue. */
 export function isStub(node: KnowledgeNodeRecord) { return node.nodeType === 'concept' && node.status === 'inbox' }
+
+/** The generated sections, by the heading they carry in the file — used to name what changed. */
+export const autoSectionLabels: Record<string, string> = {
+  overview: '한눈에', confusion: '내가 헷갈린 것', focus: '내가 주목한 것', sources: '어디서 나왔나',
+  support: '지지 근거', against: '반박', answers: '지금까지 나온 답', asked: '대화에서 물어본 것',
+  definition: '정의', stake: '무엇에 달려 있나', relations: '이 노트의 관계',
+}
+
+export function nodePath(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.replace(/\.md$/i, '') }
+export function fileName(node: Pick<KnowledgeNodeRecord, 'relativePath'>) { return node.relativePath.split('/').at(-1) ?? node.relativePath }

@@ -403,6 +403,8 @@ function App() {
     const assistantAnchors = selectedAnchors.map(({ placementId: _placementId, textOffset: _textOffset, ...anchor }) => anchor).filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index)
     const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor, occurrence) => { const offset = anchor.textOffset ?? 0; return `<anchor ref="@${anchor.label}" occurrence="${occurrence + 1}" text_offset="${offset}" before=${JSON.stringify(prompt.slice(Math.max(0, offset - 40), offset))} after=${JSON.stringify(prompt.slice(offset, offset + 40))} type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>` }).join('\n')}\n</prism_context>\nThe [@...] references occur at the exact positions shown in the user request. Preserve their order and interpret each reference using its surrounding sentence.` : ''
     const promptWithContext = [inlinePrompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
+    // Remember which papers this exchange was about so the notes can tell what the reader was working through.
+    const contextPaperIdsForMessage = [...new Set([...selectedPapers.map((paper) => paper.arxivId), ...selectedAnchors.map((anchor) => anchor.paperId), workspaceState.activePaperId].filter((value): value is string => Boolean(value)))]
     const now = Date.now()
     setFollowChat(true)
     setInput('')
@@ -414,8 +416,8 @@ function App() {
       updatedAt: now,
       messages: [
         ...session.messages,
-        { id: uniqueId('user'), role: 'user', text: prompt, createdAt: now, anchors: selectedAnchors },
-        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors },
+        { id: uniqueId('user'), role: 'user', text: prompt, createdAt: now, anchors: selectedAnchors, paperIds: contextPaperIdsForMessage },
+        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors, paperIds: contextPaperIdsForMessage },
       ],
     }))
     setContextAnchors([])

@@ -192,8 +192,13 @@ async function setField(connection, tag, label, value, event) {
   })()`)
 }
 const setInput = (connection, label, value, tag = 'input') => setField(connection, tag, label, value, 'input')
+// Properties start folded so the writing is the first thing on screen; editing one means opening them.
+async function openProperties(connection) {
+  await connection.evaluate(`(() => { const box = document.querySelector('details.note-props'); if (box) box.open = true; return true })()`)
+}
 // Property text fields commit on blur, the way a document field should.
 async function setPropertyText(connection, label, value) {
+  await openProperties(connection)
   await connection.evaluate(`(() => {
     const field = document.querySelector('.prop-text[aria-label="' + ${JSON.stringify(label)} + '"]');
     if (!field) throw new Error('missing property field');
@@ -209,6 +214,7 @@ try {
   mainConnection = await connect(await waitForPage('Prism'))
   await mainConnection.evaluate('window.prism.openNotes()')
   notesConnection = await connect(await waitForPage('Prism Notes'))
+  await notesConnection.evaluate(`(() => { window.__vaultEvents = []; window.prism.onVaultChanged((event) => window.__vaultEvents.push(event)) })()`)
   await notesConnection.send('Emulation.setDeviceMetricsOverride', { width: 1420, height: 900, deviceScaleFactor: 1, mobile: false })
   await sleep(500)
   previousClipboard = await readSystemClipboard()
@@ -241,7 +247,9 @@ try {
   })`)
   const openedState = JSON.parse(opened)
   assert(openedState.tabs.length === 1 && openedState.tabs[0].includes('Editor fixture'), `The note did not open in a tab: ${opened}`)
-  assert(openedState.props.includes('유형') && openedState.props.includes('상태') && openedState.props.includes('읽기'), `The properties table is missing paper rows: ${opened}`)
+  // Only properties something reads survive: the type row repeated the chip above the title, and nothing
+  // ever looked at importance or confidence.
+  assert(openedState.props.includes('상태') && openedState.props.includes('읽기') && !openedState.props.includes('유형') && !openedState.props.includes('중요도 · 확신도'), `The paper properties are not the trimmed set: ${opened}`)
   assert(openedState.frontmatterHidden, 'Live editing exposed raw frontmatter.')
   assert(openedState.reader, 'A paper note did not offer to open the Reader.')
   await notesConnection.send('Page.captureScreenshot', { format: 'png' }).then(async (shot) => { await fs.mkdir(path.resolve('tmp/ui'), { recursive: true }); await fs.writeFile(path.resolve('tmp/ui/notes-shell.png'), Buffer.from(shot.data, 'base64')) })
@@ -259,8 +267,26 @@ try {
   assert((await fs.readFile(path.join(libraryPath, 'Concepts', 'Score matching.md'), 'utf8')).includes('status: inbox'), 'The generated stub is not an inbox concept.')
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.classList.contains('is-stub') && button.textContent.includes('Score matching'))`), 'The new stub did not appear in the tree as a stub.', 8000)
 
+  // ---------- the researcher's own section is opened on request, never before ----------
+  // A paper offers exactly the two questions its kind of note asks, and neither exists in the file until asked for.
+  const mineButtons = await notesConnection.evaluate(`JSON.stringify([...document.querySelectorAll('.note-hint .note-write-mine')].map((button) => button.textContent.trim()))`)
+  assert(JSON.parse(mineButtons).join('|') === '아직 모르겠는 것|내 연구에 쓸 곳', `A paper note offered the wrong sections to write in: ${mineButtons}`)
+  assert(!(await fs.readFile(notePath, 'utf8')).includes('prism:mine'), 'A section belonging to the researcher was written into the file before they asked for one.')
+
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-hint .note-write-mine')].find((button) => button.textContent.includes('아직 모르겠는 것')).click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('<!-- prism:mine unresolved -->'), 'Asking for a section did not open one in the file.', 8000)
+  const ownSentence = '조건부 경로 부분이 아직 안 풀린다.'
+  await notesConnection.send('Input.insertText', { text: ownSentence })
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes(ownSentence), 'Writing in the opened section did not reach the file.', 8000)
+  const withOwnSection = await fs.readFile(notePath, 'utf8')
+  const marked = withOwnSection.slice(withOwnSection.indexOf('<!-- prism:mine unresolved -->'), withOwnSection.indexOf('<!-- /prism:mine unresolved -->'))
+  assert(marked.includes(ownSentence), `The sentence landed outside the section it was written for:\n${withOwnSection}`)
+  // The markers are how the rest of the app knows this is the researcher's; they are not something to read.
+  const shown = await notesConnection.evaluate(`JSON.stringify([...document.querySelectorAll('.note-body .cm-content .cm-line')].filter((line) => line.textContent.includes('prism:mine') && line.offsetHeight > 0).map((line) => line.textContent))`)
+  assert(shown === '[]', `The section markers are visible in the editor: ${shown}`)
+
   // ---------- block insertion through the single insert affordance ----------
-  await notesConnection.evaluate(`document.querySelector('.note-hint button').click()`)
+  await notesConnection.evaluate(`document.querySelector('.note-hint .note-insert-block').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.slash-command-menu'))`), 'The insert button did not open the block menu.')
   await notesConnection.send('Input.insertText', { text: '표' })
   await sleep(150)
@@ -383,17 +409,43 @@ try {
   await fs.writeFile(path.resolve('tmp/ui/notes-scope-warning.png'), Buffer.from(scopeShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-scope-warning button')].find((button) => button.textContent.includes('그래도')).click()`)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.rel-chip')].some((chip) => chip.textContent.includes('청크가 길면'))`), 'The confirmed contradiction did not appear as a relation chip.', 8000)
-  assert((await fs.readFile(claimPath, 'utf8')).includes('> [!abstract] 관계 · 반박함'), 'The approved relation was not written as readable Markdown.')
+  // A relation is a sidecar and a line in a generated section, not a callout copied into the note: it used
+  // to be written once per edge, at the bottom, and only into the note the edge started from.
+  const claimAfterRelation = await fs.readFile(claimPath, 'utf8')
+  assert(!claimAfterRelation.includes('> [!abstract] 관계') && !claimAfterRelation.includes('prism-relation:'), `A relation was copied into the note:
+${claimAfterRelation}`)
+  await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('<!-- prism:auto against -->'), 'The approved contradiction did not reach the generated section.', 10000)
+  assert((await fs.readFile(claimPath, 'utf8')).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
   // ---------- graph and backlinks in the standing panel ----------
-  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .graph-node').length >= 2`), 'The connections graph did not draw the new edge.')
-  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .graph-edge.contra'))`), 'A contradiction was not drawn as a contradiction edge.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
+  // The layout has to put the note the panel is about in the middle, whatever else it decides.
+  const centreOffset = await notesConnection.evaluate(`(() => {
+    const circle = document.querySelector('.side-graph .mini-node.is-center circle')
+    return circle ? Math.hypot(Number(circle.getAttribute('cx')) - 160, Number(circle.getAttribute('cy')) - 125) : -1
+  })()`)
+  assert(centreOffset >= 0 && centreOffset < 1, `The open note is not at the centre of its own graph: ${centreOffset}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '2홉').click()`)
   await sleep(400)
   const graphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-panel.png'), Buffer.from(graphShot.data, 'base64'))
+
+  // ---------- the whole vault as one graph ----------
+  const vaultGraph = await notesConnection.evaluate(`window.prism.listKnowledgeGraph().then((graph) => ({ nodes: graph.nodes.length, edges: graph.edges.length, links: graph.edges.filter((edge) => edge.origin === 'link').length }))`)
+  assert(vaultGraph.nodes >= 4 && vaultGraph.edges >= 2, `The vault graph is missing nodes or edges: ${JSON.stringify(vaultGraph)}`)
+  assert(vaultGraph.links >= 1, 'A [[link]] written in the note did not become an edge of the vault graph.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('그래프')).click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.graph-view .graph-canvas-full')) && !document.querySelector('.graph-view-empty')`), 'The full graph view did not draw.', 8000)
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.graph-types .graph-chip').length >= 2`), 'The full graph is missing its type filters.')
+  const graphStatus = await notesConnection.evaluate(`document.querySelector('.graph-status span').textContent`)
+  assert(/\d+/.test(graphStatus), `The full graph does not report what it is showing: ${graphStatus}`)
+  await sleep(500)
+  const fullGraphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
+  await fs.writeFile(path.resolve('tmp/ui/notes-graph-view.png'), Buffer.from(fullGraphShot.data, 'base64'))
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('노트')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Score matching')).click()`)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-links .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The backlink panel did not show the note that links here.', 8000)
 
@@ -404,11 +456,21 @@ try {
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
-  // CodeMirror only renders the visible slice, so scroll to where the capture landed.
+  // CodeMirror renders only the slice it believes is visible, and setting the container's scrollTop does not
+  // make it look further. Scrolling to the last line it has rendered does, and repeating that walks the
+  // viewport to the end of the document a screen at a time.
   await waitFor(async () => {
-    await notesConnection.evaluate(`(() => { const scroller = document.querySelector('.note-doc-scroll'); if (scroller) scroller.scrollTop = scroller.scrollHeight })()`)
+    await notesConnection.evaluate(`(() => { const lines = document.querySelectorAll('.note-body .cm-line'); lines[lines.length - 1]?.scrollIntoView({ block: 'end' }) })()`)
+    await sleep(120)
     return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
-  }, 'The open note did not reload the externally captured memo.', 10000)
+  }, 'The open note did not reload the externally captured memo.', 20000)
+
+  // ---------- what wrote itself is marked until it has been read ----------
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-auto-read button'))`), 'A note that wrote itself did not offer to be marked as read.', 10000)
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'The tree did not mark the note that wrote itself.', 8000)
+  await notesConnection.evaluate(`document.querySelector('.note-auto-read button').click()`)
+  // Only this note is retired: the other notes that wrote themselves keep their own marks.
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-auto-read') && ![...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'Marking a note as read did not clear it.', 8000)
 
   // ---------- curation queue: promote a memo into a claim ----------
   await notesConnection.evaluate(`document.querySelector('.notes-rail button[aria-label="정리 대기열"]').click()`)
@@ -431,7 +493,8 @@ try {
   // ---------- citation layer is cache-only under test ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.side-citations'))`), 'A paper note did not show the citation layer.', 8000)
-  assert(await notesConnection.evaluate(`document.querySelector('.side-citations .side-empty')?.textContent.includes('새로고침')`), 'The citation layer fetched without an explicit refresh.')
+  // Nothing fetched means nothing rendered: the header and its refresh button are the whole section.
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.side-citations .citation-row').length === 0 && !document.querySelector('.side-citations .citation-meta')`), 'The citation layer fetched without an explicit refresh.')
 
   // ---------- Obsidian navigation keeps native paths ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.getAttribute('aria-label') === '노트 메뉴').click()`)
@@ -440,6 +503,15 @@ try {
   await waitFor(async () => { try { return (await fs.readFile(externalUrlLog, 'utf8')).trim().length > 0 } catch { return false } }, 'Opening Obsidian did not invoke a URI.')
   const obsidianTarget = new URL((await fs.readFile(externalUrlLog, 'utf8')).trim().split(/\r?\n/)[0]).searchParams.get('path')
   assert(obsidianTarget === notePath, `The Obsidian URI did not preserve the native absolute path: ${obsidianTarget}`)
+
+  // ---------- external change with nothing unsaved: the note follows the disk ----------
+  // Prism used to find this out by re-reading the file on a timer; now the main process names the file that
+  // moved, so this is what proves an open note still notices Obsidian writing underneath it.
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'The note never reached a saved state before the external write.', 8000)
+  const followLine = '외부 편집기가 조용히 추가한 줄.'
+  await fs.writeFile(notePath, `${await fs.readFile(notePath, 'utf8')}\n\n${followLine}\n`, 'utf8')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content').textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
+  assert(!(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-conflict'))`)), 'A note with nothing unsaved raised a conflict instead of following the disk.')
 
   // ---------- external change and conflict resolution ----------
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
@@ -452,6 +524,11 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-conflict footer button')].find((button) => button.textContent.includes('내 편집본')).click()`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('충돌 테스트 편집.'), 'Overwriting with my version did not save.', 8000)
   assert(!(await fs.readFile(notePath, 'utf8')).includes('외부 편집기가 추가한 줄.'), 'The conflict resolution kept the discarded disk version.')
+
+  // ---------- the model that writes notes is chosen where the writing happens ----------
+  const cliOptions = await notesConnection.evaluate(`JSON.stringify([...document.querySelector('.notes-status .status-model select').options].map((option) => option.value))`)
+  assert(JSON.parse(cliOptions)[0] === '' && JSON.parse(cliOptions).length > 1, `The Notes window does not offer a knowledge CLI: ${cliOptions}`)
+  assert(!(await notesConnection.evaluate(`Boolean(document.querySelectorAll('.notes-status .status-model select')[1])`)), 'A model list is showing before a CLI has been chosen.')
 
   // ---------- search ----------
   await setInput(notesConnection, '노트 검색', '역확산')
@@ -468,7 +545,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
-  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, Obsidian navigation, conflict resolution, search, and templates.\n')
+  process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)

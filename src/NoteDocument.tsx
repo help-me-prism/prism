@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 import {
-  claimOriginLabels, evidenceKindLabels, fileName, levelLabels, nodePath, primaryRelationTypes, readingStatusLabels,
-  relationLabels, relationTypesFor, scopeConflict, splitList, statusLabels, typeLabels,
+  autoSectionLabels, claimOriginLabels, fileName, nodePath, primaryRelationTypes, readingStatusLabels,
+  relationLabels, relationTypesFor, scopeConflict, statusLabels, typeLabels,
 } from './knowledgeModel'
+import { insertMineSection, mineHeadings, minePrompts, noteMine, type MineSection } from '../electron/noteContract'
 
 type Picker =
   | { kind: 'link'; query: string }
@@ -13,12 +14,13 @@ type Picker =
   | { kind: 'evidence'; query: string; relink?: EmbeddedEvidence }
   | { kind: 'evidence-claim'; query: string; evidence: EmbeddedEvidence; type: 'supports' | 'contradicts' | 'extends' }
   | { kind: 'copy-evidence'; query: string; evidence: EmbeddedEvidence }
+  | { kind: 'answer'; query: string }
 
 /**
  * One document view for every node type. Papers and knowledge notes are the same kind of thing now,
  * so the editor, properties, and evidence all live here instead of behind a modal.
  */
-export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration }: {
+export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, autoUnread, onAutoUnreadChange, contextKey }: {
   node: KnowledgeNodeRecord
   nodes: KnowledgeNodeRecord[]
   anchors: EvidenceAnchor[]
@@ -28,8 +30,9 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   onReloadContext: () => Promise<void> | void
   onOpenNode: (id: string) => void
   onNotify: (message: string, tone?: 'info' | 'error') => void
-  onOpenCuration: () => void
-}) {
+  autoUnread?: { at: number; sections: string[] }
+  onAutoUnreadChange: () => void | Promise<void>
+  onOpenCuration: () => void; contextKey: string }) {
   const [snapshot, setSnapshot] = useState<NoteSnapshot>()
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
@@ -37,14 +40,19 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [picker, setPicker] = useState<Picker>()
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleteReady, setDeleteReady] = useState(false)
-  const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') !== 'off')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  // Properties are metadata about the note, not the note. They start closed so the writing is the first thing on screen.
+  const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') === 'on')
   const [pendingContradiction, setPendingContradiction] = useState<{ message: string; run: () => Promise<void> }>()
   const [suggesting, setSuggesting] = useState(false)
+  const [digesting, setDigesting] = useState(false)
+  const digestedRef = useRef<string | undefined>(undefined)
   const contentRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined); const nodeIdRef = useRef(node.id); const stubScanRef = useRef('')
   const editorRef = useRef<MarkdownEditorHandle>(null)
 
   const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
-  const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions')
+  const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.origin !== 'link')
+  const linked = relations.filter((item) => item.reviewStatus === 'approved' && item.origin === 'link')
   const pending = relations.filter((item) => item.reviewStatus === 'pending')
   const relationGroups = useMemo(() => {
     const groups = new Map<string, KnowledgeRelationView[]>()
@@ -62,6 +70,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     .filter((anchor) => !linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId))
     .map((anchor) => ({ id: `${anchor.paperId}-${anchor.anchorId}`, label: anchor.label, description: `${evidenceTypeLabel(anchor.type)} · ${anchor.paperTitle} · p.${anchor.page}`, searchText: `${anchor.paperTitle} ${anchor.source}`, markdown: evidenceMarkdown(anchor) })), [anchors, linkedEvidence])
   const nodeTemplates = useMemo(() => templates.filter((item) => item.nodeType === node.nodeType), [templates, node.nodeType])
+  const mineSections = useMemo(() => noteMine[node.nodeType] ?? [], [node.nodeType])
 
   useEffect(() => { nodeIdRef.current = node.id }, [node.id])
   useEffect(() => { contentRef.current = content }, [content])
@@ -73,9 +82,22 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (disposed) return
       revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content)
-    }).catch((reason) => onNotify(String(reason), 'error'))
+    }).catch((reason) => { if (!disposed && loadAttempt === 0) onNotify(String(reason), 'error') })
     return () => { disposed = true }
-  }, [node.id])
+  }, [node.id, loadAttempt])
+  /**
+   * Opening a note is one read, and a read that never answered left the note on "불러오는 중" for good — the
+   * only way out was clicking another note and back. It happens when the read lands while the vault is busy
+   * being written to, which is exactly when a note is most likely to be opened. Asking again costs one file
+   * read; asking forever would only turn a missing file into a stream of complaints, so it asks three times.
+   */
+  useEffect(() => {
+    if (snapshot || loadAttempt >= 3) return
+    const retry = window.setTimeout(() => setLoadAttempt((value) => value + 1), 2500)
+    return () => window.clearTimeout(retry)
+  }, [snapshot, node.id, loadAttempt])
+  // A new note starts its own count, without provoking a second read when the count is already clean.
+  useEffect(() => { setLoadAttempt((value) => value === 0 ? value : 0) }, [node.id])
 
   async function save(force = false) {
     const id = nodeIdRef.current
@@ -99,10 +121,10 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (stubScanRef.current === contentRef.current) return
     stubScanRef.current = contentRef.current
     try {
-      const stubs = await window.prism.ensureLinkStubs(id)
+      const { stubs, added } = await window.prism.syncNoteLinks(id)
       if (stubs.length) onNotify(`[[링크]]에서 새 개념 ${stubs.length}개를 만들었습니다: ${stubs.join(', ')}`)
       if (stubs.length) await onReloadNodes()
-      await onReloadContext()
+      if (stubs.length || added) await onReloadContext(); else await onReloadContext()
     } catch { /* the note may have been deleted or renamed meanwhile */ }
   }
 
@@ -123,7 +145,16 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     window.addEventListener('beforeunload', flush)
     return () => { window.removeEventListener('beforeunload', flush); void save() }
   }, [node.id])
-  // Obsidian and the Reader write the same files, so keep watching disk while this note is open.
+  /**
+   * Obsidian and the Reader write the same files, so an open note has to follow the disk. It used to ask
+   * fifty times a minute, and asking cost a read of the whole library each time; now the main process names
+   * the files that moved and only a document that is one of them re-reads.
+   *
+   * The slow check stays, at a fifteenth of the old rate. An event is a single shot: one that arrives while
+   * this note is still loading, or a beat before the write it announces is readable, leaves the document
+   * permanently behind with nothing left to correct it. Polling was what made a missed signal self-heal, and
+   * that is worth one cached read every few seconds.
+   */
   useEffect(() => {
     if (!snapshot) return
     let disposed = false; let checking = false
@@ -142,13 +173,26 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       } catch { /* the note may have been renamed or deleted elsewhere */ }
       finally { checking = false }
     }
-    const timer = window.setInterval(() => void check(), 1200)
+    const stopWatching = window.prism.onVaultChanged(({ paths }) => { if (paths.some((item) => item.toLowerCase() === node.relativePath.toLowerCase())) void check() })
+    const timer = window.setInterval(() => void check(), 4000)
     const onFocus = () => void check()
     window.addEventListener('focus', onFocus)
-    return () => { disposed = true; window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
-  }, [node.id, snapshot?.revision])
+    // The tree reloads for its own reasons and carries a revision with it; following that as well means the
+    // document does not depend on any one signal arriving.
+    if (node.revision !== revisionRef.current) void check()
+    return () => { disposed = true; stopWatching(); window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
+  }, [node.id, node.relativePath, node.revision, snapshot?.revision])
 
   function edit(value: string) { contentRef.current = value; dirtyRef.current = true; setContent(value); setSaved(false) }
+  /** Clicking a rendered evidence card jumps back to the PDF; the card itself is not editable text. */
+  function bindEvidenceClicks(element: HTMLDivElement | null) {
+    if (!element || element.dataset.evidenceBound) return
+    element.dataset.evidenceBound = 'true'
+    element.addEventListener('prism-open-evidence', (event) => {
+      const anchor = (event as CustomEvent<EvidenceAnchorRef>).detail
+      void window.prism.openEvidenceAnchor(anchor).catch((reason) => onNotify(String(reason), 'error'))
+    })
+  }
 
   async function updateProperty(patch: KnowledgePropertyPatch) {
     if (dirtyRef.current && !(await save())) return
@@ -164,10 +208,46 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     } catch (reason) { onNotify(String(reason), 'error') }
   }
 
+  /**
+   * Keeps the mechanical part of a paper note current. The deterministic pass costs nothing and runs when the
+   * note opens; the model pass is explicit because it spends the researcher's own CLI quota.
+   */
+  async function refreshDigest(useModel: boolean) {
+    if (digesting) return
+    // Asking for a model rewrite without a model configured used to run the free pass and report "nothing to
+    // update", which is true and useless. The choice is one click away in the status bar; say so.
+    if (useModel) {
+      const settings = await window.prism.getSettings().catch(() => undefined)
+      if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI를 고르면 모델이 요약과 정의를 다시 씁니다.'); return }
+    }
+    setDigesting(true)
+    try {
+      const result = await window.prism.refreshPaperDigest(node.id, { useModel })
+      if (result.updated) {
+        const next = await window.prism.readKnowledgeNode(node.id)
+        if (nodeIdRef.current === node.id && !dirtyRef.current) {
+          revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+          setSnapshot(next); setContent(next.content); setSaved(true)
+        }
+      }
+      if (result.updated) await onAutoUnreadChange()
+      if (useModel) onNotify(result.updated ? `자동 정리를 갱신했습니다. 대화 ${result.chatMessages}건을 반영했습니다.` : '갱신할 내용이 없습니다.')
+    } catch (reason) { if (useModel) onNotify(String(reason), 'error') }
+    finally { setDigesting(false) }
+  }
+  // Opening a note is the moment it should already be written. A concept or claim is written out of its
+  // links, so it is also rewritten whenever a link to it appears or goes away.
+  const digestKey = `${node.id}:${node.nodeType === 'paper' ? '' : contextKey}`
+  useEffect(() => {
+    if (!snapshot || digestedRef.current === digestKey) return
+    digestedRef.current = digestKey
+    void refreshDigest(false)
+  }, [digestKey, snapshot])
+
   async function runModelSuggestions() {
     if (node.nodeType !== 'paper' || suggesting) return
     const settings = await window.prism.getSettings().catch(() => undefined)
-    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('리더 설정에서 지식 제안 CLI를 먼저 고르면 읽음 표시할 때 관계를 제안합니다.'); return }
+    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI를 고르면 읽음 표시할 때 관계를 제안합니다.'); return }
     setSuggesting(true); onNotify(`${settings.knowledgeModel}이(가) 이 노트를 읽고 관계와 승격 후보를 제안하는 중입니다.`)
     try {
       const summary = await window.prism.runModelSuggestions(node.id)
@@ -189,6 +269,21 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       setSnapshot(result.snapshot); setContent(result.snapshot.content); setSaved(true); setPicker(undefined)
       await onReloadContext(); await onReloadNodes()
       onNotify(`${target.title}와(과) '${relationLabels[type]}' 관계를 만들었습니다.`)
+    } catch (reason) { onNotify(String(reason), 'error') }
+  }
+  /**
+   * A question is answered by something else, so the `answers` relation belongs in the answering note —
+   * which left the one screen where the answer is obvious, the question's own, with no way to record it.
+   * Picking the answering note here writes the relation over there.
+   */
+  async function addAnswer(source: KnowledgeNodeRecord) {
+    try {
+      const other = await window.prism.readKnowledgeNode(source.id)
+      const result = await window.prism.createKnowledgeRelation({ sourceId: source.id, targetId: node.id, type: 'answers', creator: 'user', expectedRevision: other.revision })
+      if (!result.saved) { onNotify('답하는 노트가 외부에서 변경되어 관계를 추가하지 않았습니다.', 'error'); return }
+      setPicker(undefined)
+      await onReloadContext(); await onReloadNodes()
+      onNotify(`'${source.title}'이(가) 이 질문에 답한다고 기록했습니다.`)
     } catch (reason) { onNotify(String(reason), 'error') }
   }
   async function deleteRelation(item: KnowledgeRelationView) {
@@ -245,7 +340,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     } catch (reason) { onNotify(String(reason), 'error') }
   }
 
-  async function createLinkedNode(nodeType: 'concept' | 'claim', title: string) {
+  async function createLinkedNode(nodeType: 'concept' | 'claim', rawTitle: string) {
+    // A typed link may carry its folder ("Concepts/flow matching"); the note is named after the last segment.
+    const title = rawTitle.split('/').at(-1)?.trim() ?? rawTitle.trim()
+    if (!title) return undefined
+    const existing = nodes.find((item) => item.title.toLocaleLowerCase() === title.toLocaleLowerCase())
+    if (existing) return { id: existing.id, label: existing.title, target: nodePath(existing), description: typeLabels[existing.nodeType], preview: existing.preview, evidenceCount: existing.evidenceCount }
     try {
       const created = await window.prism.createKnowledgeNode({ nodeType, title })
       const next = created.nodes.find((item) => item.id === created.id)
@@ -253,6 +353,17 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (!next) return undefined
       return { id: next.id, label: next.title, target: nodePath(next), description: typeLabels[next.nodeType], preview: next.preview, evidenceCount: next.evidenceCount }
     } catch (reason) { onNotify(String(reason), 'error'); return undefined }
+  }
+  /** Follows a `[[link]]` in the body: same-name notes open, unresolved ones are created on the spot. */
+  function openWikiLink(target: string) {
+    const raw = target.replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
+    const base = raw.split('/').at(-1)
+    const match = nodes.find((item) => {
+      const itemPath = nodePath(item).toLocaleLowerCase()
+      return itemPath === raw || (!raw.includes('/') && itemPath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
+    })
+    if (match) { onOpenNode(match.id); return }
+    onNotify(`'${target}' 노트가 아직 없습니다. 저장하면 개념 노트로 만들어집니다.`)
   }
   async function insertLink(target: KnowledgeNodeRecord) {
     editorRef.current?.insertWikiLink({ id: target.id, label: target.title, target: nodePath(target), description: typeLabels[target.nodeType] })
@@ -269,6 +380,32 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       onNotify(result.addedHeadings.length ? `누락된 섹션 ${result.addedHeadings.length}개를 추가했습니다: ${result.addedHeadings.join(', ')}` : '이 양식의 섹션이 이미 모두 있습니다.')
     } catch (reason) { onNotify(String(reason), 'error') }
   }
+  /** Old templates leave a page of empty headings; clearing them is the difference between a note and a form. */
+  async function pruneSections() {
+    if (dirtyRef.current && !(await save())) return
+    try {
+      const result = await window.prism.pruneEmptySections(node.id)
+      if (!result.removed.length) { onNotify('비어 있는 섹션이 없습니다.'); return }
+      const next = await window.prism.readKnowledgeNode(node.id)
+      revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+      setSnapshot(next); setContent(next.content); setSaved(true)
+      onNotify(`빈 섹션 ${result.removed.length}개를 지웠습니다: ${result.removed.join(', ')}`)
+    } catch (reason) { onNotify(String(reason), 'error') }
+  }
+  /**
+   * The one place in the note that is the researcher's. It is created when they ask for it and never before,
+   * so a note is never a page of empty headings; once it exists the cursor lands inside it, because aiming
+   * between two hidden HTML comments is not something to ask of anyone.
+   */
+  async function openMineSection(section: MineSection) {
+    if (editorRef.current?.focusMineSection(section)) return
+    const next = insertMineSection(contentRef.current, section)
+    if (next === contentRef.current) { editorRef.current?.moveToEnd(); return }
+    edit(next)
+    // The editor has to receive the new text before there is anywhere to put the cursor.
+    window.setTimeout(() => editorRef.current?.focusMineSection(section), 0)
+  }
+
   async function removeNode() {
     if (!deleteReady) { setDeleteReady(true); onNotify('한 번 더 누르면 이 노트를 휴지통으로 보냅니다.'); return }
     try { await window.prism.deleteKnowledgeNode(node.id); setMenuOpen(false); setDeleteReady(false); await onReloadNodes(); onNotify('노트를 휴지통으로 보냈습니다.') }
@@ -278,11 +415,17 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   function runSlashAction(action: MarkdownSlashAction) {
     if (action === 'link') { setPicker({ kind: 'link', query: '' }); return }
     if (action === 'evidence') { setPicker({ kind: 'evidence', query: '' }); return }
-    if (action === 'graph') { onNotify('연결 그래프는 오른쪽 패널에 항상 열려 있습니다.'); return }
     const type: KnowledgeRelationType = action === 'supports' ? 'supports' : action === 'contradicts' ? 'contradicts' : (availableRelationTypes[0] ?? 'uses')
     openRelationPicker(type)
   }
   const availableRelationTypes = useMemo(() => primaryRelationTypes.filter((type) => nodes.some((other) => other.id !== node.id && relationTypesFor(node, other).includes(type))), [nodes, node])
+  /** Turning a plain link into a typed relation: pre-select the target so it is one click, not a search. */
+  function upgradeLink(item: KnowledgeRelationView) {
+    const target = nodes.find((candidate) => candidate.id === item.other.id)
+    const types = target ? relationTypesFor(node, target) : []
+    if (!target || !types.length) { onNotify('이 조합에는 지정할 관계 유형이 없습니다. 링크로 두어도 그래프에는 나타납니다.'); return }
+    setPicker({ kind: 'relation', query: target.title, type: types[0] })
+  }
   function openRelationPicker(type?: KnowledgeRelationType) {
     const next = type && availableRelationTypes.includes(type) ? type : availableRelationTypes[0]
     if (!next) { onNotify('이 노트에서 만들 수 있는 관계가 없습니다. 본문에서 [[링크]]로 연결하세요.'); return }
@@ -297,6 +440,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (picker.kind === 'evidence-claim') return nodes.filter((item) => item.nodeType === 'claim' && item.id !== node.id && match(item)).slice(0, 40)
     if (picker.kind === 'copy-evidence') return nodes.filter((item) => item.id !== node.id && match(item)).slice(0, 40)
     if (picker.kind === 'link') return nodes.filter((item) => item.id !== node.id && match(item)).slice(0, 40)
+    if (picker.kind === 'answer') return nodes.filter((item) => item.id !== node.id && relationTypesFor(item, node).includes('answers') && match(item)).slice(0, 40)
     return []
   }, [picker, nodes, node])
   const pickerAnchors = useMemo(() => {
@@ -306,18 +450,24 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }, [picker, anchors])
 
   const ready = Boolean(snapshot)
+  /**
+   * A property earns a row by changing what Prism does with the note. Importance, confidence, evidence kind
+   * and projects were stored and read by nothing, and the type row repeated the coloured chip above the
+   * title — six dropdowns that only ever asked to be filled in. They stay in the frontmatter so the files
+   * keep working in Obsidian; they are simply no longer homework.
+   *
+   * What is left: status decides what the curation queue, the open-question list and the archive still want
+   * from a note, reading status starts the model's relation suggestions, and a claim's origin and scope are
+   * what the contradiction guard and the model read before saying two claims disagree.
+   */
   const properties: Array<{ key: string; label: string; value: React.ReactNode }> = [
-    { key: 'type', label: '유형', value: <span className={`node-kind kind-${node.nodeType}`}><i /> {typeLabels[node.nodeType]}</span> },
     { key: 'status', label: '상태', value: <select aria-label="노트 상태" disabled={!ready} value={node.status} onChange={(event) => void updateProperty({ status: event.target.value as KnowledgeStatus })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> },
   ]
   if (node.nodeType === 'paper') properties.push({ key: 'reading', label: '읽기', value: <select aria-label="논문 읽기 상태" disabled={!ready} value={node.readingStatus ?? 'to_read'} onChange={(event) => void updateProperty({ readingStatus: event.target.value as KnowledgeReadingStatus })}>{Object.entries(readingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
   if (node.nodeType === 'claim') {
     properties.push({ key: 'origin', label: '출처', value: <select aria-label="주장 출처" disabled={!ready} value={node.claimOrigin ?? 'paper'} onChange={(event) => void updateProperty({ claimOrigin: event.target.value as ClaimOrigin })}>{Object.entries(claimOriginLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
-    properties.push({ key: 'evidence-kind', label: '근거 종류', value: <select aria-label="주장 근거 종류" disabled={!ready} value={node.evidenceKind ?? ''} onChange={(event) => void updateProperty({ evidenceKind: event.target.value as EvidenceKind | '' })}><option value="">미정</option>{Object.entries(evidenceKindLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> })
-    properties.push({ key: 'scope', label: '적용 범위', value: <span className="prop-inline"><PropertyText disabled={!ready} label="도메인" placeholder="예: 이미지 생성" value={node.scopeDomain ?? ''} onCommit={(value) => void updateProperty({ scopeDomain: value })} /><PropertyText disabled={!ready} label="조건" placeholder="예: 대규모 데이터" value={node.scopeRegime ?? ''} onCommit={(value) => void updateProperty({ scopeRegime: value })} /><PropertyText disabled={!ready} label="가정" placeholder="쉼표로 구분" value={(node.scopeAssumptions ?? []).join(', ')} onCommit={(value) => void updateProperty({ scopeAssumptions: splitList(value) })} /></span> })
+    properties.push({ key: 'scope', label: '적용 범위', value: <span className="prop-inline"><PropertyText disabled={!ready} label="도메인" placeholder="예: 이미지 생성" value={node.scopeDomain ?? ''} onCommit={(value) => void updateProperty({ scopeDomain: value })} /><PropertyText disabled={!ready} label="조건" placeholder="예: 대규모 데이터" value={node.scopeRegime ?? ''} onCommit={(value) => void updateProperty({ scopeRegime: value })} /></span> })
   }
-  properties.push({ key: 'levels', label: '중요도 · 확신도', value: <span className="prop-inline"><select aria-label="노트 중요도" disabled={!ready} value={node.importance} onChange={(event) => void updateProperty({ importance: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><select aria-label="노트 확신도" disabled={!ready} value={node.confidence} onChange={(event) => void updateProperty({ confidence: event.target.value as KnowledgeLevel })}>{Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></span> })
-  properties.push({ key: 'projects', label: '프로젝트', value: <PropertyText disabled={!ready} label="프로젝트" placeholder="쉼표로 구분" value={(node.projects ?? []).join(', ')} onCommit={(value) => void updateProperty({ projects: splitList(value) })} /> })
 
   return <article className="note-doc" aria-label={`${node.title} 노트`}>
     <header className="note-doc-head">
@@ -328,6 +478,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       </div>
       <div className="note-doc-actions">
         <span className={`note-save ${saved ? 'is-saved' : ''}`} role="status">{saved ? '저장됨' : '저장 중…'}</span>
+        {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
         <button className="ghost" title="본문에 다른 노트 링크를 넣습니다" onClick={() => setPicker({ kind: 'link', query: '' })}><Link2 size={13} /> 링크</button>
         <button className="ghost" title="PDF 문장·수식·표·피겨를 근거 카드로 넣습니다" onClick={() => setPicker({ kind: 'evidence', query: '' })}><Plus size={13} /> 근거</button>
@@ -335,6 +486,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
             <button role="menuitem" onClick={() => { setMenuOpen(false); void window.prism.openKnowledgeNodeInObsidian({ nodeId: node.id }).catch((reason) => onNotify(String(reason), 'error')) }}><ExternalLink size={12} /> Obsidian에서 열기</button>
+            <button role="menuitem" disabled={digesting} onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>
+            <button role="menuitem" title="내용이 하나도 없는 제목만 지웁니다" onClick={() => { setMenuOpen(false); void pruneSections() }}><Trash2 size={12} /> 빈 양식 섹션 정리</button>
             {node.nodeType === 'paper' && <button role="menuitem" disabled={suggesting} onClick={() => { setMenuOpen(false); void runModelSuggestions() }}><Sparkles size={12} /> {suggesting ? '제안 중…' : '모델에게 관계 제안 받기'}</button>}
             {nodeTemplates.map((template) => <button key={template.id} role="menuitem" onClick={() => void applyTemplateSections(template.id)}>양식 적용 · {template.name}</button>)}
             <button role="menuitem" className={deleteReady ? 'danger' : ''} onClick={() => void removeNode()}><Trash2 size={12} /> {deleteReady ? '삭제 확인' : '휴지통으로 보내기'}</button>
@@ -356,21 +509,27 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
                   {items.map((item) => <span key={item.id} className="rel-chip"><button onClick={() => onOpenNode(item.other.id)}>{item.other.title}</button>{item.direction === 'outgoing' && <button className="rel-remove" aria-label={`${item.other.title} 관계 삭제`} onClick={() => void deleteRelation(item)}><X size={10} /></button>}</span>)}
                 </td></tr>
               })}
+              {linked.length > 0 && <tr className="prop-linked"><td title="본문에 적은 [[링크]]에서 자동으로 만들어집니다">링크</td><td className="prop-relations">
+                {linked.map((item) => <span key={item.id} className="rel-chip is-link">
+                  <button onClick={() => onOpenNode(item.other.id)}>{item.direction === 'incoming' ? '← ' : ''}{item.other.title}</button>
+                  {item.direction === 'outgoing' && <button className="rel-upgrade" title="이 링크에 관계 유형을 지정합니다" aria-label={`${item.other.title} 관계 지정`} onClick={() => upgradeLink(item)}>관계 지정</button>}
+                </span>)}
+              </td></tr>}
               {pending.length > 0 && <tr className="prop-pending"><td>검토 대기</td><td>
                 {pending.map((item) => <span key={item.id} className="rel-chip is-pending"><button onClick={() => onOpenNode(item.other.id)}>{relationLabels[item.type]} · {item.other.title}</button>{item.direction === 'outgoing' && <><button className="rel-approve" aria-label={`${item.other.title} 관계 승인`} onClick={() => void reviewRelation(item, 'approved')}><Check size={10} /></button><button className="rel-remove" aria-label={`${item.other.title} 관계 거절`} onClick={() => void reviewRelation(item, 'rejected')}><X size={10} /></button></>}</span>)}
               </td></tr>}
-              <tr className="prop-add"><td /><td><button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button></td></tr>
+              <tr className="prop-add"><td /><td><button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button>{node.nodeType === 'question' && <button onClick={() => setPicker({ kind: 'answer', query: '' })}><Plus size={11} /> 답 연결</button>}</td></tr>
             </tbody>
           </table>
         </details>
 
-        {snapshot ? <div className="note-body">
+        {snapshot ? <div className="note-body" ref={bindEvidenceClicks}>
           <MarkdownEditor
             ref={editorRef} key={node.id} value={content} onChange={edit} onBlur={() => void settle()}
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
-            onCreateWikiLink={createLinkedNode} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
+            onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint"><button onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크 · <kbd>@</kbd> PDF 근거</span></p>
+          <p className="note-hint">{mineSections.map((section) => <button key={section} className="note-write-mine" title={`${minePrompts[section]} — 자동 기록이 절대 건드리지 않는 칸입니다`} onClick={() => void openMineSection(section)}><PenLine size={11} /> {mineHeadings[section]}</button>)}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting} title={node.nodeType === 'paper' ? '초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다' : '이 노트를 가리키는 노트와 대화를 다시 읽어 자동 구간을 갱신합니다'} onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button></p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>
@@ -392,10 +551,16 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             </div>
           })}
         </details>}
+
+        {/* The tree says a note wrote something; this is where that claim is retired, once it has been read. */}
+        {autoUnread && <div className="note-auto-read">
+          <span>자동으로 <b>{autoUnread.sections.map((section) => autoSectionLabels[section] ?? section).join(' · ')}</b>{autoUnread.sections.length > 1 ? '를' : '을'} 새로 썼습니다.</span>
+          <button onClick={() => { void window.prism.clearAutoUnread(node.id).then(() => onAutoUnreadChange()).catch((reason) => onNotify(String(reason), 'error')) }}><Check size={12} /> 읽었어요</button>
+        </div>}
       </div>
     </div>
 
-    {picker && <section className="note-picker" aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : '연결할 노트 선택'}>
+    {picker && <section className="note-picker" aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : picker.kind === 'answer' ? '이 질문에 답하는 노트 선택' : '연결할 노트 선택'}>
       <header>
         <div><Search size={13} /><input autoFocus aria-label="노트 및 근거 검색" value={picker.query} placeholder={picker.kind === 'evidence' ? '논문 제목, 문장, 수식 검색' : '제목, 본문 검색'} onChange={(event) => setPicker({ ...picker, query: event.target.value })} /></div>
         <button aria-label="선택 닫기" onClick={() => setPicker(undefined)}><X size={13} /></button>
@@ -407,7 +572,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           ? pickerAnchors.length ? pickerAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => insertEvidence(anchor, picker.relink)}><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.paperTitle}</small><strong>{anchor.source}</strong></button>)
             : <p>저장된 PDF 앵커가 없습니다. 리더에서 논문을 열면 문장·수식·표 앵커가 만들어집니다.</p>
           : pickerTargets.length ? pickerTargets.map((target) => <button key={target.id} onClick={() => {
-            if (picker.kind === 'relation') void addRelation(target, picker.type)
+            if (picker.kind === 'answer') void addAnswer(target)
+            else if (picker.kind === 'relation') void addRelation(target, picker.type)
             else if (picker.kind === 'evidence-claim') void connectEvidenceClaim(picker.evidence, target, picker.type)
             else if (picker.kind === 'copy-evidence') void copyEvidence(picker.evidence, target)
             else void insertLink(target)

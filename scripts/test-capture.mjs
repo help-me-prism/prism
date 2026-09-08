@@ -61,7 +61,18 @@ try {
   assert.deepEqual(await ensureLinkStubs(root, await fs.readFile(notePath, 'utf8')), [], 'Stubs were created twice for the same links.')
   const nodes = await listKnowledgeNodes(root)
   assert(nodes.some((node) => node.nodeType === 'paper' && node.id === 'paper-test.0001') && nodes.filter((node) => node.nodeType === 'concept').length === 2, 'Node listing does not include the paper and both stubs.')
-  process.stdout.write('Capture passed: Notes-section insertion, evidence cards with memos, duplicate-anchor merging, AI answer callouts with provenance, unknown-anchor rejection, and inbox Concept stubs from unresolved links.\n')
+    // A link where the researcher says what they will use this for names their work, not a concept: that axis
+  // is in no paper, and asking for it as a frontmatter field is what left `projects:` empty in the real vault.
+  const applying = `# T\n\n[[Score matching]]을 쓴다.\n\n## 내 연구에 쓸 곳\n\n<!-- prism:mine apply -->\n[[음성 합성 파이프라인]]의 샘플링 단계에 써볼 것. [[Concepts/Flow matching]]도 같이.\n<!-- /prism:mine apply -->\n`
+  const stubbed = await ensureLinkStubs(root, applying)
+  assert(stubbed.includes('음성 합성 파이프라인'), `A link naming the researcher's own work did not become a note: ${JSON.stringify(stubbed)}`)
+  const projectNote = await fs.readFile(path.join(root, 'Projects', '음성 합성 파이프라인.md'), 'utf8')
+  assert(projectNote.includes('type: project') && projectNote.includes('status: inbox'), `The stub is not an inbox project:\n${projectNote}`)
+  // A folder still wins over the section it sits in, and everywhere else a link is still a concept.
+  await fs.access(path.join(root, 'Concepts', 'Flow matching.md'))
+  await fs.access(path.join(root, 'Concepts', 'Score matching.md'))
+
+process.stdout.write('Capture passed: Notes-section insertion, evidence cards with memos, duplicate-anchor merging, AI answer callouts with provenance, unknown-anchor rejection, inbox Concept stubs from unresolved links, and a link under the section for what a paper will be used for becoming a project rather than a concept.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

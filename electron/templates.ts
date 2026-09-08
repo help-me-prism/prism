@@ -11,12 +11,15 @@ export type TemplateSaveRequest = { id?: string; name: string; nodeType: Knowled
 const nodeTypes = new Set<KnowledgeNodeType>(['paper', 'concept', 'claim', 'insight', 'question', 'project'])
 const nodeTypeOrder: Record<KnowledgeNodeType, number> = { paper: 0, concept: 1, claim: 2, insight: 3, question: 4, project: 5 }
 const initialTemplates: Array<{ id: string; name: string; nodeType: KnowledgeNodeType; content: string }> = [
-  { id: 'paper-deep-review', name: 'Paper - Deep review', nodeType: 'paper', content: '# {{title}}\n\n## 한 문장 요약\n\n## 이 논문을 읽는 이유\n\n## 핵심 주장\n\n## 방법\n\n## 주요 근거\n\n## 한계와 의문\n\n## 내 아이디어\n\n## 관련 개념과 논문\n' },
-  { id: 'concept-overview', name: 'Concept - Overview', nodeType: 'concept', content: '# {{title}}\n\n## 정의 비교\n\n| 논문 | 이 논문의 정의 | 차이점 |\n| --- | --- | --- |\n|  |  |  |\n\n## 직관\n\n## 수식과 표현\n\n## 관련 주장\n' },
-  { id: 'claim-evidence-review', name: 'Claim - Evidence review', nodeType: 'claim', content: '# {{title}}\n\n## 주장\n\n## 스코프와 가정\n\n## 지지 근거\n\n## 반박 근거\n\n## 판단과 확신도\n\n## 열린 질문\n' },
-  { id: 'insight-research-note', name: 'Insight - Research note', nodeType: 'insight', content: '# {{title}}\n\n## 아이디어\n\n## 출발한 근거\n\n## 연결되는 개념\n\n## 검증 방법\n' },
-  { id: 'question-investigation', name: 'Question - Investigation', nodeType: 'question', content: '# {{title}}\n\n## 질문\n\n## 질문이 생긴 배경\n\n## 현재 근거\n\n## 다음 조사\n\n## 답변 초안\n' },
-  { id: 'project-research-context', name: 'Project - Research context', nodeType: 'project', content: '# {{title}}\n\n## 연구 목표\n\n## 현재 가설\n\n## 사용하는 개념\n\n## 핵심 주장과 근거\n\n## 열린 질문\n\n## 다음 행동\n' },
+  // A default holds only what a person actually writes. Everything mechanical is added by the digest once it
+  // has something to say, and the sections that are theirs are opened when they ask for one — so a new note
+  // is never a page of empty headings. The long "정독 양식" forms that used to ship here were exactly that
+  // page: the real vault had eight empty headings from them and nothing under any of them.
+  { id: 'paper-reading-note', name: 'Paper - 읽기 노트', nodeType: 'paper', content: '# {{title}}\n' },
+  { id: 'concept-note', name: 'Concept - 개념 노트', nodeType: 'concept', content: '# {{title}}\n' },
+  { id: 'claim-note', name: 'Claim - 주장 노트', nodeType: 'claim', content: '# {{title}}\n' },
+  { id: 'question-note', name: 'Question - 질문 노트', nodeType: 'question', content: '# {{title}}\n' },
+  { id: 'project-note', name: 'Project - 연구 노트', nodeType: 'project', content: '# {{title}}\n' },
 ]
 
 function templatesPath(libraryPath: string) { return path.join(libraryPath, 'Templates') }
@@ -64,24 +67,25 @@ async function ensureVault(libraryPath: string) {
       const target = path.join(templatesPath(libraryPath), `${template.name}.md`)
       try { await fs.access(target) } catch { await fs.writeFile(target, serializeTemplate(template), { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error }) }
     }))
-    await atomicJson(defaultsPath(libraryPath), Object.fromEntries(initialTemplates.map((template) => [template.nodeType, template.id])))
+    // The first template listed for a kind is its default: the light one, not the long form beneath it.
+    const seeded: Partial<Record<KnowledgeNodeType, string>> = {}
+    for (const template of initialTemplates) if (!seeded[template.nodeType]) seeded[template.nodeType] = template.id
+    await atomicJson(defaultsPath(libraryPath), seeded)
   } else {
-    const projectMigration = path.join(libraryPath, '.prism', 'migrations', 'project-template-v1')
-    try { await fs.access(projectMigration) } catch {
-      const projectTemplates: Array<{ id: string }> = []
-      for (const entry of await fs.readdir(templatesPath(libraryPath), { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
-        try { const parsed = parseTemplate(await fs.readFile(path.join(templatesPath(libraryPath), entry.name), 'utf8')); if (parsed?.nodeType === 'project') projectTemplates.push(parsed) } catch { /* Ignore unreadable templates. */ }
-      }
-      if (!projectTemplates.length) {
-        const projectTemplate = initialTemplates.find((template) => template.nodeType === 'project')!
-        const target = path.join(templatesPath(libraryPath), `${projectTemplate.name}.md`)
-        await fs.writeFile(target, serializeTemplate(projectTemplate), { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
-        projectTemplates.push(projectTemplate)
-      }
+    // Vaults made before the forms were cut still have the long ones on disk. They are left there — a
+    // template the researcher edited is theirs — but the short ones are installed alongside and the defaults
+    // point at those, so a new note starts as a title and nothing else.
+    const migration = path.join(libraryPath, '.prism', 'migrations', 'light-defaults-v2')
+    try { await fs.access(migration) } catch {
       const selectedDefaults = await defaults(libraryPath)
-      if (!selectedDefaults.project) { selectedDefaults.project = projectTemplates[0].id; await atomicJson(defaultsPath(libraryPath), selectedDefaults) }
-      await fs.mkdir(path.dirname(projectMigration), { recursive: true }); await fs.writeFile(projectMigration, '1\n', { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
+      for (const template of initialTemplates) {
+        const target = path.join(templatesPath(libraryPath), `${template.name}.md`)
+        await fs.writeFile(target, serializeTemplate(template), { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
+        selectedDefaults[template.nodeType] = template.id
+      }
+      await atomicJson(defaultsPath(libraryPath), selectedDefaults)
+      await fs.mkdir(path.dirname(migration), { recursive: true })
+      await fs.writeFile(migration, '1\n', { encoding: 'utf8', flag: 'wx' }).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error })
     }
   }
 }

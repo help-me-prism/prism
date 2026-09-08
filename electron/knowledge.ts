@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
 import { atomicWriteFile } from './atomicFile.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
-export type KnowledgeStatus = 'inbox' | 'developing' | 'established' | 'archived'
+/**
+ * `understood` is the one status nobody has to set. A note earns it the moment it holds a sentence only the
+ * researcher could have written, which is the only evidence anybody has that a concept landed — and it makes
+ * "how much of this library do I actually understand" a question the vault can answer.
+ */
+export type KnowledgeStatus = 'inbox' | 'developing' | 'understood' | 'established' | 'archived'
 export type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 export type KnowledgeLevel = 'low' | 'medium' | 'high'
 export type ClaimOrigin = 'paper' | 'mine'
@@ -32,16 +37,16 @@ export type KnowledgeNodeRecord = {
   scopeAssumptions?: string[]
   projects?: string[]
 }
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
+/** `body` writes the note directly; a caller that already knows what the note says has no use for a template. */
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus; body?: string }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
-export type KnowledgeSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
-const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'established', 'archived'])
+const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'understood', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
 const levels = new Set<KnowledgeLevel>(['low', 'medium', 'high'])
 const claimOrigins = new Set<ClaimOrigin>(['paper', 'mine'])
@@ -133,28 +138,96 @@ function migratedPaperNote(source: string, folderName: string) {
   const start = frontmatter[0].indexOf(frontmatter[1])
   return `${source.slice(0, start)}${body}${source.slice(start + frontmatter[1].length)}`
 }
-async function nodeEntries(libraryPath: string) {
-  await listTemplates(libraryPath)
+/**
+ * Reading one note used to mean reading the whole vault: every list, backlink, relation and digest call
+ * walked every Markdown file and hashed it. That is invisible at seven notes and fatal at two hundred, so the
+ * parsed form of each file is kept in memory and only re-read when the file on disk actually changed.
+ *
+ * Freshness comes from two independent signals, because either one alone can lie. `mtime + size` catches the
+ * editor the researcher has open beside Prism; `onNoteWritten` catches our own writes, two of which can land
+ * inside the same millisecond at the same length. A cache that is wrong here shows stale text in an open
+ * editor, so it is worth paying for both.
+ */
+type VaultFileRecord = { mtimeMs: number; size: number; snapshot: NoteSnapshot; parsed?: ReturnType<typeof parseNode> }
+type NodeEntry = { filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }
+const vaultFiles = new Map<string, Map<string, VaultFileRecord>>()
+const nodePaths = new Map<string, Map<string, string>>()
+const vaultPrepared = new Set<string>()
+
+function vaultKey(libraryPath: string) { return path.resolve(libraryPath).toLowerCase() }
+function fileKey(filePath: string) { return path.resolve(filePath).toLowerCase() }
+function vaultCache(libraryPath: string) {
+  const key = vaultKey(libraryPath)
+  const existing = vaultFiles.get(key)
+  if (existing) return existing
+  const created = new Map<string, VaultFileRecord>()
+  vaultFiles.set(key, created)
+  return created
+}
+
+/** Drops cached files. No argument clears everything; a path clears one library, or one file inside it. */
+export function invalidateKnowledgeCache(libraryPath?: string, filePath?: string) {
+  if (!libraryPath) { vaultFiles.clear(); nodePaths.clear(); vaultPrepared.clear(); return }
+  if (!filePath) { vaultFiles.get(vaultKey(libraryPath))?.clear(); nodePaths.delete(vaultKey(libraryPath)); return }
+  vaultFiles.get(vaultKey(libraryPath))?.delete(fileKey(filePath))
+}
+onNoteWritten((notePath) => { const key = fileKey(notePath); for (const cache of vaultFiles.values()) cache.delete(key) })
+
+async function markdownFiles(libraryPath: string) {
   const seen = new Set<string>(); const files: Array<{ filePath: string; paperFolder?: string }> = []
-  const push = (filePath: string, paperFolder?: string) => { const key = path.resolve(filePath).toLowerCase(); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
-  for (const folder of Object.values(folderByType)) {
-    const directory = path.join(libraryPath, folder)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name))
+  const push = (filePath: string, paperFolder?: string) => { const key = fileKey(filePath); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
+  const collect = async (directory: string, paperFolder?: string) => {
+    let entries: Dirent[]
+    // A folder the researcher removed in Finder is simply empty, not a reason to fail every listing.
+    try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return [] }
+    for (const entry of entries) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), paperFolder)
+    return entries
   }
+  for (const folder of Object.values(folderByType)) await collect(path.join(libraryPath, folder))
   const papersDirectory = path.join(libraryPath, 'papers')
-  let paperFolders: Dirent[] = []
-  try { paperFolders = await fs.readdir(papersDirectory, { withFileTypes: true }) } catch { /* nothing downloaded yet */ }
-  for (const folder of paperFolders) {
+  for (const folder of await collect(papersDirectory)) {
     if (!folder.isDirectory()) continue
-    const directory = path.join(papersDirectory, folder.name)
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), folder.name)
+    await collect(path.join(papersDirectory, folder.name), folder.name)
   }
-  const entries: Array<{ filePath: string; snapshot: NoteSnapshot; parsed: NonNullable<ReturnType<typeof parseNode>> }> = []
+  return files
+}
+
+async function readEntry(libraryPath: string, filePath: string, paperFolder?: string) {
+  const key = fileKey(filePath)
+  const cache = vaultCache(libraryPath)
+  let stat: Awaited<ReturnType<typeof fs.stat>>
+  try { stat = await fs.stat(filePath) } catch { cache.delete(key); return undefined }
+  const cached = cache.get(key)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached
+  const snapshot = await readNoteSnapshot(filePath)
+  const record: VaultFileRecord = { mtimeMs: stat.mtimeMs, size: stat.size, snapshot, parsed: parseNode(snapshot.content, paperFolder) }
+  cache.set(key, record)
+  return record
+}
+
+/** A paper note is identified by the folder it sits in, so a direct read has to recover that from the path. */
+function paperFolderOf(libraryPath: string, filePath: string) {
+  const parts = path.relative(libraryPath, filePath).split(path.sep)
+  return parts.length === 3 && parts[0].toLowerCase() === 'papers' ? parts[1] : undefined
+}
+
+async function nodeEntries(libraryPath: string): Promise<NodeEntry[]> {
+  // Seeding templates and creating the vault folders is first-run work, not per-read work.
+  if (!vaultPrepared.has(vaultKey(libraryPath))) { await listTemplates(libraryPath); vaultPrepared.add(vaultKey(libraryPath)) }
+  const files = await markdownFiles(libraryPath)
+  const cache = vaultCache(libraryPath)
+  const live = new Set<string>()
+  const routes = new Map<string, string>()
+  const entries: NodeEntry[] = []
   for (const { filePath, paperFolder } of files) {
-    const snapshot = await readNoteSnapshot(filePath)
-    const parsed = parseNode(snapshot.content, paperFolder)
-    if (parsed) entries.push({ filePath, snapshot, parsed })
+    live.add(fileKey(filePath))
+    const record = await readEntry(libraryPath, filePath, paperFolder)
+    if (!record?.parsed) continue
+    entries.push({ filePath, snapshot: record.snapshot, parsed: record.parsed })
+    routes.set(record.parsed.id, filePath)
   }
+  for (const key of [...cache.keys()]) if (!live.has(key)) cache.delete(key)
+  nodePaths.set(vaultKey(libraryPath), routes)
   return entries
 }
 
@@ -176,16 +249,71 @@ export async function migratePaperNotes(libraryPath: string) {
   }
   return migrated
 }
-async function findNode(libraryPath: string, id: string) {
+/**
+ * Saving one note used to stat every file in the library to find out which one it was, which turned a sweep
+ * over N notes into N² stat calls. Where a node lives changes only when files move, so the last known path is
+ * tried first and the full walk is what happens when that answer is wrong.
+ */
+async function findNode(libraryPath: string, id: string): Promise<NodeEntry | undefined> {
+  const known = nodePaths.get(vaultKey(libraryPath))?.get(id)
+  if (known) {
+    const record = await readEntry(libraryPath, known, paperFolderOf(libraryPath, known))
+    if (record?.parsed?.id === id) return { filePath: known, snapshot: record.snapshot, parsed: record.parsed }
+  }
   return (await nodeEntries(libraryPath)).find((entry) => entry.parsed.id === id)
 }
 
+function toRecord(libraryPath: string, entry: NodeEntry): KnowledgeNodeRecord {
+  const { filePath, snapshot, parsed } = entry
+  return { ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt }
+}
+
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {
-  const nodes: KnowledgeNodeRecord[] = []
-  for (const { filePath, snapshot, parsed } of await nodeEntries(libraryPath)) {
-    nodes.push({ ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt })
-  }
-  return nodes.sort((left, right) => right.modifiedAt - left.modifiedAt)
+  return (await nodeEntries(libraryPath)).map((entry) => toRecord(libraryPath, entry)).sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+/**
+ * Everything the vault knows about itself, read once. Listing, backlinks and the digest each used to walk the
+ * whole library on their own — and the digest walked it once per note, which is the same file read N³ times
+ * for one window open. Anything that needs more than one of these should ask for the snapshot instead.
+ */
+export type VaultSnapshot = { records: KnowledgeNodeRecord[]; contents: Map<string, string>; backlinks: Map<string, KnowledgeBacklink[]> }
+
+export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnapshot> {
+  const entries = await nodeEntries(libraryPath)
+  const records = entries.map((entry) => toRecord(libraryPath, entry))
+  const contents = new Map<string, string>()
+  const backlinks = new Map<string, KnowledgeBacklink[]>()
+  const byPath = new Map<string, string>()
+  const byBase = new Map<string, string[]>()
+  records.forEach((record, index) => {
+    contents.set(record.id, entries[index].snapshot.content)
+    backlinks.set(record.id, [])
+    const route = record.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
+    byPath.set(route, record.id)
+    const base = route.split('/').at(-1)!
+    byBase.set(base, [...(byBase.get(base) ?? []), record.id])
+  })
+  records.forEach((source, index) => {
+    const content = entries[index].snapshot.content
+    // One entry per source-target pair: the first link is the one whose line gets quoted, as before.
+    const claimed = new Set<string>()
+    for (const link of linkTargets(content)) {
+      const normalized = link.target.toLocaleLowerCase()
+      const exact = byPath.get(normalized)
+      const targets = exact ? [exact] : normalized.includes('/') ? [] : byBase.get(normalized) ?? []
+      for (const targetId of targets) {
+        if (targetId === source.id || claimed.has(targetId)) continue
+        claimed.add(targetId)
+        const lineStart = content.lastIndexOf('\n', link.index) + 1
+        const lineEnd = content.indexOf('\n', link.index)
+        const excerpt = content.slice(lineStart, lineEnd < 0 ? content.length : lineEnd).replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, targetValue, alias) => alias || targetValue).trim().slice(0, 240)
+        backlinks.get(targetId)!.push({ nodeId: source.id, title: source.title, nodeType: source.nodeType, relativePath: source.relativePath, excerpt })
+      }
+    }
+  })
+  for (const list of backlinks.values()) list.sort((left, right) => left.title.localeCompare(right.title))
+  return { records: [...records].sort((left, right) => right.modifiedAt - left.modifiedAt), contents, backlinks }
 }
 
 export function evidenceBlock(source: string, blockId: string) {
@@ -211,26 +339,7 @@ export function knowledgePlainText(source: string) {
     .replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, target, alias) => alias || target).replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/^\s*>\s?(?:\[![^\]]+\]\s*)?/gm, '').replace(/[*_`#$~-]+/g, ' ').replace(/\s+/g, ' ').trim()
 }
-function occurrences(source: string, query: string) { let count = 0; let index = 0; while ((index = source.indexOf(query, index)) >= 0) { count += 1; index += query.length } return count }
 
-export async function searchKnowledge(libraryPath: string, input: string): Promise<KnowledgeSearchResult[]> {
-  const query = input.trim()
-  if (!query || query.length > 200) throw new Error('검색어는 1자 이상 200자 이하로 입력해 주세요.')
-  const normalizedQuery = query.toLocaleLowerCase()
-  const results: KnowledgeSearchResult[] = []
-  for (const node of await listKnowledgeNodes(libraryPath)) {
-    const snapshot = await readNoteSnapshot(path.join(libraryPath, ...node.relativePath.split('/')))
-    const plain = knowledgePlainText(snapshot.content); const normalizedBody = plain.toLocaleLowerCase(); const title = node.title.toLocaleLowerCase(); const route = `${node.nodeType} ${node.relativePath}`.toLocaleLowerCase()
-    const bodyHits = occurrences(normalizedBody, normalizedQuery)
-    let score = title === normalizedQuery ? 1000 : title.startsWith(normalizedQuery) ? 600 : title.includes(normalizedQuery) ? 350 : route.includes(normalizedQuery) ? 180 : 0
-    score += Math.min(bodyHits, 10) * 20
-    if (!score) continue
-    const match = normalizedBody.indexOf(normalizedQuery); const start = match < 0 ? 0 : Math.max(0, match - 70); const end = match < 0 ? 180 : Math.min(plain.length, match + query.length + 110)
-    const excerpt = `${start > 0 ? '…' : ''}${plain.slice(start, end)}${end < plain.length ? '…' : ''}`
-    results.push({ node, excerpt, score })
-  }
-  return results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt).slice(0, 100)
-}
 
 function linkTargets(source: string) {
   const searchable = source.replace(/```[\s\S]*?```/g, (block) => block.replace(/[^\n]/g, ' '))
@@ -241,33 +350,17 @@ function linkTargets(source: string) {
 }
 
 export async function listKnowledgeBacklinks(libraryPath: string, targetId: string): Promise<KnowledgeBacklink[]> {
-  const nodes = await listKnowledgeNodes(libraryPath)
-  const target = nodes.find((node) => node.id === targetId)
-  if (!target) throw new Error('지식 노트를 찾을 수 없습니다.')
-  const targetPath = target.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-  const targetBase = targetPath.split('/').at(-1)!
-  const backlinks: KnowledgeBacklink[] = []
-  for (const node of nodes) {
-    if (node.id === targetId) continue
-    const snapshot = await readKnowledgeNode(libraryPath, node.id)
-    const link = linkTargets(snapshot.content).find((item) => {
-      const normalized = item.target.toLocaleLowerCase()
-      return normalized === targetPath || (!normalized.includes('/') && normalized === targetBase)
-    })
-    if (!link) continue
-    const lineStart = snapshot.content.lastIndexOf('\n', link.index) + 1
-    const lineEnd = snapshot.content.indexOf('\n', link.index)
-    const excerpt = snapshot.content.slice(lineStart, lineEnd < 0 ? snapshot.content.length : lineEnd).replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_match, targetValue, alias) => alias || targetValue).trim().slice(0, 240)
-    backlinks.push({ nodeId: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath, excerpt })
-  }
-  return backlinks.sort((left, right) => left.title.localeCompare(right.title))
+  const backlinks = (await readVaultSnapshot(libraryPath)).backlinks.get(targetId)
+  if (!backlinks) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return backlinks
 }
 
 export async function createKnowledgeNode(libraryPath: string, request: KnowledgeCreateRequest) {
   if (!nodeTypes.has(request.nodeType)) throw new Error('지식 노트 유형이 올바르지 않습니다.')
   const title = safeName(request.title)
   const templates = await listTemplates(libraryPath)
-  const template = templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
+  const template = request.body ? undefined
+    : templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
     ?? templates.find((item) => item.nodeType === request.nodeType && item.isDefault)
     ?? templates.find((item) => item.nodeType === request.nodeType)
   const id = `${request.nodeType}-${randomUUID().slice(0, 12)}`
@@ -279,7 +372,7 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     if (!templateVariables.has(key) || typeof value !== 'string' || value.length > 2_000) throw new Error('지원하지 않는 템플릿 변수이거나 값이 너무 깁니다.')
     values[key] = value
   }
-  const body = (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
+  const body = (request.body ?? template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
   if (request.status !== undefined && !statuses.has(request.status)) throw new Error('상태 값이 올바르지 않습니다.')
   const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body, status: request.status })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })
@@ -363,5 +456,22 @@ export async function deleteKnowledgeNode(libraryPath: string, id: string) {
   if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
   const target = path.join(libraryPath, '.prism', 'trash', 'knowledge', `${Date.now()}-${path.basename(node.filePath)}`)
   await fs.mkdir(path.dirname(target), { recursive: true }); await fs.rename(node.filePath, target)
-  return listKnowledgeNodes(libraryPath)
+  // The trash entry is what makes the delete undoable, so hand it back to the caller.
+  return { nodes: await listKnowledgeNodes(libraryPath), trashed: path.relative(libraryPath, target).split(path.sep).join('/'), title: node.parsed.title }
+}
+
+/** Puts a trashed note back where it came from. Deleting is a mistake people make, so it must be one click to undo. */
+export async function restoreKnowledgeNode(libraryPath: string, trashedRelativePath: string) {
+  if (!/^\.prism\/trash\/knowledge\/[^/\\]+\.md$/i.test(trashedRelativePath)) throw new Error('복구할 항목이 올바르지 않습니다.')
+  const source = path.join(libraryPath, ...trashedRelativePath.split('/'))
+  const content = await fs.readFile(source, 'utf8').catch(() => { throw new Error('휴지통에서 노트를 찾을 수 없습니다.') })
+  const parsed = parseNode(content)
+  if (!parsed) throw new Error('복구할 노트를 읽을 수 없습니다.')
+  const name = path.basename(source).replace(/^\d+-/, '')
+  const directory = path.join(libraryPath, folderByType[parsed.nodeType])
+  await fs.mkdir(directory, { recursive: true })
+  let target = path.join(directory, name); let suffix = 2
+  while (true) { try { await fs.access(target); target = path.join(directory, `${name.replace(/\.md$/i, '')} ${suffix}.md`); suffix += 1 } catch { break } }
+  await fs.rename(source, target)
+  return { nodes: await listKnowledgeNodes(libraryPath), id: parsed.id }
 }

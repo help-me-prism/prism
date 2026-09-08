@@ -3,9 +3,10 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { captureToPaperNote } from '../dist-electron/capture.js'
-import { listCurationQueue, mergeConcepts, promoteMemo } from '../dist-electron/curation.js'
-import { listKnowledgeNodes, migratePaperNotes, readKnowledgeNode } from '../dist-electron/knowledge.js'
-import { createKnowledgeRelation, listKnowledgeRelationRecords } from '../dist-electron/relations.js'
+import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo } from '../dist-electron/curation.js'
+import { createKnowledgeNode, deleteKnowledgeNode, listKnowledgeNodes, migratePaperNotes, readKnowledgeNode, restoreKnowledgeNode, saveKnowledgeNode } from '../dist-electron/knowledge.js'
+import { createKnowledgeRelation, listKnowledgeRelationRecords, syncLinkRelations } from '../dist-electron/relations.js'
+import { refreshNoteDigest } from '../dist-electron/paperDigest.js'
 
 // The curation queue and its decisions (promote, merge, approve) run on plain Markdown in a throwaway vault.
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-curation-test-'))
@@ -28,6 +29,11 @@ try {
   await write('Claims/Unsupported claim.md', note('claim-eeeeeeee', 'claim', 'Unsupported claim', 'No evidence yet.', 'claim_origin: mine\n'))
   await write('Questions/Open question.md', note('question-ffffffff', 'question', 'Open question', 'Why?'))
   await write('.prism/relations/relation-11111111111111111111.json', JSON.stringify({ id: 'relation-11111111111111111111', sourceId: 'paper-bbbbbbbb', targetId: 'claim-eeeeeeee', type: 'supports', creator: 'ai', reviewStatus: 'pending', createdAt: '2026-09-03T00:00:00.000Z' }))
+  // Two papers taking opposite sides of one claim: the vault has always been able to work this out and has
+  // never shown it to anybody.
+  await write('Claims/Disputed claim.md', note('claim-99999999', 'claim', 'Disputed claim', 'Noise prediction beats score matching.'))
+  await write('.prism/relations/relation-22222222222222222222.json', JSON.stringify({ id: 'relation-22222222222222222222', sourceId: 'paper-test.0001', targetId: 'claim-99999999', type: 'supports', creator: 'user', reviewStatus: 'approved', createdAt: '2026-09-03T00:00:00.000Z' }))
+  await write('.prism/relations/relation-33333333333333333333.json', JSON.stringify({ id: 'relation-33333333333333333333', sourceId: 'paper-bbbbbbbb', targetId: 'claim-99999999', type: 'contradicts', creator: 'user', reviewStatus: 'approved', createdAt: '2026-09-03T00:00:00.000Z' }))
   await write('.prism/library.json', JSON.stringify([{ arxivId: 'test.0001', title: 'Paper Alpha', pdfPath: path.join(paperDir, 'original.pdf'), notePath }]))
   await migratePaperNotes(root)
   const paper = { arxivId: 'test.0001', title: 'Paper Alpha', pdfPath: path.join(paperDir, 'original.pdf'), notePath }
@@ -53,7 +59,12 @@ try {
   assert(memoTexts.includes('노이즈 예측은 가중 score matching과 같다.') && memoTexts.includes('log density gradient로 정의'), `Reading memos were not detected: ${JSON.stringify(memoTexts)}`)
   assert(queue.memos.every((memo) => memo.anchor && memo.anchorLabel), 'Memos lost their anchor metadata.')
   assert.equal(queue.unsupportedClaims.length, 1); assert.equal(queue.unansweredQuestions.length, 1)
-  assert.equal(queue.total, 1 + 2 + 2 + 1 + 1)
+  // A disagreement between two papers is a decision waiting to be made, so it is in the queue and in the count.
+  assert.equal(queue.conflicts.length, 1, `Papers disagreeing over a claim did not reach the queue: ${JSON.stringify(queue.conflicts)}`)
+  const conflict = queue.conflicts[0]
+  assert(conflict.claim?.title === 'Disputed claim', `A conflict did not carry what the papers disagree about: ${JSON.stringify(conflict.claim)}`)
+  assert([conflict.left.title, conflict.right.title].sort().join('|') === 'Paper Alpha|Paper Beta', `A conflict named the wrong papers: ${conflict.left.title} / ${conflict.right.title}`)
+  assert.equal(queue.total, 1 + 2 + 2 + 1 + 1 + 1)
 
   // Promoting a memo creates a Claim that keeps the evidence card, links back, and marks the memo in the paper note.
   const memo = queue.memos.find((item) => item.memo.startsWith('노이즈 예측'))
@@ -82,7 +93,79 @@ try {
   assert((await fs.readdir(path.join(root, '.prism', 'trash', 'knowledge'))).some((name) => name.endsWith('Denoising.md')), 'The merged stub was not moved to trash.')
   queue = await listCurationQueue(root)
   assert(!queue.stubs.some((stub) => stub.node.title === 'Denoising'), 'The merged stub remained in the queue.')
-  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, memo promotion with evidence and back-marking, and stub merging with link and sidecar repointing.\n')
+  // Writing a [[link]] is enough to put an edge in the graph; a typed relation replaces it; deleting the link removes it.
+  const alpha = (await listKnowledgeNodes(root)).find((node) => node.id === 'paper-test.0001')
+  const question = (await listKnowledgeNodes(root)).find((node) => node.id === 'question-ffffffff')
+  const beforeLink = await readKnowledgeNode(root, alpha.id)
+  const blocksBefore = beforeLink.content.split('> [!abstract] 관계').length
+  await saveKnowledgeNode(root, alpha.id, { content: `${beforeLink.content}\n\n관련 질문: [[Questions/Open question]]\n`, expectedRevision: beforeLink.revision })
+  assert((await syncLinkRelations(root, alpha.id)).added >= 1, 'Writing a [[link]] did not add a relation.')
+  let linkRelations = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link' && relation.targetId === question.id)
+  assert(linkRelations.length === 1 && linkRelations[0].sourceId === alpha.id && linkRelations[0].reviewStatus === 'approved', `A [[link]] did not become a relation: ${JSON.stringify(linkRelations)}`)
+  assert.equal((await readKnowledgeNode(root, alpha.id)).content.split('> [!abstract] 관계').length, blocksBefore, 'A link relation wrote a redundant relation block into the note.')
+  assert.equal((await syncLinkRelations(root, alpha.id)).added, 0, 'Re-syncing duplicated the link relation.')
+  // A concept that already carries a typed relation is not downgraded to a plain link.
+  assert(!(await listKnowledgeRelationRecords(root)).some((relation) => relation.origin === 'link' && relation.targetId === 'concept-aaaaaaaa'), 'A typed relation was shadowed by a link relation.')
+
+  // A link is its own kind of edge now: it no longer borrows `mentions`, which meant something else.
+  assert((await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link').every((relation) => relation.type === 'link'), 'A link edge is still wearing another relation type.')
+
+  const beforeUpgrade = await readKnowledgeNode(root, alpha.id)
+  await createKnowledgeRelation(root, { sourceId: alpha.id, targetId: question.id, type: 'raises', creator: 'user', expectedRevision: beforeUpgrade.revision })
+  // A typed relation is a sidecar and a generated section, never a callout copied into the note.
+  const afterTyped = await readKnowledgeNode(root, alpha.id)
+  assert(!afterTyped.content.includes('> [!abstract] 관계') && !afterTyped.content.includes('prism-relation:'), `Creating a relation wrote a copy of it into the note:
+${afterTyped.content}`)
+  await refreshNoteDigest(root, alpha.id, [])
+  const withSection = (await readKnowledgeNode(root, alpha.id)).content
+  assert(withSection.includes('<!-- prism:auto relations -->') && withSection.includes('[[Questions/Open question|Open question]]'), `The relation did not reach the generated section:
+${withSection}`)
+  linkRelations = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.origin === 'link' && relation.targetId === question.id)
+  assert.equal(linkRelations.length, 0, 'A typed relation did not replace the plain link relation.')
+  assert.equal((await syncLinkRelations(root, alpha.id)).added, 0, 'The link relation came back after it was upgraded.')
+
+  const withoutLink = await readKnowledgeNode(root, alpha.id)
+  await saveKnowledgeNode(root, alpha.id, { content: withoutLink.content.replace('관련 질문: [[Questions/Open question]]', '관련 질문 없음'), expectedRevision: withoutLink.revision })
+  await syncLinkRelations(root, alpha.id)
+  const stillTyped = (await listKnowledgeRelationRecords(root)).filter((relation) => relation.sourceId === alpha.id && relation.targetId === question.id)
+  assert(stillTyped.length === 1 && stillTyped[0].type === 'raises', 'Removing the link should not remove the typed relation the researcher approved.')
+
+  // What the researcher wrote about their own work becomes a Claim they own, and stops being offered once it is.
+  const applying = await readKnowledgeNode(root, alpha.id)
+  const applyLine = '이 목적함수를 음성 합성 샘플링에 그대로 써볼 수 있겠다.'
+  await saveKnowledgeNode(root, alpha.id, { content: `${applying.content}
+
+## 내 연구에 쓸 곳
+
+<!-- prism:mine apply -->
+${applyLine}
+<!-- /prism:mine apply -->
+`, expectedRevision: applying.revision })
+  const withApply = await listCurationQueue(root)
+  const offered = withApply.applyNotes.find((item) => item.line === applyLine)
+  assert(offered && offered.node.id === alpha.id, `A line about the researcher's own work was not offered: ${JSON.stringify(withApply.applyNotes)}`)
+
+  const mine = await promoteApplyNote(root, { nodeId: alpha.id, line: applyLine, title: '음성 합성에 이 목적함수를 쓸 수 있다' })
+  const mineNote = await readKnowledgeNode(root, mine.id)
+  assert(mineNote.content.includes('claim_origin: mine'), `A promoted research note is not the researcher's own claim:
+${mineNote.content}`)
+  assert(mineNote.content.includes(applyLine) && mineNote.content.includes('[[papers/test.0001/test.0001|Paper Alpha]]'), 'The promoted claim lost the sentence or where it came from.')
+  // Their own section is never written back into: the line is dropped from the queue because a Claim quotes it.
+  assert((await readKnowledgeNode(root, alpha.id)).content.includes(`<!-- prism:mine apply -->
+${applyLine}`), 'Promoting changed what the researcher had written.')
+  assert(!(await listCurationQueue(root)).applyNotes.some((item) => item.line === applyLine), 'A line that already became a Claim is still being offered.')
+
+  // Deleting a note is undoable: the trash entry restores it to its folder.
+  const disposable = await createKnowledgeNode(root, { nodeType: 'question', title: '지울 질문' })
+  const removed = await deleteKnowledgeNode(root, disposable.id)
+  assert(removed.trashed.startsWith('.prism/trash/knowledge/') && removed.title === '지울 질문', `Deleting did not report a restorable trash entry: ${JSON.stringify(removed)}`)
+  await assert.rejects(fs.access(path.join(root, 'Questions', '지울 질문.md')))
+  const restored = await restoreKnowledgeNode(root, removed.trashed)
+  assert.equal(restored.id, disposable.id)
+  assert((await fs.stat(path.join(root, 'Questions', '지울 질문.md'))).isFile(), 'Undo did not put the note back in its folder.')
+  await assert.rejects(restoreKnowledgeNode(root, '../outside.md'), /올바르지/)
+
+  process.stdout.write('Curation passed: definition rows with defines relations, queue sections and ordering, papers that disagree over a claim, memo promotion with evidence and back-marking, stub merging with link and sidecar repointing, links as graph edges of their own type with typed upgrades, relations that live in one generated section rather than a callout per edge, research notes promoted to claims the researcher owns, and undoable deletion.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

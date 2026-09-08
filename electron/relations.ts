@@ -2,20 +2,24 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
-import { listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
+import { listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 
-export type KnowledgeRelationType = 'defines' | 'uses' | 'supports' | 'contradicts' | 'extends' | 'raises' | 'answers' | 'mentions' | 'discusses' | 'presents' | 'explains' | 'evidence_for' | 'derived_from' | 'related'
+export type KnowledgeRelationType = 'defines' | 'uses' | 'supports' | 'contradicts' | 'extends' | 'raises' | 'answers' | 'link' | 'mentions' | 'discusses' | 'presents' | 'explains' | 'evidence_for' | 'derived_from' | 'related'
 export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
-export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; createdAt: string }
+/**
+ * `origin: 'link'` marks a relation derived from a `[[link]]` in the source note. The Markdown link is the
+ * human-readable form, so these are never written as relation blocks and are rebuilt whenever the note is saved.
+ */
+export type RelationOrigin = 'manual' | 'link'
+export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; origin?: RelationOrigin; createdAt: string }
 export type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
 export type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
-export type KnowledgeRelationUpdateRequest = { id: string; type: KnowledgeRelationType; evidenceAnchor?: RelationEvidenceAnchor | null; expectedRevision: string }
 export type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 
-const relationTypes = new Set<KnowledgeRelationType>(['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers', 'mentions', 'discusses', 'presents', 'explains', 'evidence_for', 'derived_from', 'related'])
+const relationTypes = new Set<KnowledgeRelationType>(['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers', 'link', 'mentions', 'discusses', 'presents', 'explains', 'evidence_for', 'derived_from', 'related'])
 const evidenceTypes = new Set<RelationEvidenceAnchor['type']>(['sentence', 'section', 'equation', 'table', 'figure', 'page'])
-const relationLabels: Record<KnowledgeRelationType, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문을 제기함', answers: '답함', mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련' }
+const relationLabels: Record<KnowledgeRelationType, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '질문을 제기함', answers: '답함', link: '링크', mentions: '언급함', discusses: '다룸', presents: '제시함', explains: '설명함', evidence_for: '근거임', derived_from: '출발함', related: '관련' }
 const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const relationIdPattern = /^relation-[a-f0-9-]{20,80}$/
 
@@ -29,6 +33,7 @@ function validRecord(value: unknown): value is KnowledgeRelationRecord {
   return typeof item.id === 'string' && relationIdPattern.test(item.id) && typeof item.sourceId === 'string' && nodeIdPattern.test(item.sourceId)
     && typeof item.targetId === 'string' && nodeIdPattern.test(item.targetId) && typeof item.type === 'string' && relationTypes.has(item.type as KnowledgeRelationType)
     && (item.creator === 'user' || item.creator === 'ai') && (item.reviewStatus === 'pending' || item.reviewStatus === 'approved' || item.reviewStatus === 'rejected') && typeof item.createdAt === 'string'
+    && (item.origin === undefined || item.origin === 'manual' || item.origin === 'link')
     && (item.evidenceAnchor === undefined || validEvidenceAnchor(item.evidenceAnchor))
 }
 function validEvidenceAnchor(value: unknown): value is RelationEvidenceAnchor {
@@ -49,27 +54,70 @@ async function records(libraryPath: string) {
   return result
 }
 export async function listKnowledgeRelationRecords(libraryPath: string) { return records(libraryPath) }
+
+function linkTargetIds(content: string, nodes: KnowledgeNodeRecord[], sourceId: string) {
+  const searchable = content.replace(/```[\s\S]*?```/g, '')
+  const targets = new Set<string>()
+  for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+    const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
+    if (!raw) continue
+    const base = raw.split('/').at(-1)
+    const node = nodes.find((item) => {
+      if (item.id === sourceId) return false
+      const nodePath = item.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
+      return nodePath === raw || (!raw.includes('/') && nodePath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
+    })
+    if (node) targets.add(node.id)
+  }
+  return targets
+}
+
+/**
+ * Makes the graph reflect what the researcher actually wrote: every `[[link]]` becomes a relation, and a
+ * removed link takes its relation with it. A typed relation for the same pair always wins, so upgrading a
+ * link to `supports` or `defines` simply replaces it.
+ */
+export async function syncLinkRelations(libraryPath: string, nodeId: string) {
+  const nodes = await listKnowledgeNodes(libraryPath)
+  const source = nodes.find((node) => node.id === nodeId)
+  if (!source) return { added: 0, removed: 0 }
+  const targets = linkTargetIds((await readKnowledgeNode(libraryPath, nodeId)).content, nodes, nodeId)
+  const all = await records(libraryPath)
+  const typedTargets = new Set(all.filter((item) => item.origin !== 'link' && item.sourceId === nodeId && item.reviewStatus !== 'rejected').map((item) => item.targetId))
+  const existing = all.filter((item) => item.origin === 'link' && item.sourceId === nodeId)
+  let added = 0; let removed = 0
+  for (const targetId of targets) {
+    if (typedTargets.has(targetId) || existing.some((item) => item.targetId === targetId)) continue
+    await fs.mkdir(directory(libraryPath), { recursive: true })
+    await atomicRecord(libraryPath, { id: `relation-${randomUUID()}`, sourceId: nodeId, targetId, type: 'link', creator: 'user', reviewStatus: 'approved', origin: 'link', createdAt: new Date().toISOString() })
+    added += 1
+  }
+  for (const relation of existing) {
+    if (targets.has(relation.targetId) && !typedTargets.has(relation.targetId)) continue
+    await fs.unlink(path.join(directory(libraryPath), `${relation.id}.json`)).catch(() => undefined)
+    removed += 1
+  }
+  return { added, removed }
+}
 function compactNode(node: KnowledgeNodeRecord) { return { id: node.id, title: node.title, nodeType: node.nodeType, relativePath: node.relativePath } }
 
-export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {
-  const nodes = await listKnowledgeNodes(libraryPath); const byId = new Map(nodes.map((node) => [node.id, node]))
+/**
+ * The same view the IPC returns, built from state a caller already holds — no second walk of the vault. It
+ * takes the node lookup rather than the list, so a caller resolving many nodes builds that map once.
+ */
+export function knowledgeRelationViews(all: KnowledgeRelationRecord[], byId: Map<string, KnowledgeNodeRecord>, nodeId: string): KnowledgeRelationView[] {
   if (!byId.has(nodeId)) throw new Error('지식 노트를 찾을 수 없습니다.')
   const result: KnowledgeRelationView[] = []
-  for (const relation of await records(libraryPath)) {
+  for (const relation of all) {
     if (relation.sourceId === nodeId && byId.has(relation.targetId)) result.push({ ...relation, direction: 'outgoing', other: compactNode(byId.get(relation.targetId)!) })
     else if (relation.targetId === nodeId && byId.has(relation.sourceId)) result.push({ ...relation, direction: 'incoming', other: compactNode(byId.get(relation.sourceId)!) })
   }
   return result.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
-function markdownBlock(relation: KnowledgeRelationRecord, target: KnowledgeNodeRecord) {
-  const metadata = encodeURIComponent(JSON.stringify({ id: relation.id, sourceId: relation.sourceId, targetId: relation.targetId, type: relation.type, creator: relation.creator, reviewStatus: relation.reviewStatus, evidenceAnchor: relation.evidenceAnchor }))
-  const targetPath = target.relativePath.replace(/\.md$/i, '')
-  return `> [!abstract] 관계 · ${relationLabels[relation.type]}\n> [[${targetPath}|${target.title}]]\n<!-- prism-relation:${metadata} -->\n^${relation.id}`
-}
-function removeMarkdownBlock(source: string, relationId: string) {
-  const escaped = relationId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const expression = new RegExp(`(?:^|\\r?\\n)> \\[!abstract\\] 관계 · [^\\r\\n]*\\r?\\n> \\[\\[[^\\r\\n]+\\]\\]\\r?\\n<!--\\s*prism-relation:[^\\s]+\\s*-->\\r?\\n\\^${escaped}(?=\\r?\\n|$)\\r?\\n?`)
-  return source.replace(expression, '\n').replace(/\n{3,}/g, '\n\n')
+
+export async function listKnowledgeRelations(libraryPath: string, nodeId: string): Promise<KnowledgeRelationView[]> {
+  const [nodes, all] = await Promise.all([listKnowledgeNodes(libraryPath), records(libraryPath)])
+  return knowledgeRelationViews(all, new Map(nodes.map((node) => [node.id, node])), nodeId)
 }
 
 export async function createKnowledgeRelation(libraryPath: string, request: KnowledgeRelationCreateRequest) {
@@ -79,38 +127,18 @@ export async function createKnowledgeRelation(libraryPath: string, request: Know
   if (!source || !target) throw new Error('관계를 연결할 지식 노트를 찾을 수 없습니다.')
   const existing = await records(libraryPath)
   if (existing.some((item) => item.sourceId === request.sourceId && item.targetId === request.targetId && item.type === request.type && sameEvidence(item.evidenceAnchor, request.evidenceAnchor) && item.reviewStatus !== 'rejected')) throw new Error('이미 같은 관계가 있습니다.')
-  const relation: KnowledgeRelationRecord = { id: `relation-${randomUUID()}`, sourceId: request.sourceId, targetId: request.targetId, type: request.type, creator: request.creator, reviewStatus: request.creator === 'user' ? 'approved' : 'pending', evidenceAnchor: request.evidenceAnchor, createdAt: new Date().toISOString() }
+  const relation: KnowledgeRelationRecord = { id: `relation-${randomUUID()}`, sourceId: request.sourceId, targetId: request.targetId, type: request.type, creator: request.creator, reviewStatus: request.creator === 'user' ? 'approved' : 'pending', evidenceAnchor: request.evidenceAnchor, origin: 'manual', createdAt: new Date().toISOString() }
+  // A typed relation says more than the plain link that may already exist for this pair.
+  for (const previous of existing.filter((item) => item.origin === 'link' && item.sourceId === request.sourceId && item.targetId === request.targetId)) {
+    await fs.unlink(path.join(directory(libraryPath), `${previous.id}.json`)).catch(() => undefined)
+  }
   const snapshot = await readKnowledgeNode(libraryPath, source.id)
   if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
-  let savedSnapshot = snapshot
-  if (relation.reviewStatus === 'approved') {
-    const saved = await saveKnowledgeNode(libraryPath, source.id, { content: `${snapshot.content.trimEnd()}\n\n${markdownBlock(relation, target)}\n`, expectedRevision: request.expectedRevision })
-    if (!saved.saved) return saved
-    savedSnapshot = saved.snapshot
-  }
   await fs.mkdir(directory(libraryPath), { recursive: true })
   await fs.writeFile(path.join(directory(libraryPath), `${relation.id}.json`), JSON.stringify(relation, null, 2), { encoding: 'utf8', flag: 'wx' })
-  return { saved: true as const, relation, snapshot: savedSnapshot, relations: await listKnowledgeRelations(libraryPath, source.id) }
+  return { saved: true as const, relation, snapshot, relations: await listKnowledgeRelations(libraryPath, source.id) }
 }
 
-export async function updateKnowledgeRelation(libraryPath: string, request: KnowledgeRelationUpdateRequest) {
-  if (!relationIdPattern.test(request.id) || !relationTypes.has(request.type) || !/^[a-f0-9]{64}$/.test(request.expectedRevision)
-    || (request.evidenceAnchor !== undefined && request.evidenceAnchor !== null && !validEvidenceAnchor(request.evidenceAnchor))) throw new Error('관계 변경 정보가 올바르지 않습니다.')
-  const all = await records(libraryPath); const relation = all.find((item) => item.id === request.id)
-  if (!relation || relation.creator !== 'user' || relation.reviewStatus !== 'approved') throw new Error('변경할 사용자 관계를 찾을 수 없습니다.')
-  const evidenceAnchor = request.evidenceAnchor === undefined ? relation.evidenceAnchor : request.evidenceAnchor ?? undefined
-  if (all.some((item) => item.id !== relation.id && item.sourceId === relation.sourceId && item.targetId === relation.targetId && item.type === request.type && sameEvidence(item.evidenceAnchor, evidenceAnchor) && item.reviewStatus !== 'rejected')) throw new Error('이미 같은 관계가 있습니다.')
-  const snapshot = await readKnowledgeNode(libraryPath, relation.sourceId)
-  if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
-  const target = (await listKnowledgeNodes(libraryPath)).find((node) => node.id === relation.targetId)
-  if (!target) throw new Error('관계 대상 지식 노트를 찾을 수 없습니다.')
-  const updated: KnowledgeRelationRecord = { ...relation, type: request.type, evidenceAnchor }
-  const content = `${removeMarkdownBlock(snapshot.content, relation.id).trimEnd()}\n\n${markdownBlock(updated, target)}\n`
-  const saved = await saveKnowledgeNode(libraryPath, relation.sourceId, { content, expectedRevision: request.expectedRevision })
-  if (!saved.saved) return saved
-  await atomicRecord(libraryPath, updated)
-  return { saved: true as const, relation: updated, snapshot: saved.snapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
-}
 
 export async function deleteKnowledgeRelation(libraryPath: string, request: KnowledgeRelationDeleteRequest) {
   if (!relationIdPattern.test(request.id) || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('관계 삭제 정보가 올바르지 않습니다.')
@@ -118,14 +146,8 @@ export async function deleteKnowledgeRelation(libraryPath: string, request: Know
   if (!relation) throw new Error('관계를 찾을 수 없습니다.')
   const snapshot = await readKnowledgeNode(libraryPath, relation.sourceId)
   if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
-  let savedSnapshot = snapshot
-  if (relation.reviewStatus === 'approved') {
-    const saved = await saveKnowledgeNode(libraryPath, relation.sourceId, { content: removeMarkdownBlock(snapshot.content, relation.id), expectedRevision: request.expectedRevision })
-    if (!saved.saved) return saved
-    savedSnapshot = saved.snapshot
-  }
   await fs.unlink(path.join(directory(libraryPath), `${relation.id}.json`))
-  return { saved: true as const, snapshot: savedSnapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
+  return { saved: true as const, snapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
 }
 
 export async function reviewKnowledgeRelation(libraryPath: string, request: KnowledgeRelationReviewRequest) {
@@ -134,15 +156,7 @@ export async function reviewKnowledgeRelation(libraryPath: string, request: Know
   if (!relation || relation.creator !== 'ai' || relation.reviewStatus !== 'pending') throw new Error('검토할 AI 관계를 찾을 수 없습니다.')
   const snapshot = await readKnowledgeNode(libraryPath, relation.sourceId)
   if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
-  let savedSnapshot = snapshot
-  if (request.decision === 'approved') {
-    const target = (await listKnowledgeNodes(libraryPath)).find((node) => node.id === relation.targetId)
-    if (!target) throw new Error('관계 대상 지식 노트를 찾을 수 없습니다.')
-    const saved = await saveKnowledgeNode(libraryPath, relation.sourceId, { content: `${snapshot.content.trimEnd()}\n\n${markdownBlock({ ...relation, reviewStatus: 'approved' }, target)}\n`, expectedRevision: request.expectedRevision })
-    if (!saved.saved) return saved
-    savedSnapshot = saved.snapshot
-  }
   const reviewed = { ...relation, reviewStatus: request.decision } as KnowledgeRelationRecord
   await atomicRecord(libraryPath, reviewed)
-  return { saved: true as const, relation: reviewed, snapshot: savedSnapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
+  return { saved: true as const, relation: reviewed, snapshot, relations: await listKnowledgeRelations(libraryPath, relation.sourceId) }
 }

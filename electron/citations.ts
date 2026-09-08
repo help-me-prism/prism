@@ -26,7 +26,7 @@ function parseEntries(payload: unknown, key: 'citedPaper' | 'citingPaper'): RawE
   })
 }
 
-export async function fetchCitationGraph(arxivId: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): Promise<Omit<Stored, 'version'>> {
+async function fetchCitationGraph(arxivId: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): Promise<Omit<Stored, 'version'>> {
   const fields = 'title,year,citationCount,externalIds,authors'
   const headers = { 'User-Agent': 'Prism/0.1 local desktop research reader' }
   const base = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${encodeURIComponent(arxivId)}`

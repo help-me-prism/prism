@@ -17,6 +17,11 @@ try {
   await fs.mkdir(paperDir, { recursive: true }); await fs.writeFile(path.join(paperDir, 'original.pdf'), '')
   await fs.writeFile(notePath, `---\ntype: paper\narxiv_id: "test.0001"\ntitle: "Paper Alpha"\n---\n\n# Paper Alpha\n\n## 한 문장 요약\n\nDiffusion as weighted score matching.\n\n## Notes\n`, 'utf8')
   await write('.prism/anchors/test.0001.json', JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [{ id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' }] }))
+  const paperSentence = 'Flow matching trains continuous normalizing flows without simulating the ODE during training.'
+  await fs.writeFile(path.join(paperDir, 'translation.ko.json'), JSON.stringify({ version: 1, segments: [
+    { source: paperSentence, translation: paperSentence, kind: 'text', page: 1, sectionTitle: 'Introduction' },
+    { source: 'We evaluate on CIFAR10 and ImageNet.', translation: 'We evaluate on CIFAR10 and ImageNet.', kind: 'text', page: 4, sectionTitle: 'Experiments' },
+  ] }), 'utf8')
   await write('.prism/library.json', JSON.stringify([{ arxivId: 'test.0001', title: 'Paper Alpha', pdfPath: path.join(paperDir, 'original.pdf'), notePath }]))
   await write('Concepts/Score matching.md', note('concept-aaaaaaaa', 'concept', 'Score matching', 'Matching the gradient of the log density.'))
   await write('Claims/Weighted objective.md', note('claim-bbbbbbbb', 'claim', 'The simple objective is a weighted ELBO', 'Weighting matters.', 'claim_origin: paper\nscope_domain: "image generation"\n'))
@@ -58,13 +63,20 @@ try {
         { kind: 'question', memo: 'This line was invented by the model.', why: 'fabricated' },
       ],
       newConcepts: [{ title: 'Flow matching', reason: '반복 등장' }, { title: 'Score matching', reason: 'duplicate of existing' }, { title: 'Flow matching', reason: 'dup' }],
+      claims: [
+        { sentence: `[Introduction] ${paperSentence}`, why: '이 논문의 핵심 주장' },
+        { sentence: 'The paper never says this.', why: 'fabricated' },
+      ],
     })
   }
   const summary = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', fakeCli)
   assert(seenPrompt.includes('- concept-aaaaaaaa | concept | Score matching') && seenPrompt.includes('MEMO LINES') && seenPrompt.includes('- 노이즈 예측은 가중 score matching과 같다.'), 'The prompt did not list existing nodes and memo lines.')
   assert.equal(summary.relationsCreated, 3, `Expected three valid relations, got ${JSON.stringify(summary)}`)
   assert.equal(summary.relationsSkipped, 3)
+  assert(seenPrompt.includes('THE PAPER ITSELF') && seenPrompt.includes(paperSentence), 'The prompt did not carry the paper body a claim has to be quoted from.')
   assert.equal(summary.candidates, 1); assert.equal(summary.concepts, 1)
+  // A claim must be the paper's own words: one quoted line is kept, an invented one is dropped.
+  assert.equal(summary.claims, 1, `Expected one grounded paper claim, got ${JSON.stringify(summary)}`)
   const relations = await listKnowledgeRelationRecords(root)
   const defines = relations.find((relation) => relation.type === 'defines' && relation.targetId === 'concept-aaaaaaaa')
   assert(defines?.creator === 'ai' && defines.reviewStatus === 'pending' && defines.evidenceAnchor?.anchorId === 'sentence-p1-1', 'The defines relation is not a pending AI relation with its evidence anchor.')
@@ -78,7 +90,10 @@ try {
   assert(hinted?.aiHint?.kind === 'claim' && hinted.aiHint.why === '검증 가능한 명제', 'The memo did not receive its AI hint.')
   assert.equal(queue.conceptSuggestions.length, 1); assert.equal(queue.conceptSuggestions[0].title, 'Flow matching'); assert.equal(queue.conceptSuggestions[0].paperTitle, 'Paper Alpha')
   assert.equal(queue.pendingRelations.length, 3)
-  assert(queue.modelRuns[0]?.model === 'fake-model' && queue.total === 3 + 0 + 1 + 1 + 1 + 1, `Queue totals are off: ${queue.total}`)
+  assert.equal(queue.claimSuggestions.length, 1, `The paper claim did not reach the queue: ${JSON.stringify(queue.claimSuggestions)}`)
+  assert(queue.claimSuggestions[0].sentence === paperSentence && queue.claimSuggestions[0].paperTitle === 'Paper Alpha', 'The queued claim lost its sentence or its paper.')
+
+  assert(queue.modelRuns[0]?.model === 'fake-model' && queue.total === 3 + 0 + 1 + 1 + 1 + 1 + 1, `Queue totals are off: ${queue.total}`)
 
   // Reviewing: a concept suggestion becomes an inbox stub; a memo hint can only be dismissed, never auto-promoted.
   await reviewModelSuggestion(root, { paperNodeId: 'paper-test.0001', id: queue.conceptSuggestions[0].id, decision: 'accepted' })
@@ -95,7 +110,15 @@ try {
   assert.equal(again.relationsCreated, 0, 'Re-running duplicated pending relations.')
   assert.equal(again.candidates, 0, 'A rejected memo hint resurfaced after re-running.')
   assert.equal((await listModelSuggestionRuns(root)).length, 1)
-  process.stdout.write('Knowledge AI passed: note rendering without AI answers, guarded prompt, tolerant JSON parsing, type/id validation, pending-only relations with anchors, memo hints, concept stubs, and rejection memory.\n')
+  // Accepting one makes a Claim in the paper's words, marked as the paper's rather than the researcher's.
+  await reviewModelSuggestion(root, { paperNodeId: 'paper-test.0001', id: queue.claimSuggestions[0].id, decision: 'accepted' })
+  const claimNode = (await listKnowledgeNodes(root)).find((node) => node.nodeType === 'claim' && node.title.startsWith('Flow matching trains'))
+  assert(claimNode, 'Accepting a paper claim did not make a note.')
+  const claimBody = (await readKnowledgeNode(root, claimNode.id)).content
+  assert(claimBody.includes('claim_origin: paper') && claimBody.includes(paperSentence) && claimBody.includes('[[papers/test.0001/test.0001|Paper Alpha]]'), `The accepted claim is missing its origin, sentence or source:\n${claimBody}`)
+  assert(!(await listCurationQueue(root)).claimSuggestions.length, 'An accepted claim is still being offered.')
+
+  process.stdout.write('Knowledge AI passed: note rendering without AI answers, guarded prompt, tolerant JSON parsing, type/id validation, pending-only relations with anchors, memo hints, concept stubs, claims quoted from the paper body rather than invented, and rejection memory.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })
 }

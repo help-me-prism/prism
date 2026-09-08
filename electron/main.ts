@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
-import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync } from 'node:fs'
+import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -9,18 +9,22 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, searchKnowledge, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
-import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, updateKnowledgeRelation, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest, type KnowledgeRelationUpdateRequest } from './relations.js'
-import { listKnowledgeDataViews } from './knowledgeViews.js'
+import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
+import { listKnowledgeGraph, listKnowledgeGraphInsights } from './knowledgeGraph.js'
 import { buildObsidianOpenUri, type ObsidianOpenRequest } from './obsidian.js'
-import { rebuildResearchIndex, retrieveResearchContext, searchResearchKnowledge } from './researchSearch.js'
+import { searchResearchKnowledge } from './researchSearch.js'
 import { suggestKnowledge } from './knowledgeSuggestions.js'
 import { readMcpOpenAnchorRequest } from './knowledgeMcp.js'
 import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from './capture.js'
-import { listCurationQueue, mergeConcepts, promoteMemo, type MergeConceptsRequest, type PromoteMemoRequest } from './curation.js'
+import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo, type MergeConceptsRequest, type PromoteApplyRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
+import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
+import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
+import { decideCodexServerRequest } from './codexApproval.js'
+import { chatMemoryInstruction } from './noteContract.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -204,6 +208,8 @@ class CodexAppServer {
   }
 
   private onMessage(message: RpcResponse) {
+    // A server request carries both an id and a method, and used to be mistaken for a reply and dropped.
+    if (typeof message.id === 'number' && message.method) { this.write({ id: message.id, ...decideCodexServerRequest(message.method, message.params ?? {}) }); return }
     if (typeof message.id === 'number') {
       const pending = this.pending.get(message.id)
       if (!pending) return
@@ -241,13 +247,17 @@ class CodexAppServer {
 
   notify(method: string) { this.write({ method }) }
 
-  async send(sender: WebContents, request: ChatRequest) {
+  async send(sender: WebContents, request: ChatRequest, libraryPath?: string) {
     await this.ensureReady()
+    // Without a library there is nothing to remember into, and the thread stays exactly as strict as before.
+    const vault = libraryPath
+      ? { approvalPolicy: 'on-request', config: { mcp_servers: { prism: prismMcpServer(libraryPath) } }, developerInstructions: chatMemoryInstruction }
+      : { approvalPolicy: 'never' }
     let threadId = request.providerThreadId
     if (threadId) {
-      await this.request('thread/resume', { threadId, model: request.model, cwd: app.getPath('documents'), approvalPolicy: 'never', sandbox: 'read-only', excludeTurns: true })
+      await this.request('thread/resume', { threadId, model: request.model, cwd: app.getPath('documents'), sandbox: 'read-only', excludeTurns: true, ...vault })
     } else {
-      const result = await this.request('thread/start', { model: request.model, cwd: app.getPath('documents'), approvalPolicy: 'never', sandbox: 'read-only' })
+      const result = await this.request('thread/start', { model: request.model, cwd: app.getPath('documents'), sandbox: 'read-only', ...vault })
       const thread = result.thread as Record<string, unknown> | undefined
       if (!thread || typeof thread.id !== 'string') throw new Error('Codex 세션 ID를 받지 못했습니다.')
       threadId = thread.id
@@ -272,10 +282,33 @@ class CodexAppServer {
 
 const codexServer = new CodexAppServer()
 
-function sendClaude(sender: WebContents, request: ChatRequest) {
+/**
+ * The chat can reach the vault through Prism's own MCP server, which is how a note gets updated by the model
+ * that is already answering rather than by a second pass that has to guess. The server runs the packaged
+ * `mcpServer.js` under Electron's Node, so there is nothing extra to install.
+ */
+const chatMcpTools = ['mcp__prism__search_knowledge', 'mcp__prism__get_claim_evidence', 'mcp__prism__find_related_concepts', 'mcp__prism__compare_papers', 'mcp__prism__read_note_memory', 'mcp__prism__remember']
+
+
+function prismMcpServer(libraryPath: string) {
+  return { command: process.execPath, args: [path.join(__dirname, 'mcpServer.js'), '--vault', libraryPath], env: { ELECTRON_RUN_AS_NODE: '1' } }
+}
+
+async function writeChatMcpConfig(libraryPath: string) {
+  const target = path.join(app.getPath('userData'), 'chat-mcp.json')
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  await fs.writeFile(target, JSON.stringify({ mcpServers: { prism: prismMcpServer(libraryPath) } }, null, 2), 'utf8')
+  return target
+}
+
+function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPath?: string) {
   const executable = findCli('claude')
   if (!executable) throw new Error('Claude CLI가 설치되어 있지 않습니다. 설치 후 다시 시도해 주세요.')
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'plan', '--model', request.model]
+  // Plan mode refuses every tool, including ours. Naming the tools it may use instead keeps the refusal for
+  // everything else — the CLI denies an unlisted tool outright when there is nobody to ask.
+  const args = mcpConfigPath
+    ? ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'default', '--allowedTools', chatMcpTools.join(','), '--mcp-config', mcpConfigPath, '--append-system-prompt', chatMemoryInstruction, '--model', request.model]
+    : ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'plan', '--model', request.model]
   if (request.providerThreadId) args.push('--resume', request.providerThreadId)
   const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { ...process.env, NO_COLOR: '1' }, windowsHide: true })
   activeChats.set(request.sessionId, { provider: 'claude', process: child })
@@ -324,7 +357,74 @@ async function saveSessions(value: unknown) {
   if (Buffer.byteLength(json) > 15 * 1024 * 1024) throw new Error('세션 저장 용량이 15MB를 초과했습니다.')
   await fs.mkdir(path.dirname(sessionsPath()), { recursive: true })
   await fs.writeFile(sessionsPath(), json, 'utf8')
+  scheduleChatRouting()
   return true
+}
+
+/**
+ * Chat is where the researcher says what they do not understand, and a note that only hears about it when
+ * somebody happens to open it is a filing cabinet, not a memory. Every time a conversation settles, the
+ * notes it was about catch up on their own: the papers in its context, and any concept, claim or question
+ * whose name came up. Only the generated regions move, and only for free — no model runs here, so this
+ * costs a few file reads and can happen in the background without asking.
+ */
+let chatRoutingTimer: NodeJS.Timeout | undefined
+let chatRouting: Promise<void> = Promise.resolve()
+function scheduleChatRouting() {
+  if (chatRoutingTimer) clearTimeout(chatRoutingTimer)
+  // Streaming saves the session on every chunk; the interesting moment is when it stops.
+  chatRoutingTimer = setTimeout(() => { chatRouting = chatRouting.then(routeChatIntoNotes).catch(() => undefined) }, 4000)
+}
+async function routeChatIntoNotes() {
+  const settings = await readSettings()
+  if (!settings.libraryPath) return
+  const messages = await readChatMessages(sessionsPath())
+  if (!messages.length) return
+  const recent = messages.slice(-40)
+  const spokenAbout = new Set(recent.flatMap((message) => [...(message.paperIds ?? []), ...(message.anchors ?? []).map((anchor) => anchor.paperId)]))
+  const said = recent.filter((message) => message.role === 'user').map((message) => message.text).join('\n')
+  const context = await buildDigestContext(settings.libraryPath).catch(() => undefined)
+  if (!context) return
+  const targets = context.vault.records.filter((node) => node.nodeType === 'paper'
+    ? Boolean(node.arxivId && spokenAbout.has(node.arxivId))
+    : ['concept', 'claim', 'question'].includes(node.nodeType) && titleMatcher(node.title)(said))
+  for (const node of targets.slice(0, 12)) {
+    // One note failing — renamed, open in Obsidian, mid-edit — must not stop the others catching up.
+    try { await refreshNoteDigest(settings.libraryPath, node.id, messages, undefined, context) } catch { /* it will catch up on the next turn */ }
+  }
+}
+
+/**
+ * Obsidian and the Reader write the same folder Prism does, and the researcher expects to see that without
+ * asking. Every open document used to re-read its file on a timer to find out; one watcher says who changed
+ * instead, so a quiet vault costs nothing and a busy one still answers in a quarter of a second.
+ */
+let vaultWatcher: FSWatcher | undefined
+let watchedVault: string | undefined
+let vaultChangeTimer: NodeJS.Timeout | undefined
+const vaultChanges = new Set<string>()
+
+function watchVault(libraryPath?: string) {
+  if (watchedVault === libraryPath) return
+  vaultWatcher?.close(); vaultWatcher = undefined; watchedVault = libraryPath
+  if (!libraryPath) return
+  try {
+    vaultWatcher = watch(libraryPath, { recursive: true }, (_event, name) => {
+      if (typeof name !== 'string' || !name.toLowerCase().endsWith('.md')) return
+      const relative = name.split(path.sep).join('/')
+      // Derived state under `.prism/` is nobody's document; only the Markdown a person could be reading matters.
+      if (relative.startsWith('.prism/')) return
+      invalidateKnowledgeCache(libraryPath, path.join(libraryPath, name))
+      vaultChanges.add(relative)
+      if (vaultChangeTimer) clearTimeout(vaultChangeTimer)
+      // A save from any editor arrives as several events; one message per burst is what a reader needs.
+      vaultChangeTimer = setTimeout(() => {
+        const paths = [...vaultChanges]; vaultChanges.clear()
+        for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) window.webContents.send('knowledge:vault-changed', { paths })
+      }, 250)
+    })
+    vaultWatcher.unref?.()
+  } catch { /* watching is a convenience; a vault on a filesystem that cannot be watched still works */ }
 }
 
 function settingsPath() { return path.join(app.getPath('userData'), 'settings.json') }
@@ -342,6 +442,7 @@ async function readSettings(): Promise<AppSettings> {
     }
   } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
 }
+async function readSettingsAndWatch() { const settings = await readSettings(); watchVault(settings.libraryPath); return settings }
 async function writeSettings(patch: Partial<AppSettings>) {
   const current = await readSettings()
   if (process.env.PRISM_TEST_LIBRARY_PATH) {
@@ -353,6 +454,7 @@ async function writeSettings(patch: Partial<AppSettings>) {
   const next = { ...current, ...patch }
   await fs.mkdir(path.dirname(settingsPath()), { recursive: true })
   await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8')
+  watchVault(next.libraryPath)
   return next
 }
 
@@ -799,8 +901,9 @@ ipcMain.handle('workspace:choose', async (event) => {
   return writeSettings({ libraryPath })
 })
 ipcMain.handle('library:list', async () => {
-  const settings = await readSettings()
-  if (settings.libraryPath) await migratePaperNotes(settings.libraryPath).catch(() => 0)
+  const settings = await readSettingsAndWatch()
+  // Writing prism_id into old paper notes changes files under our own feet; start from a clean cache.
+  if (settings.libraryPath && await migratePaperNotes(settings.libraryPath).catch(() => 0)) invalidateKnowledgeCache(settings.libraryPath)
   return readLibrary()
 })
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
@@ -851,27 +954,6 @@ ipcMain.handle('reader:open', async (_event, arxivId?: string) => {
   target.show(); target.focus()
   return true
 })
-ipcMain.handle('paper:note:read', async (_event, arxivId: string) => {
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
-  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return readNoteSnapshot(record.notePath)
-})
-ipcMain.handle('paper:note:save', async (_event, arxivId: string, request: NoteSaveRequest) => {
-  if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000) throw new Error('노트가 너무 큽니다.')
-  if (request.force !== undefined && typeof request.force !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
-  if (request.expectedRevision !== undefined && (typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision))) throw new Error('노트 버전이 올바르지 않습니다.')
-  if (request.force !== true && request.expectedRevision === undefined) throw new Error('노트 버전이 필요합니다.')
-  if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('노트 저장 옵션이 올바르지 않습니다.')
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
-  if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  const result = await saveNoteSnapshot(record.notePath, request)
-  if (result.saved && request.createStubs) {
-    const settings = await readSettings()
-    const stubs = settings.libraryPath ? await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) : []
-    return { ...result, stubs }
-  }
-  return result
-})
 ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -916,21 +998,9 @@ ipcMain.handle('knowledge:list', async () => {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeNodes(settings.libraryPath)
 })
-ipcMain.handle('knowledge:search', async (_event, query: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return searchKnowledge(settings.libraryPath, String(query))
-})
 ipcMain.handle('research:search', async (_event, query: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return searchResearchKnowledge(settings.libraryPath, String(query))
-})
-ipcMain.handle('research:context', async (_event, query: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return retrieveResearchContext(settings.libraryPath, String(query))
-})
-ipcMain.handle('research:index:rebuild', async () => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return rebuildResearchIndex(settings.libraryPath)
 })
 ipcMain.handle('research:suggest', async (_event, nodeId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -958,11 +1028,48 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
   return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
 })
-ipcMain.handle('knowledge:stubs:ensure', async (_event, id: string) => {
+ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, options?: { useModel?: boolean }) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof paperNodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(paperNodeId)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const messages = await readChatMessages(sessionsPath())
+  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  const useModel = options?.useModel !== false && Boolean(provider && model)
+  const runPrompt = useModel && provider && model
+    ? (prompt: string) => runTranslationCli(provider, model, prompt, `digest-${paperNodeId}-${Date.now()}`)
+    : undefined
+  return refreshNoteDigest(settings.libraryPath, paperNodeId, messages, runPrompt)
+})
+ipcMain.handle('knowledge:digest:refresh-vault', async () => {
+  const settings = await readSettingsAndWatch(); if (!settings.libraryPath) return { scanned: 0, updated: [] }
+  return refreshVaultDigests(settings.libraryPath, await readChatMessages(sessionsPath()))
+})
+ipcMain.handle('knowledge:auto-unread:list', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) return {}
+  return listAutoUnread(settings.libraryPath)
+})
+ipcMain.handle('knowledge:auto-unread:clear', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  return { cleared: await clearAutoUnread(settings.libraryPath, id) }
+})
+ipcMain.handle('knowledge:prune-empty-sections', async (_event, id: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
+  const result = await pruneEmptySections(settings.libraryPath, id)
+  return { removed: result.removed }
+})
+ipcMain.handle('knowledge:links:sync', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   const snapshot = await readKnowledgeNode(settings.libraryPath, id)
-  return ensureLinkStubs(settings.libraryPath, snapshot.content)
+  const stubs = await ensureLinkStubs(settings.libraryPath, snapshot.content)
+  const relations = await syncLinkRelations(settings.libraryPath, id)
+  return { stubs, ...relations }
+})
+ipcMain.handle('knowledge:restore', async (_event, trashedRelativePath: string) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (typeof trashedRelativePath !== 'string') throw new Error('복구할 항목이 올바르지 않습니다.')
+  return restoreKnowledgeNode(settings.libraryPath, trashedRelativePath)
 })
 ipcMain.handle('knowledge:curation:list', async () => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -974,14 +1081,15 @@ ipcMain.handle('knowledge:curation:promote-memo', async (_event, request: Promot
     || typeof request.memo !== 'string' || request.memo.length > 4_000 || (request.nodeType !== 'claim' && request.nodeType !== 'question') || typeof request.title !== 'string' || request.title.length > 300) throw new Error('승격 요청이 올바르지 않습니다.')
   return promoteMemo(settings.libraryPath, request)
 })
+ipcMain.handle('knowledge:curation:promote-apply', async (_event, request: PromoteApplyRequest) => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId) || typeof request.line !== 'string' || request.line.length > 1_000 || typeof request.title !== 'string' || request.title.length > 200) throw new Error('승격 요청이 올바르지 않습니다.')
+  return promoteApplyNote(settings.libraryPath, request)
+})
 ipcMain.handle('knowledge:curation:merge-concepts', async (_event, request: MergeConceptsRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.sourceId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.sourceId) || typeof request.targetId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.targetId)) throw new Error('병합 요청이 올바르지 않습니다.')
   return mergeConcepts(settings.libraryPath, request)
-})
-ipcMain.handle('knowledge:views', async () => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return listKnowledgeDataViews(settings.libraryPath)
 })
 ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpenRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -1040,6 +1148,14 @@ ipcMain.handle('knowledge:evidence:copy', async (_event, request: KnowledgeEvide
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return copyKnowledgeEvidence(settings.libraryPath, request)
 })
+ipcMain.handle('knowledge:graph', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeGraph(settings.libraryPath)
+})
+ipcMain.handle('knowledge:graph:insights', async () => {
+  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  return listKnowledgeGraphInsights(settings.libraryPath)
+})
 ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeRelations(settings.libraryPath, String(id))
@@ -1047,10 +1163,6 @@ ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
 ipcMain.handle('knowledge:relations:create', async (_event, request: KnowledgeRelationCreateRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return createKnowledgeRelation(settings.libraryPath, request)
-})
-ipcMain.handle('knowledge:relations:update', async (_event, request: KnowledgeRelationUpdateRequest) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return updateKnowledgeRelation(settings.libraryPath, request)
 })
 ipcMain.handle('knowledge:relations:delete', async (_event, request: KnowledgeRelationDeleteRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -1153,7 +1265,10 @@ ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   if (!['codex', 'claude'].includes(request.provider)) throw new Error('지원하지 않는 CLI입니다.')
   if (!/^[a-zA-Z0-9._:-]{1,100}$/.test(request.model)) throw new Error('올바르지 않은 모델 이름입니다.')
   if (activeChats.has(request.sessionId)) throw new Error('이 세션은 이미 답변을 생성하고 있습니다.')
-  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }); else sendClaude(event.sender, { ...request, prompt })
+  const settings = await readSettings()
+  // Without a library there is nothing to remember into, and the chat stays the read-only assistant it was.
+  const mcpConfigPath = settings.libraryPath ? await writeChatMcpConfig(settings.libraryPath).catch(() => undefined) : undefined
+  if (request.provider === 'codex') await codexServer.send(event.sender, { ...request, prompt }, settings.libraryPath); else sendClaude(event.sender, { ...request, prompt }, mcpConfigPath)
   return { started: true }
 })
 ipcMain.handle('chat:cancel', async (_event, sessionId: string) => {
