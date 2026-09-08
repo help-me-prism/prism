@@ -8,7 +8,8 @@
   display: flex; flex-direction: column; min-height: 0; height: 100%; background: #eae8e2;
 }
 
-.map-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 5px 9px; border-bottom: 1px solid #ddd9d1; background: #f0eee9; color: #6a6862; font-size: 10px; }
+.map-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 9px; border-bottom: 1px solid #ddd9d1; background: #f0eee9; color: #6a6862; font-size: 10px; }
+.map-bar > * { white-space: nowrap; }
 .map-source { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: #43423d; }
 .map-source i { width: 7px; height: 7px; border-radius: 50%; }
 .map-source i.outline { background: #928f87; box-shadow: 0 0 0 3px #928f8722; }
@@ -86,3 +87,27 @@
 .map-expand.open { background: #e7e3f9; border-color: #c3bce8; color: #5544ba; }
 .map-note.done { border-color: #cfe0d3; background: #eef6f0; color: #3d6a4d; }
 .map-refresh:disabled { opacity: .55; cursor: default; }
+
+/* What is selected, what it relates to, and the two things worth doing with it. */
+.map-selection { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; padding: 6px 9px; border-top: 1px solid #d5d1c8; background: #fbfaf7; }
+.map-selection .sel-role { padding: 2px 6px; border-radius: 4px; background: color-mix(in srgb, var(--sel) 14%, transparent); color: var(--sel); font-size: 9px; font-weight: 600; }
+.map-selection .sel-role[data-role="problem"] { --sel: var(--role-problem); }
+.map-selection .sel-role[data-role="background"] { --sel: var(--role-background); }
+.map-selection .sel-role[data-role="method"] { --sel: var(--role-method); }
+.map-selection .sel-role[data-role="component"] { --sel: var(--role-component); }
+.map-selection .sel-role[data-role="rationale"] { --sel: var(--role-rationale); }
+.map-selection .sel-role[data-role="experiment"] { --sel: var(--role-experiment); }
+.map-selection .sel-role[data-role="result"] { --sel: var(--role-result); }
+.map-selection .sel-role[data-role="limit"] { --sel: var(--role-limit); }
+.map-selection .sel-title { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+.map-selection .sel-title strong { color: #2f2e2a; font-size: 10.5px; font-weight: 600; }
+.map-selection .sel-title small { color: #a09d95; font-size: 9px; }
+.map-selection .sel-summary { color: #56544e; font-size: 10px; font-style: normal; }
+.map-selection .sel-relation { max-width: 260px; overflow: hidden; padding: 2px 6px; border: 1px solid var(--line); border-radius: 20px; background: #f2f0ea; color: #5f5d57; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.map-selection .sel-relation.supports { border-color: #bcd3c2; }
+.map-selection .sel-relation.needs { border-color: #cbc3ee; }
+.map-selection .sel-relation.branches { border-color: #ddc79b; }
+.map-selection .sel-relation.contrasts { border-color: #e0bdb5; }
+.map-selection .sel-note { color: #3d6a4d; font-size: 9.5px; }
+.map-selection button { height: 22px; padding: 0 8px; border: 1px solid #d9d5cc; border-radius: 5px; background: var(--chrome, #f5f3ee); color: #4f4d47; font-size: 9.5px; cursor: pointer; }
+.map-selection button:hover { border-color: #b9aeea; background: #eeebff; color: #5544ba; }

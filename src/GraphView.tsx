@@ -477,7 +477,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
   const activeNode = activeId ? graph?.nodes.find((node) => node.id === activeId) : undefined
 
   return <div className="graph-view">
-    <div className="graph-modes" role="tablist" aria-label="그래프 보기">
+    <div className="graph-modes" role="tablist" aria-label="지식 그래프 보기">
       {(['all', 'missing', 'groups'] as GraphMode[]).map((value) => <button
         key={value} role="tab" aria-selected={mode === value} className={mode === value ? 'on' : ''}
         onClick={() => { setMode(value); setSelectedId(undefined) }}
@@ -544,7 +544,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     <div className="graph-stage" ref={wrapRef}>
       <canvas
         ref={canvasRef} className="graph-canvas-full" role="img"
-        aria-label={`볼트 전체 그래프. 노드 ${view.nodes.length}개, 연결 ${view.edges.length}개`}
+        aria-label={`볼트 지식 그래프. 노드 ${view.nodes.length}개, 연결 ${view.edges.length}개`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onPointerLeave={() => { if (!dragging.current) setHoverId(undefined) }}
         onDoubleClick={onDoubleClick} onWheel={onWheel}

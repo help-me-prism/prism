@@ -52,6 +52,7 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
   const [available, setAvailable] = useState(880)
   const [running, setRunning] = useState(false)
   const [runNote, setRunNote] = useState('')
+  const [captured, setCaptured] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async (id: string) => {
@@ -119,6 +120,10 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
     return near
   }, [selected, visibleEdges])
 
+  const selectedNode = selected ? nodesById.get(selected) : undefined
+  const selectedRelations = selected
+    ? drawnEdges.filter((edge) => edge.from === selected || edge.to === selected).filter((edge) => edge.type !== 'part' || edge.from === selected)
+    : []
   const focused = hovered ?? selected
   const focusedNode = focused ? nodesById.get(focused) : undefined
   const focusedPlace = focused ? placement.byId.get(focused) : undefined
@@ -140,7 +145,17 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
 
   function choose(node: StructureNode) {
     setSelected(node.id)
+    setCaptured('')
     onOpenAnchor(node.anchorId, node.page)
+  }
+
+  /** The same capture the reader uses on a sentence, so a section lands in the paper note like any other evidence. */
+  async function capture(node: StructureNode) {
+    if (!paperId) return
+    try {
+      await window.prism.capturePaperNote({ kind: 'evidence', paperId, anchorId: node.anchorId })
+      setCaptured(`§${node.section}을 논문 노트에 담았습니다.`)
+    } catch (reason) { setCaptured(reason instanceof Error ? reason.message : String(reason)) }
   }
 
   if (!paperId) return <div className="paper-map"><div className="map-empty"><Network size={22} strokeWidth={1.5} /><p>논문을 열면 구조 맵이 만들어집니다.</p></div></div>
@@ -230,6 +245,20 @@ export default function PaperMap({ paperId, revision, onOpenAnchor }: Props) {
           </div>}
         </>}
     </div>
+
+    {selectedNode && <div className="map-selection">
+      <span className="sel-role" data-role={selectedNode.role}>{roles[selectedNode.role].name}</span>
+      <span className="sel-title"><strong>{selectedNode.labelKo ?? selectedNode.label}</strong><small>§{selectedNode.section} · p.{selectedNode.page}</small></span>
+      {selectedNode.summary && <em className="sel-summary">{selectedNode.summary}</em>}
+      {selectedRelations.map((edge) => <span key={edge.id} className={`sel-relation ${edge.type}`} title={edge.why ?? ''}>
+        {edgeKinds[edge.type].name} {edge.from === selectedNode.id ? '→' : '←'} {nodesById.get(edge.from === selectedNode.id ? edge.to : edge.from)?.label ?? ''}
+        {edge.why ? ` · ${edge.why}` : ''}
+      </span>)}
+      <span className="map-spacer" />
+      {captured && <span className="sel-note">{captured}</span>}
+      <button onClick={() => onOpenAnchor(selectedNode.anchorId, selectedNode.page)}>원문에서 보기</button>
+      <button onClick={() => void capture(selectedNode)}>노트에 담기</button>
+    </div>}
 
     <div className="map-legend">
       <span className="legend-head">역할</span>
