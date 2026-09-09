@@ -6,7 +6,7 @@ import { memosFor } from './capture.js'
 import { createKnowledgeNode, knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords, type KnowledgeRelationType, type RelationEvidenceAnchor } from './relations.js'
 import { searchResearchKnowledge } from './researchSearch.js'
-import { readPaperBody } from './paperBody.js'
+import { sampleResearchEvidence } from './researchEvidenceSample.js'
 import { listEvidenceAnchors, type EvidencePaper } from './evidence.js'
 
 /**
@@ -82,7 +82,7 @@ export function buildSuggestionPrompt(paper: KnowledgeNodeRecord, rendered: stri
     'MEMO LINES (candidates must quote one of these verbatim):',
     ...(memos.length ? memos.map((memo) => `- ${memo}`) : ['- none']),
     '',
-    'THE PAPER ITSELF (claims must quote one of these verbatim):',
+    'THE PAPER ITSELF (claims must quote an original source from the BOUNDED PDF SAMPLE verbatim, or one of these additional lines):',
     ...(body.length ? body.map((line) => `- ${line}`) : ['- none']),
     '',
     'Return ONLY a JSON object with this shape and nothing else:',
@@ -113,7 +113,11 @@ export async function runModelSuggestions(libraryPath: string, paperNodeId: stri
   const paper = nodes.find((node) => node.id === paperNodeId && node.nodeType === 'paper')
   if (!paper) throw new Error('Paper 노트를 찾을 수 없습니다.')
   const content = (await readKnowledgeNode(libraryPath, paper.id)).content
-  const rendered = renderNoteForModel(paper, content)
+  const renderedNote = renderNoteForModel(paper, content)
+  const library = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'library.json'), 'utf8')) as EvidencePaper[]
+  const realAnchors = await listEvidenceAnchors(libraryPath, library)
+  const sample = sampleResearchEvidence(realAnchors.filter(anchor => anchor.paperId === paper.arxivId), content)
+  const rendered = `${renderedNote}\n\nBOUNDED PDF SAMPLE (original prose across pages; not a full-paper read; omitted material may change interpretation):\n${sample.map(item => item.line).join('\n')}`
   const memos = memosFor(paper, content)
   const others = nodes.filter((node) => node.id !== paper.id && node.nodeType !== 'project' && node.nodeType !== 'insight')
   let candidatesForPrompt = others
@@ -124,15 +128,14 @@ export async function runModelSuggestions(libraryPath: string, paperNodeId: stri
   }
   const existing = (await listKnowledgeRelationRecords(libraryPath)).filter((relation) => relation.sourceId === paper.id && relation.reviewStatus !== 'rejected')
   // The paper's own sentences, so a claim it makes can be quoted rather than invented.
-  const body = paper.arxivId ? (await readPaperBody(libraryPath, paper.arxivId)).outline(3, 60) : []
-  const prompt = buildSuggestionPrompt(paper, rendered, candidatesForPrompt, existing.map((relation) => ({ type: relation.type, targetId: relation.targetId })), memos.map((memo) => memo.memo.split('\n')[0]), body)
+  const body = sample.map(item => item.anchor.source)
+  const prompt = buildSuggestionPrompt(paper, rendered, candidatesForPrompt, existing.map((relation) => ({ type: relation.type, targetId: relation.targetId })), memos.map((memo) => memo.memo.split('\n')[0]))
   const parsed = parseSuggestionResponse(await runPrompt(prompt))
 
   const byId = new Map(candidatesForPrompt.map((node) => [node.id, node]))
   const cards = cardAnchors(content)
-  const library = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'library.json'), 'utf8')) as EvidencePaper[]
-  const realAnchors = await listEvidenceAnchors(libraryPath, library)
   const anchors = new Map<string, RelationEvidenceAnchor & { source: string }>()
+  for (const item of sample) anchors.set(item.id, item.anchor)
   // A card in the note is insufficient: its entire quotation must have been sent, and its
   // identity, location and source must still match the actual PDF anchor registry.
   const suppliedLines = new Set(rendered.split('\n'))
@@ -173,7 +176,7 @@ export async function runModelSuggestions(libraryPath: string, paperNodeId: stri
     concepts.push({ id: suggestionId(paper.id, 'concept', title.toLocaleLowerCase()), title, reason: String(item.reason ?? '').slice(0, 300), status: 'pending' })
   }
   // A claim has to be the paper's own words, so it is kept only if it quotes a line we actually sent.
-  const bodyLines = new Set(body.map((line) => line.replace(/^\[[^\]]*\]\s*/, '').trim()))
+  const bodyLines = new Set(body.map((line) => line.trim()))
   const claims: ModelClaimSuggestion[] = []
   for (const item of parsed.claims.slice(0, 3)) {
     const sentence = item.sentence.replace(/^\[[^\]]*\]\s*/, '').trim()

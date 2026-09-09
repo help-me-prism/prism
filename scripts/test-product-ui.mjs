@@ -23,7 +23,7 @@ const port = 9341
 const processHandle = spawn(require('electron'), [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(root, 'profile')}`, 'scripts/product-test-host.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PRISM_PRODUCT_TEST_CHAT: '1', PRISM_PRODUCT_TEST_ROOT: root, PRISM_TEST_LIBRARY_PATH: '', PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1280x900' } })
 let logs = ''; processHandle.stdout.on('data', chunk => { logs += chunk }); processHandle.stderr.on('data', chunk => { logs += chunk })
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-let socket; let sequence = 0; const pending = new Map(); const exceptions = []
+let captureFailure = async () => {}; let socket; let sequence = 0; const pending = new Map(); const exceptions = []
 try {
   let target
   for (let i = 0; i < 150 && !target; i++) {
@@ -41,8 +41,9 @@ try {
   await new Promise(resolve => socket.addEventListener('open', resolve))
   const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })) })
   const evaluate = async expression => { const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails)); return result.result.value }
-  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,s:e.getAttribute('style')})))")}\n${logs}`) }
+  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,top:e.scrollTop,rect:e.getBoundingClientRect().toJSON(),s:e.getAttribute('style')})))")}\n${logs}`) }
   const shot = async name => { const image = await send('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('tmp/ui', { recursive: true }); await fs.writeFile(`tmp/ui/${name}.png`, Buffer.from(image.data, 'base64')) }
+  captureFailure = () => Promise.race([shot('product-ui-failure'), sleep(2000)])
   await send('Runtime.enable'); await wait('Boolean(window.prism && document.querySelector(".reader-empty"))')
   assert.equal((await evaluate('window.prism.getSettings()')).autoTranslate, false)
   await evaluate('localStorage.setItem("prism.appearance", "light"); dispatchEvent(new Event("prism-theme")); location.reload()')
@@ -158,7 +159,7 @@ try {
   } finally { await fs.rename(path.join(figureDirectory, savedFigure + '.held'), path.join(figureDirectory, savedFigure)).catch(() => {}) }
   await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({paperId:paper.arxivId, anchorId:savedFigure.replace(/\.png$/, ''), type:'figure',page:figureMetadata.page,label:'피겨'})})`)
   await wait('Boolean(document.querySelector("[data-saved-figure]"))')
-  await wait('(() => { const marker = document.querySelector("[data-saved-figure]"); const pane = marker?.closest(".document-scroll"); if (!pane) return false; const a = marker.getBoundingClientRect(), b = pane.getBoundingClientRect(); return Math.abs((a.top+a.bottom-b.top-b.bottom)/2) < 8 })()')
+  await wait('(() => { const marker = document.querySelector("[data-saved-figure]"); const pane = marker?.closest(".document-scroll"); if (!pane) return false; const a = marker.getBoundingClientRect(), b = pane.getBoundingClientRect(); return Math.abs((a.top+a.bottom)/2 - (b.top + pane.clientTop + pane.clientHeight/2)) < 8 })()')
   const userMessagesBeforeFailure = await evaluate('document.querySelectorAll(".message.user").length')
   await evaluate('document.querySelector(".composer-editor").focus()')
   await send('Input.insertText', { text: '첨부 이미지 입력 전달 검사' })
@@ -240,6 +241,9 @@ try {
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 0)
   assert.deepEqual(exceptions, [])
   console.log('Product UI passed: first launch, real PDF import/rendering, deduplication, reflow, theme and print colors, separate storage, existing-path preservation, and invalid file rejection.')
+} catch (error) {
+  await captureFailure().catch(() => {})
+  throw error
 } finally {
   socket?.close(); processHandle.kill()
   if (processHandle.exitCode === null) await new Promise(resolve => processHandle.once('exit', resolve))

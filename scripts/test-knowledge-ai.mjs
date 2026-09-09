@@ -18,6 +18,10 @@ try {
   await fs.writeFile(notePath, `---\ntype: paper\narxiv_id: "test.0001"\ntitle: "Paper Alpha"\n---\n\n# Paper Alpha\n\n## 한 문장 요약\n\nDiffusion as weighted score matching.\n\n## Notes\n`, 'utf8')
   await write('.prism/anchors/test.0001.json', JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [{ id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' }] }))
   const paperSentence = 'Flow matching trains continuous normalizing flows without simulating the ODE during training.'
+  await write('.prism/anchors/test.0001.json', JSON.stringify({ anchors: [
+    { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+    { id: 'sentence-p11-2', type: 'text', page: 11, source: paperSentence },
+  ] }))
   await fs.writeFile(path.join(paperDir, 'translation.ko.json'), JSON.stringify({ version: 1, segments: [
     { source: paperSentence, translation: paperSentence, kind: 'text', page: 1, sectionTitle: 'Introduction' },
     { source: 'We evaluate on CIFAR10 and ImageNet.', translation: 'We evaluate on CIFAR10 and ImageNet.', kind: 'text', page: 4, sectionTitle: 'Experiments' },
@@ -139,6 +143,12 @@ try {
   const grounded = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', groundedSupport)
   assert.equal(grounded.relationsCreated, 1, 'A real supplied support quote was rejected.')
   assert((await listKnowledgeRelationRecords(root)).some(relation => relation.type === 'supports' && relation.reviewStatus === 'pending' && relation.evidenceAnchor?.anchorId === 'sentence-p1-1'))
+  await fs.writeFile(notePath, note('paper-test.0001', 'paper', 'Paper Alpha', '> [!ai]- Saved answer\n> Old answer is not PDF evidence.', 'arxiv_id: "test.0001"\n'))
+  const withoutCards = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', async prompt => {
+    assert(prompt.includes('BOUNDED PDF SAMPLE') && prompt.includes(paperSentence), 'Late-page registry prose was absent without manual cards')
+    return JSON.stringify({ relations: [{ type: 'supports', targetId: claimNode.id, evidenceBlockId: 'pdf-test.0001-sentence-p11-2' }] })
+  })
+  assert.equal(withoutCards.relationsCreated, 1, 'A card-free note could not use a real supplied late-page PDF anchor')
 
   process.stdout.write('Knowledge AI passed: note rendering without AI answers, guarded prompt, tolerant JSON parsing, type/id validation, pending-only relations with anchors, memo hints, concept stubs, claims quoted from the paper body rather than invented, and rejection memory.\n')
 } finally {

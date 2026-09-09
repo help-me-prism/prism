@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package:
     name: ${{ matrix.name }}
@@ -49,3 +53,10 @@ jobs:
           path: ${{ matrix.files }}
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: ${{ matrix.artifact }}-failure-screens
+          path: tmp/ui/*.png
+          if-no-files-found: ignore
+          retention-days: 7
