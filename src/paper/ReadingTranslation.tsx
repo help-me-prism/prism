@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
 import PaperTranslationLayout from './PaperTranslationLayout'
 import FlowProseExcerpt from './FlowProseExcerpt'
-import { clearCropBoundary } from './paperLayout'
+import { clearCropBoundary, sourceParagraphIndent } from './paperLayout'
 import { groupReadingSegments } from './readingBlocks'
 import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices } from './excerptGeometry'
 import { unsafeParagraphIds } from '../../electron/translationScope'
@@ -82,11 +82,15 @@ export default function ReadingTranslation({ segments, translation, source, read
       if (!block.rect || containedInFigure(block.rect)) return []
       const kind = block.kind
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind) || block.items.some(segment => !translation.get(segment.id))
-      const neighbors = kind === 'caption' ? [...figures, ...blocks.filter(item => ['table', 'artifact'].includes(item.items[0].kind)).flatMap(item => item.rect ? [item.rect] : [])].map(rect => ({ rect, distance: Math.max(rect.top - block.rect!.top - block.rect!.height, block.rect!.top - rect.top - rect.height, 0) })).filter(item => item.distance < 120 && item.rect.width > block.rect!.width && item.rect.left < block.rect!.left + block.rect!.width && item.rect.left + item.rect.width > block.rect!.left).sort((a, b) => a.distance - b.distance) : []
-      const rect = !preserved && neighbors[0] ? { ...block.rect, left: neighbors[0].rect.left, width: neighbors[0].rect.width } : block.rect
+      // A nearby wide figure does not establish the caption's text column.
+      // Keep its actual source bounds; extra translated lines expand vertically.
+      const rect = block.rect
+      const startsParagraph = !!block.items[0].blockId && block.items[0] === segments.find(segment => segment.blockId === block.items[0].blockId)
+      const firstLineIndent = !preserved && kind === 'text' && startsParagraph && block.items.every(segment => segment.preciseRects?.length)
+        ? sourceParagraphIndent(block.items.flatMap(rectangles)) : 0
       const glyphHeights = block.items.flatMap(rectangles).map(box => box.fontSize ?? box.height).filter(height => height > 0).sort((a, b) => a - b)
       const fontSize = (glyphHeights[Math.floor(glyphHeights.length / 2)] ?? 10) * 1.08
-      return [{ id: block.id, rect, kind, fontSize, content: preserved
+      return [{ id: block.id, rect, kind, fontSize, firstLineIndent, content: preserved
         ? <button data-anchor={block.items[0].id} className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button>
         : text(block.items) }]
     })

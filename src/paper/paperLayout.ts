@@ -1,5 +1,27 @@
 export type PaperRect = { left: number; top: number; width: number; height: number }
 
+/** Infer only a conventional paragraph indent, never a partial sentence's offset. */
+export function sourceParagraphIndent(rects: Array<PaperRect & { fontSize?: number }>) {
+  const valid = rects.filter(rect => rect.width > 0 && rect.height > 0)
+  const sizes = valid.map(rect => rect.fontSize ?? rect.height).filter(size => size > 0).sort((a, b) => a - b)
+  const em = sizes[Math.floor(sizes.length / 2)]
+  if (!em) return 0
+  const lines: Array<{ top: number; left: number; right: number }> = []
+  for (const rect of [...valid].sort((a, b) => a.top - b.top || a.left - b.left)) {
+    const line = lines.find(item => Math.abs(item.top - rect.top) < em * .45)
+    if (line) { line.left = Math.min(line.left, rect.left); line.right = Math.max(line.right, rect.left + rect.width) }
+    else lines.push({ top: rect.top, left: rect.left, right: rect.left + rect.width })
+  }
+  if (lines.length < 3) return 0
+  const rest = lines.slice(1)
+  const left = Math.min(...rest.map(line => line.left))
+  if (rest.some(line => Math.abs(line.left - left) > em * .15)) return 0
+  const indent = lines[0].left - left
+  // A sentence beginning halfway across the PDF line is not an indentation.
+  if (indent < em * .4 || indent > em * 3) return 0
+  return indent
+}
+
 /** Keep horizontal source geometry; expand only the space needed by translated text. */
 export function placePaperBlocks(rects: PaperRect[], heights: number[], ratio: number) {
   const positions = new Array<number>(rects.length)
