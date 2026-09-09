@@ -129,5 +129,9 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .figure-preview-error span { min-width: 0; overflow-wrap: anywhere; }
 .figure-preview-error button { flex-shrink: 0; }
 .untouched-paper > canvas { display: block; width: 100% !important; height: auto; }
+.composer-anchor.has-memo-action .composer-anchor-label { padding-right: 58px; }
+.composer-anchor-memo { position: absolute; right: 21px; border: 0; border-left: 1px solid var(--line); padding: 2px 5px; background: transparent; color: var(--ink); font: 11px/1.5 var(--font-ui); cursor: pointer; }
+.composer-anchor-memo:hover, .composer-anchor-memo:focus-visible { background: var(--paper); text-decoration: underline; }
+.composer-anchor .composer-anchor-memo:focus-visible, .composer-anchor .composer-anchor-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .figure-capture-status { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8; width: max-content; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); font: 12px/1.5 var(--font-ui); pointer-events: none; }

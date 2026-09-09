@@ -385,7 +385,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
   const [focusedFigure, setFocusedFigure] = useState<{ paperId: string; page: number; anchorId: string; rect: { x: number; y: number; width: number; height: number } }>()
-  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(false); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
+  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(false); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor & { openMemo?: boolean }>()
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
   const navigationTarget = useRef<ReadingPosition | undefined>(undefined)
@@ -465,9 +465,11 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     if (command.type === 'search') setFinderOpen(true)
     else if (command.type === 'choose-folder') void chooseFolder()
     else if (command.type === 'open-paper' && command.paperId) { const paper = library.find((item) => item.arxivId === command.paperId); if (paper) openPaper(paper) }
-    else if (command.type === 'navigate-anchor' && command.anchor) {
-      const paper = library.find((item) => item.arxivId === command.anchor!.paperId); if (paper) openPaper(paper)
-      setPendingAnchor(command.anchor)
+    else if ((command.type === 'navigate-anchor' || command.type === 'memo-anchor') && command.anchor) {
+      const paper = library.find((item) => item.arxivId === command.anchor!.paperId)
+      if (!paper && command.type === 'memo-anchor') { setError('이 근거의 논문이 현재 라이브러리에 없습니다. 논문을 다시 열어 주세요.'); return }
+      if (paper) openPaper(paper)
+      setPendingAnchor({ ...command.anchor, openMemo: command.type === 'memo-anchor' })
     }
   }, [command?.id])
   useEffect(() => {
@@ -506,6 +508,11 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         const target = page?.querySelector(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`)
         if ((!page?.classList.contains('rendered') || (waitForTarget && !target)) && performance.now() < deadline) { timer = window.setTimeout(center, 50); return }
         centerExplicitAnchor()
+        if (anchor.openMemo) {
+          const source = anchorCatalog.find(item => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId)
+          if (source) showBacklinks(source)
+          else setError('이 근거의 원문 위치를 찾지 못했습니다. 논문에서 문장을 다시 선택해 주세요.')
+        }
         setPendingAnchor(undefined)
       }
       timer = window.setTimeout(center, 50)

@@ -167,11 +167,13 @@ function textWithPlacedReferences(text: string, anchors: ContextAnchor[]) {
   }, text)
 }
 
-function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown }: {
+function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown, onMemo }: {
   text: string; anchors: ContextAnchor[]; disabled: boolean; focusPlacementId?: string
   onChange: (text: string, anchors: ContextAnchor[]) => void; onCaretChange: (offset: number) => void
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  onMemo: (anchor: ContextAnchor) => void
 }) {
+  const memoAction = useRef(onMemo); memoAction.current = onMemo
   const editorRef = useRef<HTMLDivElement>(null)
   const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
   const composingRef = useRef(false)
@@ -221,7 +223,14 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
         const paper = document.createElement('small'); paper.className = 'composer-anchor-location'; paper.textContent = presentation.location
         const excerpt = document.createElement('span'); excerpt.className = 'composer-anchor-excerpt'; excerpt.textContent = presentation.excerpt
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
-        chip.append(symbol, label, paper, excerpt); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
+        chip.append(symbol, label, paper, excerpt); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip);
+        if (anchor.type !== 'figure') {
+          wrapper.classList.add('has-memo-action'); const memo = document.createElement('button'); memo.type = 'button'; memo.className = 'composer-anchor-memo'; memo.textContent = '메모'; memo.title = presentation.location + ' · 이 근거에 메모 남기기'; memo.setAttribute('aria-label', anchor.label + ' 메모 남기기');
+          memo.addEventListener('mousedown', event => event.preventDefault());
+          memo.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() });
+          memo.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); memoAction.current(anchor) }); wrapper.append(memo);
+        }
+        wrapper.append(close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
       }
       if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
     }
@@ -235,7 +244,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     }
   }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
-  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')); requestAnimationFrame(caretOffset) }} onKeyDown={onKeyDown} />
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')); requestAnimationFrame(caretOffset) }} onKeyDown={event => { if (!(event.target instanceof HTMLElement) || !event.target.closest('button')) onKeyDown(event) }} />
 }
 
 function App() {
@@ -756,7 +765,7 @@ function App() {
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
               <FigureAttachments anchors={contextAnchors} />
-              <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
+              <InlineComposer onMemo={anchor => runWorkspaceCommand('memo-anchor', anchor.paperId, anchor)} text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void stopMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
