@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { copySavedEvidence } from './noteEvidenceCopy'
 import { wikiTargetResolver } from '../electron/wikiTargets'
+import { scientificPreviewText } from '../electron/scientificSource'
 import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import NoteHistoryDialog from './NoteHistoryDialog'
@@ -577,7 +578,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             return <div key={item.blockId} className={`evidence-row${broken ? ' is-broken' : ''}`}>
               <button className="evidence-open" onClick={() => void window.prism.openEvidenceAnchor(item).catch((reason) => onNotify(String(reason), 'error'))}>
                 <small>{broken ? '재연결 필요' : `${evidenceTypeLabel(item.type)} · p.${item.page}`} · {item.paperTitle}</small>
-                <span>{item.source}</span>
+                <span>{scientificPreviewText(item.source, !broken ? current?.scientificSpans : undefined)}</span>
               </button>
               <div className="evidence-actions">
                 {broken && <button onClick={() => setPicker({ kind: 'evidence', query: item.paperTitle, relink: item })}>재연결</button>}
@@ -609,7 +610,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       {picker.kind === 'evidence-claim' && <nav className="picker-types" aria-label="근거 관계 유형">{(['supports', 'contradicts', 'extends'] as const).map((type) => <button key={type} className={picker.type === type ? 'active' : ''} aria-pressed={picker.type === type} onClick={() => setPicker({ ...picker, type })}>{relationLabels[type]}</button>)}</nav>}
       <div className="picker-list">
         {picker.kind === 'evidence'
-          ? pickerAnchors.length ? pickerAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => insertEvidence(anchor, picker.relink)}><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.paperTitle}</small><strong>{anchor.source}</strong></button>)
+          ? pickerAnchors.length ? pickerAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => insertEvidence(anchor, picker.relink)}><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.paperTitle}</small><strong>{scientificPreviewText(anchor.source, anchor.scientificSpans)}</strong></button>)
             : <p role="status">{anchors.length ? '검색어와 일치하는 PDF 근거가 없습니다. 논문 제목이나 문장의 다른 단어로 검색해 보세요.' : '저장된 PDF 근거가 없습니다. 리더에서 논문을 열면 문장·수식·표 근거를 선택할 수 있습니다.'}</p>
           : pickerTargets.length ? pickerTargets.map((target) => <button key={target.id} onClick={() => {
             if (picker.kind === 'answer') void addAnswer(target)

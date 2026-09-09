@@ -1,4 +1,5 @@
 import { textItemRect, segmentRects, type ItemRect } from './paper/itemGeometry'
+import { reuseTranslations } from '../electron/translationHarness'
 import { collectSourceFontWeights, dominantSourceWeight } from './paper/sourceEmphasis'
 import { captureGlyphGeometry } from './paper/glyphGeometry'
 import { mixedProseParagraphs } from './paper/excerptGeometry'
@@ -340,7 +341,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
-    <ReadingTranslation format={translationFormat} fontScale={1} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
+    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
       if (segment.kind !== 'artifact') { onTag(segment); return }
       const boxes = segmentRects(segment, itemRects, scale)
       if (!boxes.length) return
@@ -436,7 +437,10 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const scopedMissing = scopedSegments.filter(segment => !translation.some(saved => saved.id === segment.id && saved.source === segment.source && saved.translation)).length
   const scopedOriginalProse = allSegments.some(segment => (translationScope === 'all' || segment.page === pageNumber) && (segment.kind === 'artifact' || preservedParagraphs.has(segment.blockId ?? '')))
   const hasCachedTranslation = cacheExists
-  const translationPercent = translationProgress.total ? Math.round(translationProgress.completed / translationProgress.total * 100) : (hasCachedTranslation ? 100 : 0)
+  const pageTranslatable = translatableSegments.filter(segment => segment.page === pageNumber && segment.source.trim().length > 1)
+  const pageTranslated = pageTranslatable.filter(segment => translation.some(saved => saved.id === segment.id && saved.source === segment.source && saved.translation)).length
+  const pageTranslationLabel = !pageTranslatable.length ? '원문 유지' : !pageTranslated ? '번역 전 · 원문' : pageTranslated < pageTranslatable.length ? `${pageTranslated}/${pageTranslatable.length}문장 번역` : '이 페이지 번역됨'
+  const pageTranslationDetail = `${pageNumber}쪽: ${pageTranslated}/${pageTranslatable.length}문장 번역. ${!pageTranslatable.length ? '번역할 본문이 없는 페이지는 원문으로 표시합니다.' : pageTranslated < pageTranslatable.length ? '아직 번역하지 않은 문장은 원문으로 표시합니다. 위의 AI 번역 버튼으로 이 페이지를 번역할 수 있습니다.' : '번역문이 저장돼 있습니다.'}${preservedParagraphCount ? ` 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존합니다.` : protectedProseCount ? ` 글자와 기호를 보존한 원문 ${protectedProseCount}곳이 포함돼 있습니다.` : ''}`
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
   const captionSegments = allSegments.filter((segment) => segment.kind === 'caption')
   const matchedFigures = figureAssets.map((figure, index) => ({ ...figure, captionAnchorId: captionSegments[index]?.id }))
@@ -444,10 +448,10 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     if (!activePaper) return []
     let sentence = 0; let section = 0; let equation = 0; let table = 0
     const anchors = allSegments.flatMap((segment): ContextAnchor[] => {
-      if (segment.kind === 'heading') { section += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'section', page: segment.page, label: `섹션${section}`, source: segment.source }] }
-      if (['text', 'caption'].includes(segment.kind)) { sentence += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source }] }
-      if (segment.kind === 'equation') { equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source }] }
-      if (segment.kind === 'table') { table += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'table', page: segment.page, label: `표${table}`, source: segment.source }] }
+      if (segment.kind === 'heading') { section += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'section', page: segment.page, label: `섹션${section}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
+      if (['text', 'caption'].includes(segment.kind)) { sentence += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
+      if (segment.kind === 'equation') { equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
+      if (segment.kind === 'table') { table += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'table', page: segment.page, label: `표${table}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
       return []
     })
     const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index): ContextAnchor => ({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${index + 1}`, type: 'page', page: index + 1, label: `페이지${index + 1}`, source: `Page ${index + 1} of ${activePaper.title}` })) : []
@@ -540,7 +544,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         const pageSegments = segmentsFromItems(page, items).map(segment => ({ ...segment, sourceFontWeight: dominantSourceWeight(segment, items, weights) }))
         const geometry = await captureGlyphGeometry(pdfPage, items, pageSegments)
         if (disposed) return
-        segments.push(...pageSegments.map(segment => geometry.ok ? { ...segment, preciseRects: geometry.rectangles.get(segment.id) } : segment))
+        segments.push(...pageSegments.map(segment => geometry.ok ? { ...segment, preciseRects: geometry.rectangles.get(segment.id), scientificSpans: geometry.scientificSpans.get(segment.id) } : segment))
         if (!disposed) setLoadStatus({ phase: 'analyzing', completed: page, total: loaded.numPages })
         if (page % 2 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0))
       }
@@ -552,7 +556,8 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
-        const restored = source.segments.map((segment) => ({ ...segment, translation: (byId.get(segment.id)?.source === segment.source ? byId.get(segment.id)?.translation : undefined) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) })).filter((segment) => segment.translation)
+        const candidates = source.segments.map((segment) => ({ ...segment, translation: (byId.get(segment.id)?.source === segment.source ? byId.get(segment.id)?.translation : undefined) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) }))
+        const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)
         setCacheExists(restored.some(segment => ['text', 'heading', 'caption'].includes(segment.kind))); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
       else if (settings.autoTranslate && translationProvider?.available && !autoStartedRef.current.has(activePaper.arxivId)) {
@@ -887,7 +892,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         }}
         headers={{
           original: paneZoom('original'),
-          translated: <><select aria-label="번역 보기 방식" className="translation-format" value={translationFormat} onChange={event => { const format = event.target.value as 'paper' | 'flow'; queueReadingPosition(); setTranslationFormat(format); localStorage.setItem('prism.translation-format', format) }}><option value="paper">지면 유지</option><option value="flow">텍스트 재배치</option></select><span className="pane-note" title={preservedParagraphCount ? `PDF 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존하며 AI 번역에서 제외합니다.` : protectedProseCount ? '일부 문장은 글자와 기호를 정확히 보존하기 위해 원문 이미지로 표시합니다.' : undefined}>{preservedParagraphCount ? `${preservedParagraphCount}문단 원문 유지` : protectedProseCount ? `원문 보존 ` + protectedProseCount + '곳' : translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</span>{paneZoom('translated')}</>,
+          translated: <><select aria-label="번역 보기 방식" className="translation-format" value={translationFormat} onChange={event => { const format = event.target.value as 'paper' | 'flow'; queueReadingPosition(); setTranslationFormat(format); localStorage.setItem('prism.translation-format', format) }}><option value="paper">지면 유지</option><option value="flow">텍스트 재배치</option></select><span className="pane-note" aria-live="polite" title={pageTranslationDetail}>{pageTranslationLabel}{pageTranslated > 0 && (preservedParagraphCount || protectedProseCount) ? ' · 원문 포함' : ''}</span>{paneZoom('translated')}</>,
         }}
       />
     </> : activePaper && error ? <div className="reader-empty library-empty" role="alert"><FileText size={32} strokeWidth={1.5} /><h1>논문을 열지 못했습니다</h1><p>{error}</p>{activePaper.externalAssets && <button disabled={recovering} onClick={() => void recoverMissingPaper()}><FolderOpen size={17} />{recovering ? '논문 확인 중…' : '이동한 폴더 다시 연결'}</button>}<button disabled={recovering} onClick={() => setReloadAttempt(value => value + 1)}>다시 시도</button></div> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}

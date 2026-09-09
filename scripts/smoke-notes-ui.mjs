@@ -55,7 +55,7 @@ await fs.writeFile(notePath, initialNote, 'utf8')
 await fs.writeFile(linkedNotePath, linkedNote, 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
   { id: 'heading-p1-introduction', type: 'heading', page: 1, source: 'Introduction' },
-  { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+  { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching. The input is $x_t$.' },
   { id: 'equation-p2-3', type: 'equation', page: 2, source: 'L_simple = E[||epsilon - epsilon_theta(x_t,t)||^2]' },
   { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
 ] }, null, 2), 'utf8')
@@ -427,6 +427,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-evidence .evidence-row').length >= 1`), 'The evidence list did not show the inserted card.')
   const evidenceMarkup = await fs.readFile(notePath, 'utf8')
   assert(evidenceMarkup.includes('> [!evidence] 문장 · Editor fixture · p.1 · 문장1') && evidenceMarkup.includes('prism://paper/test.0001?anchor=sentence-p1-1'), 'The evidence card lost its Obsidian-readable form.')
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.cm-rendered-evidence .katex math'))`), 'The saved evidence card displayed inline math delimiters instead of a rendered expression.')
 
   // ---------- properties write frontmatter ----------
   await chooseSelect(notesConnection, '논문 읽기 상태', 'read')

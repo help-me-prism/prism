@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
-const { code } = await transformWithOxc(await fs.readFile('src/paper/readerContext.ts', 'utf8'), 'src/paper/readerContext.ts')
+let { code } = await transformWithOxc(await fs.readFile('src/paper/readerContext.ts', 'utf8'), 'src/paper/readerContext.ts')
+const shared = await transformWithOxc(await fs.readFile('electron/scientificSource.ts', 'utf8'), 'electron/scientificSource.ts')
+code = code.replace('../../electron/scientificSource', 'data:text/javascript;base64,' + Buffer.from(shared.code).toString('base64'))
 const { stableReferences, readingEvidence, messagePaperIds } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 const a = { paperId: 'biology', paperTitle: 'Biology', anchorId: 's1', type: 'sentence', page: 4, label: '문장1', source: 'The control group showed no significant difference.' }
 const b = { ...a, paperId: 'engineering', paperTitle: 'Engineering', source: 'The experimental concrete had greater compressive strength.' }

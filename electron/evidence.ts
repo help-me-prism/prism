@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { validatedScientificSpans, type ScientificSpan } from './scientificSource.js'
 import { listKnowledgeNodes, readKnowledgeNode } from './knowledge.js'
 
 export type EvidenceAnchorType = 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'
@@ -13,12 +14,13 @@ export type EvidenceAnchor = {
   page: number
   label: string
   source: string
+  scientificSpans?: ScientificSpan[]
   sourceHash: string
   availability: 'linked' | 'needs-relink'
 }
 export type EvidenceBacklink = { nodeId: string; title: string; nodeType: 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'; relativePath: string; excerpt: string }
 
-type StoredAnchor = { id?: unknown; type?: unknown; page?: unknown; source?: unknown }
+type StoredAnchor = { id?: unknown; type?: unknown; page?: unknown; source?: unknown; scientificSpans?: unknown }
 const sourceTypes = new Set(['text', 'heading', 'caption', 'equation', 'table', 'figure'])
 const safePaperId = (value: string) => value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160)
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -61,7 +63,7 @@ export async function listEvidenceAnchors(libraryPath: string, papers: EvidenceP
       const type: EvidenceAnchorType = item.type === 'heading' ? 'section' : item.type === 'equation' || item.type === 'table' || item.type === 'figure' ? item.type : 'sentence'
       counters[type] += 1
       const source = item.source.slice(0, 20_000)
-      result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: item.id, type, page: Number(item.page), label: `${type === 'sentence' ? '문장' : type === 'section' ? '섹션' : type === 'equation' ? '수식' : type === 'table' ? '표' : '피겨'}${counters[type]}`, source, sourceHash: digest(source), availability: 'linked' })
+      result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: item.id, type, page: Number(item.page), label: `${type === 'sentence' ? '문장' : type === 'section' ? '섹션' : type === 'equation' ? '수식' : type === 'table' ? '표' : '피겨'}${counters[type]}`, source, scientificSpans: validatedScientificSpans(source, item.scientificSpans), sourceHash: digest(source), availability: 'linked' })
     }
     for (let page = 1; page <= maxPage; page += 1) result.push({ paperId: paper.arxivId, paperTitle: paper.title, anchorId: `p${page}`, type: 'page', page, label: `페이지${page}`, source: `Page ${page} of ${paper.title}`, sourceHash: digest(`Page ${page} of ${paper.title}`), availability: 'linked' })
   }

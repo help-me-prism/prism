@@ -8,6 +8,7 @@ import { tags } from '@lezer/highlight'
 import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 import katex from 'katex'
+import { evidenceInlineMathHtml } from './evidenceInlineMath'
 import { evidenceFromUri } from './paper/evidenceUri'
 import { noteBlockInsertionPosition } from './noteInsertion'
 import { wikiTargetResolver } from '../electron/wikiTargets'
@@ -498,7 +499,7 @@ class RenderedEvidence extends WidgetType {
     wrapper.setAttribute('aria-label', `${this.heading} PDF 원문 열기`)
     wrapper.title = this.anchor ? 'PDF 원문 위치로 이동' : '연결이 끊어진 근거 카드입니다'
     const label = document.createElement('small'); label.textContent = this.heading; wrapper.append(label)
-    const quote = document.createElement('p'); quote.textContent = this.quote; wrapper.append(quote)
+    const quote = document.createElement('p'); quote.innerHTML = evidenceInlineMathHtml(this.quote); wrapper.append(quote)
     const open = (event: Event) => {
       event.preventDefault()
       if (!this.anchor) return

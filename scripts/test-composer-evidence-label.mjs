@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
 
-const { code } = await transformWithOxc(await fs.readFile('src/paper/composerEvidenceLabel.ts', 'utf8'), 'src/paper/composerEvidenceLabel.ts')
+const shared = await transformWithOxc(await fs.readFile('electron/scientificSource.ts', 'utf8'), 'electron/scientificSource.ts')
+const sharedUrl = 'data:text/javascript;base64,' + Buffer.from(shared.code).toString('base64')
+const { code } = await transformWithOxc((await fs.readFile('src/paper/composerEvidenceLabel.ts', 'utf8')).replaceAll("'../../electron/scientificSource'", JSON.stringify(sharedUrl)), 'src/paper/composerEvidenceLabel.ts')
 const { composerEvidenceLabel } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 const anchor = Object.freeze({ label: '문장88', type: 'sentence', page: 11, paperId: 'local-6f1c8cd', anchorId: 'stable-s88', paperTitle: 'Thermal conductivity of porous materials', source: 'The measured conductivity\n  decreased with porosity.' })
 const display = composerEvidenceLabel(anchor)

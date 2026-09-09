@@ -1,3 +1,4 @@
+import { validatedScientificSource } from '../../electron/scientificSource'
 /** A bounded, deterministic context keeps simple reading questions out of a second AI pass. */
 export function readerExcerpts(anchors: ContextAnchor[], question: string, budget = 12000) {
   const prose = anchors.filter(anchor => ['sentence', 'section'].includes(anchor.type))
@@ -20,11 +21,12 @@ export function readerExcerpts(anchors: ContextAnchor[], question: string, budge
   })).map(item => ({ ...item, score: item.score + (page === item.anchor.page ? 30 : 0) })).sort((a, b) => b.score - a.score || a.index - b.index)
   const chosen: typeof ranked = []
   for (const item of ranked) {
-    if (item.anchor.source.length > budget) continue
-    chosen.push(item); budget -= item.anchor.source.length
+    const length = validatedScientificSource(item.anchor.source, item.anchor.scientificSpans).length
+    if (length > budget) continue
+    chosen.push(item); budget -= length
     if (budget < 100) break
   }
-  return chosen.sort((a, b) => a.index - b.index).map(({ anchor }) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, ref: anchor.label, page: anchor.page, source: anchor.source }))
+  return chosen.sort((a, b) => a.index - b.index).map(({ anchor }) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, ref: anchor.label, page: anchor.page, source: validatedScientificSource(anchor.source, anchor.scientificSpans) }))
 }
 
 /** Labels belong to the conversation, rather than a page or retrieval batch. */

@@ -7,6 +7,7 @@ import { createKnowledgeRelation, listKnowledgeRelationRecords } from './relatio
 import { mineRegion } from './noteContract.js'
 import type { KnowledgeNodeType } from './templates.js'
 import { wikiTargetResolver } from './wikiTargets.js'
+import { validatedScientificSource } from './scientificSource.js'
 
 /**
  * Reading-time capture: the Reader and the chat append into the Paper note's `## Notes` section
@@ -87,7 +88,7 @@ function evidenceCardMarkdown(anchor: EvidenceAnchor) {
   const blockId = blockIdFor(anchor)
   const embedded = { paperId: anchor.paperId, paperTitle: anchor.paperTitle, anchorId: anchor.anchorId, type: anchor.type, page: anchor.page, label: anchor.label, source: anchor.source, sourceHash: anchor.sourceHash, blockId }
   const metadata = encodeURIComponent(JSON.stringify(embedded))
-  const source = anchor.source.replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
+  const source = validatedScientificSource(anchor.source, anchor.scientificSpans).replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
   const target = `prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page}`
   return { blockId, markdown: `> [!evidence] ${typeLabels[anchor.type]} · ${anchor.paperTitle} · p.${anchor.page} · ${anchor.label}\n${source}\n> [PDF 원문 열기](${target})\n<!-- prism-evidence:${metadata} -->\n^${blockId}` }
 }
@@ -110,7 +111,7 @@ async function addConceptDefinition(libraryPath: string, concept: KnowledgeNodeR
   const snapshot = await readKnowledgeNode(libraryPath, concept.id)
   const cell = (value: string) => value.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim()
   const link = `[PDF p.${anchor.page}](prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page})`
-  const row = `| [[${paper.relativePath.replace(/\.md$/i, '')}\\|${cell(paper.title)}]] | ${cell(anchor.source).slice(0, 400)} | ${memo ? `${cell(memo)} ` : ''}${link} |`
+  const row = `| [[${paper.relativePath.replace(/\.md$/i, '')}\\|${cell(paper.title)}]] | ${cell(validatedScientificSource(anchor.source, anchor.scientificSpans)).slice(0, 400)} | ${memo ? `${cell(memo)} ` : ''}${link} |`
   const lines = snapshot.content.replace(/\r\n/g, '\n').split('\n')
   const heading = lines.findIndex((line) => /^##\s+정의 비교\s*$/.test(line))
   let content: string

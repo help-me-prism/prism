@@ -1,3 +1,4 @@
+import { validatedScientificSpans } from './scientificSource.js'
 import { planPaperRecovery, updateRecoveredPdfLink } from './paperRecovery.js'
 import { renamedPaperNote, updatePaperTitleRecord, type PaperTitleRequest } from './paperTitle.js'
 import { readSavedFigure, resolveChatImages, type ChatImage } from './chatImages.js'
@@ -48,7 +49,7 @@ type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { me
 type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
-type TranslationSegment = { sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 function normalizePdfControls(value: string) {
   return value.replace(/\u000f/g, 'ε').replace(/[\u0000-\u0008\u000b\u000c\u000e\u0010-\u001f\u007f]/g, '')
@@ -1621,7 +1622,7 @@ ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: Tr
     version: 1, paperId: arxivId, generatedAt: new Date().toISOString(),
     anchors: anchors.map((segment) => ({
       id: segment.id, type: segment.kind, page: segment.page,
-      source: segment.source, sourceHash: createHash('sha256').update(segment.source).digest('hex'), itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
+      source: segment.source, scientificSpans: validatedScientificSpans(segment.source, segment.scientificSpans), sourceHash: createHash('sha256').update(segment.source).digest('hex'), itemIndexes: segment.itemIndexes ?? [], itemSlices: segment.itemSlices ?? [], sourceMode: segment.sourceMode ?? 'pdf', blockId: segment.blockId, sectionTitle: segment.sectionTitle,
     })),
   }
   await fs.writeFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), JSON.stringify(data, null, 2), 'utf8')

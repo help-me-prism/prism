@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import {transformWithOxc} from 'vite'
-const {code}=await transformWithOxc(await fs.readFile('src/paper/anchorContext.ts','utf8'),'src/paper/anchorContext.ts')
+let {code}=await transformWithOxc(await fs.readFile('src/paper/anchorContext.ts','utf8'),'src/paper/anchorContext.ts')
+const shared = await transformWithOxc(await fs.readFile('electron/scientificSource.ts', 'utf8'), 'electron/scientificSource.ts')
+code = code.replace('../../electron/scientificSource', 'data:text/javascript;base64,' + Buffer.from(shared.code).toString('base64'))
 const {compactAnchorContext}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
 const sentence={paperId:'paper',anchorId:'p1',paperTitle:'Study',page:1,type:'sentence',label:'근거1',source:'The experiment compared two groups.'}
 const result=JSON.parse(compactAnchorContext([sentence,{...sentence,textOffset:42},{...sentence,paperId:'other',label:'근거2'}]))

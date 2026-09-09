@@ -3,7 +3,7 @@
 type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; installed: boolean; available: boolean; status: string; models: ProviderModel[] }
-type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
+type ContextAnchor = { scientificSpans?: import('../electron/scientificSource').ScientificSpan[]; paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
 type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[]; primaryPaperId?: string; provider?: ProviderId; model?: string }
 type PaperDigestResult = { updated: boolean; chatMessages: number; sections: Array<'overview' | 'confusion' | 'focus'>; usedModel: boolean }
 // 컨텍스트 점유량은 "직전 요청이 실제로 보낸 대화 전체" 다. 턴마다 쌓이는 누적 토큰과는 다른 값이라
@@ -22,7 +22,7 @@ type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translation
 type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
 type LatexBlock = { id: string; kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'; source: string; section?: string }
 type LatexStructure = { version: 3; rootFile: string; generatedAt: string; blocks: LatexBlock[] }
-type TranslationSegment = { sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type TranslationSegment = { scientificSpans?: import('./../electron/scientificSource').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
 type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
 type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string; libraryPath?: string }
@@ -91,7 +91,7 @@ type ClusterReport = { clusters: KnowledgeCluster[]; modularity: number; clear: 
 type KnowledgeGraphInsights = { clusters: ClusterReport; similar: SimilarityReport }
 type KnowledgeRelationMutationResult = { saved: true; relation?: KnowledgeRelationRecord; snapshot: NoteSnapshot; relations: KnowledgeRelationView[] } | { saved: false; conflict: NoteSnapshot }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
-type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
+type EvidenceAnchor = EvidenceAnchorRef & { scientificSpans?: import('../electron/scientificSource').ScientificSpan[]; paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 

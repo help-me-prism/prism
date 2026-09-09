@@ -7,6 +7,7 @@ import { groupReadingSegments } from './readingBlocks'
 import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices, mayMaskExcerpt } from './excerptGeometry'
 import { unsafeParagraphIds } from '../../electron/translationScope'
 import { publicationDoiRects } from './publicationFurniture'
+import ScientificTranslationText from './ScientificTranslationText'
 
 type Rect = { left: number; top: number; width: number; height: number; fontSize?: number }
 export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, alignProse = false }: { source: HTMLCanvasElement; rect: Rect; label: string; padding?: number; clipRects?: Rect[]; alignProse?: boolean }) {
@@ -47,9 +48,9 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
   return <canvas ref={canvas} role="img" aria-label={label} />
 }
 
-export default function ReadingTranslation({ segments, translation, source, ready, rectangles, figures, sourceRects = [], format = 'paper', fontScale = 1, highlighted, onHighlight, onTag, onFindNotes, onFigureRect }: {
+export default function ReadingTranslation({ segments, translation, source, ready, rectangles, figures, sourceRects = [], format = 'paper', fontScale = 1, sourceScale = 1, highlighted, onHighlight, onTag, onFindNotes, onFigureRect }: {
   segments: TranslationSegment[]; translation: Map<string, string>; source: HTMLCanvasElement | null; ready: boolean;
-  format?: 'paper' | 'flow'; fontScale?: number;
+  format?: 'paper' | 'flow'; fontScale?: number; sourceScale?: number;
   rectangles: (segment: TranslationSegment) => Rect[]; figures: Rect[]; sourceRects?: Array<Rect & { text?: string }>; highlighted?: string;
   onFigureRect: (rect: Rect) => void; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void;
 }) {
@@ -73,7 +74,7 @@ export default function ReadingTranslation({ segments, translation, source, read
   // Its PDF anchors and source rectangles remain untouched.
   const protectedProse = (items: TranslationSegment[]) => items.length === 1 && items[0].kind === 'artifact' && !!items[0].preciseRects?.length && !!items[0].blockId && mixedParagraphs.has(items[0].blockId) && !originalParagraphs.has(items[0].blockId)
   const figureCrop = (rect: Rect) => <button className="original-excerpt" title="피겨를 질문에 추가" onClick={() => onFigureRect(rect)}>{crop(rect, '원문 피겨')}</button>
-  const text = (items: TranslationSegment[]) => items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight === 700 ? 700 : undefined }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}>{translation.get(segment.id) || segment.source}{' '}</span>)
+  const text = (items: TranslationSegment[]) => items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight === 700 ? 700 : undefined }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} />{' '}</span>)
   const containedInFigure = (rect: Rect) => figures.some(figure => rect.left >= figure.left - 3 && rect.top >= figure.top - 3 && rect.left + rect.width <= figure.left + figure.width + 3 && rect.top + rect.height <= figure.top + figure.height + 3)
   if (format === 'paper' && source && ready) {
     const sourceWidth = parseFloat(source.style.width) || source.width
@@ -122,7 +123,7 @@ export default function ReadingTranslation({ segments, translation, source, read
       associated.forEach(({ index }) => placed.add(index))
       return <section key={block.id} className={`reading-block ${kind}`}>
         {associated.map(({ rect, index }) => <figure key={index}>{figureCrop(rect)}</figure>)}
-        {preserved && block.rect ? <button className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button> : block.items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight === 700 ? 700 : undefined }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}>{translation.get(segment.id) || segment.source}{' '}</span>)}
+        {preserved && block.rect ? <button className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button> : block.items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight === 700 ? 700 : undefined }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} />{' '}</span>)}
       </section>
     })}
     {figures.map((rect, index) => !placed.has(index) && <figure key={index}>{figureCrop(rect)}</figure>)}

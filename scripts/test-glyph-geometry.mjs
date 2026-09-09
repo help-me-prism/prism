@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
-const {code}=await transformWithOxc(await fs.readFile('src/paper/glyphAlignment.ts','utf8'),'src/paper/glyphAlignment.ts')
+const sharedCode = await transformWithOxc(await fs.readFile('electron/scientificSource.ts', 'utf8'), 'electron/scientificSource.ts')
+const sharedUrl = 'data:text/javascript;base64,' + Buffer.from(sharedCode.code).toString('base64')
+const glyphSource = (await fs.readFile('src/paper/glyphAlignment.ts','utf8')).replaceAll("'../../electron/scientificSource'", JSON.stringify(sharedUrl))
+const {code}=await transformWithOxc(glyphSource,'src/paper/glyphAlignment.ts')
 const {alignGlyphGeometry}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
 const fixture=JSON.parse(await fs.readFile('scripts/fixtures/engineering-p11-glyphs.json','utf8'))
 const expected=fixture.glyphs.map(({unicode,fontChar,fontRef})=>({unicode,fontChar,fontRef}))
@@ -26,3 +29,48 @@ assert.equal(alignGlyphGeometry(ligature,paint,[{str:' f i ',height:10}],[{id:'w
 console.log('Glyph geometry passed: all65 real p11 items align; complete C/W ink, original10pt sizing, mismatch rejection and indivisible ligatures.')
 
 for (const segment of fixture.segments) assert(result.rectangles.get(segment.id).length <= (segment.itemSlices?.length ?? segment.itemIndexes?.length ?? 0), 'Layout must not create a DOM element per painted character')
+
+const inline = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p4-inline-glyphs.json', 'utf8'))
+const alignedInline = alignGlyphGeometry(inline.expected, inline.painted, inline.items, inline.segments)
+assert.equal(alignedInline.ok, true, alignedInline.reason)
+const spans = [...alignedInline.scientificSpans.values()].flat()
+assert.deepEqual(spans.map(s => [s.text, s.latex]), [['ρ 0', '\\rho_{0}'], ['m0', 'm_{0}']])
+for (const segment of inline.segments) {
+  const [span] = alignedInline.scientificSpans.get(segment.id)
+  assert.equal(segment.source.slice(span.start, span.end), span.text)
+  assert.equal(span.rect.fontSize, 10, 'Measured base paint font, not misleading item-level size')
+  assert(span.baseline > span.rect.top && span.baseline < span.rect.top + span.rect.height, 'Baseline keeps the actual subscript ink below surrounding prose')
+  const following = inline.painted.find((g, i) => inline.expected[i].unicode === (span.text === 'm0' ? 'a' : 'o') && g.x > span.rect.left && Math.abs(g.y - (span.text === 'm0' ? 285.619 : 214.979)) < .01)
+  assert(following && span.rect.left + span.rect.width < following.x, 'Scientific crop must exclude following normal prose')
+}
+// Removing source metadata remains compatible and never guesses UTF-16 offsets.
+assert.equal(alignGlyphGeometry(inline.expected, inline.painted, inline.items, inline.segments.map(({source,...s})=>s)).scientificSpans.size, 0)
+assert.equal(alignGlyphGeometry(inline.expected, inline.painted, inline.items, inline.segments.map(s=>({...s,source:'Different '+s.source}))).scientificSpans.size, 0)
+const plain = inline.painted.map((g,i) => inline.expected[i].unicode === '0' ? {...g,matrix:[.625,0,0,.625,g.matrix[4],g.matrix[5]]} : g)
+assert.equal(alignGlyphGeometry(inline.expected, plain, inline.items, inline.segments).scientificSpans.size, 0, 'Normal-sized digits are not subscripts even when positioned lower')
+const raised = inline.painted.map((g,i) => inline.expected[i].unicode === '0' ? {...g,y:g.y-3.29} : g)
+assert.equal(alignGlyphGeometry(inline.expected, raised, inline.items, inline.segments).scientificSpans.size, 0, 'Raised numeric footnotes are not silently interpreted as variable exponents')
+const distant = inline.painted.map((g,i) => inline.expected[i].unicode === '0' ? {...g,x:g.x+10} : g)
+assert.equal(alignGlyphGeometry(inline.expected, distant, inline.items, inline.segments).scientificSpans.size, 0, 'Unrelated nearby numbers cannot attach to a variable')
+const noSize = inline.painted.map(g=>({...g,font:g.font.replace('16px','1em')}))
+assert.equal(alignGlyphGeometry(inline.expected, noSize, inline.items, inline.segments).scientificSpans.size, 0, 'No item-font fallback may manufacture scientific semantics')
+const geometryOnly = alignGlyphGeometry(inline.expected, inline.painted, inline.items, inline.segments.map(({source,...s})=>s))
+assert.deepEqual([...alignedInline.rectangles], [...geometryOnly.rectangles], 'Scientific metadata cannot change existing source crop geometry')
+console.log('Scientific source spans passed: real p4 rho/m subscripts, exact UTF-16 slices and ink crops, plain digits/footnotes/ambiguous fonts excluded; legacy rectangle behavior unchanged.')
+
+const chromium = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p4-inline-chromium-glyphs.json', 'utf8'))
+for (const scale of [.5, 1, 2]) {
+  const paints = chromium.painted.map(g=>({...g,x:g.x*scale,y:g.y*scale,matrix:g.matrix.map(v=>v*scale)}))
+  const actual = alignGlyphGeometry(chromium.expected, paints, chromium.items, chromium.segments)
+  assert.equal(actual.ok, true, actual.reason)
+  assert.deepEqual([...actual.scientificSpans.values()].flat().map(s=>s.latex), ['\\rho_{0}', 'm_{0}'], 'Chromium italic overhang is not a negative text advance')
+  for (const span of [...actual.scientificSpans.values()].flat()) assert.equal(span.rect.fontSize, 10*scale)
+}
+const zeroIndexes = chromium.expected.flatMap((g,i)=>g.unicode==='0'?[i]:[])
+const overlappingOrigins = chromium.painted.map((g,i)=>zeroIndexes.includes(i)?{...g,x:chromium.painted[i-1].x}:g)
+assert.equal(alignGlyphGeometry(chromium.expected, overlappingOrigins, chromium.items, chromium.segments).scientificSpans.size, 0, 'Ink overlap is allowed; identical paint origins are not attached subscripts')
+const reversedOrigins = chromium.painted.map((g,i)=>zeroIndexes.includes(i)?{...g,x:chromium.painted[i-1].x-1}:g)
+assert.equal(alignGlyphGeometry(chromium.expected, reversedOrigins, chromium.items, chromium.segments).scientificSpans.size, 0, 'A number before its base origin cannot be attached')
+const distantOrigins = chromium.painted.map((g,i)=>zeroIndexes.includes(i)?{...g,x:chromium.painted[i-1].x+20}:g)
+assert.equal(alignGlyphGeometry(chromium.expected, distantOrigins, chromium.items, chromium.segments).scientificSpans.size, 0, 'A far number on the same lower baseline cannot be attached')
+console.log('Actual Chromium scientific glyphs passed: italic rho overhang, scale invariance, and same/reversed/distant origin rejection.')

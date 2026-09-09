@@ -15,10 +15,13 @@ const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\
 function fixturePdf(content) {
 const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
 objects.push(objects[2], objects[2], '<< /Title (Cell biology and controlled experiments) >>')
+const secondContent = content.replace('Cells respond to changes in their environment.', 'Genomes vary between the sampled species.').replace('This experiment compares two populations [1].', 'Assembly quality depends on sequencing coverage [1].').replace('The control group received no treatment.', 'The specimens were collected at two sites.').replace('Results should not imply causation.', 'The sample size limits generalization.')
+objects[5] = objects[5].replace('/Contents 5 0 R', '/Contents 9 0 R')
+objects.push(`<< /Length ${Buffer.byteLength(secondContent)} >>\nstream\n${secondContent}\nendstream`)
 let pdf = '%PDF-1.4\n'; const offsets = [0]
 objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
 const xref = Buffer.byteLength(pdf)
-pdf += `xref\n0 9\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 9 /Root 1 0 R /Info 8 0 R >>\nstartxref\n${xref}\n%%EOF`
+pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 8 0 R >>\nstartxref\n${xref}\n%%EOF`
 return pdf
 }
 const pdf = fixturePdf(content)
@@ -161,6 +164,19 @@ try {
     ['The control group received no treatment.', '대조군에는 처치를 시행하지 않았다.'],
     ['Results should not imply causation.', '결과를 인과 관계로 해석해서는 안 된다.'],
   ])
+  // A cache on one page must not label an untouched neighboring page as saved Korean.
+  await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: anchor.page === 1 ? translations.get(anchor.source) : undefined })) }))
+  await reload(); await wait('!document.querySelector(".paper-analysis-status") && Boolean(document.querySelector(".paper-layout-page.rendered .paper-layout-block.text span"))')
+  assert(/^\d+\/\d+문장 번역/.test(await evaluate('document.querySelector(".pane-note").textContent')), 'The partly translated first page should report its actual count')
+  await evaluate('document.querySelector(".page-jump input").focus()')
+  await send('Input.insertText', { text: '2' })
+  await evaluate('document.querySelector(".page-jump").requestSubmit()')
+  await wait('document.querySelector(".page-jump input").value === "2" && document.querySelector(".pane-note").textContent.includes("번역 전 · 원문")')
+  assert(!(await evaluate('document.querySelector(".pane-note").textContent')).includes('저장됨'), 'A different page cache must not imply this page is translated')
+  await evaluate('document.querySelector(".page-jump input").focus()')
+  await send('Input.insertText', { text: '1' })
+  await evaluate('document.querySelector(".page-jump").requestSubmit()')
+  await wait('document.querySelector(".page-jump input").value === "1"')
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
   await reload(); await wait('Boolean(document.querySelector(".document-mode"))')
   await wait('!document.querySelector(".paper-analysis-status") && Boolean(document.querySelector(".paper-layout-page.rendered .paper-layout-block.text span"))')

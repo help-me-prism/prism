@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
-const {code}=await transformWithOxc(await fs.readFile('electron/translationHarness.ts','utf8'),'electron/translationHarness.ts')
+const shared=await transformWithOxc(await fs.readFile('electron/scientificSource.ts','utf8'),'electron/scientificSource.ts')
+const sharedUrl='data:text/javascript;base64,'+Buffer.from(shared.code).toString('base64')
+const harnessSource=(await fs.readFile('electron/translationHarness.ts','utf8')).replaceAll("'./scientificSource.js'",JSON.stringify(sharedUrl))
+const {code}=await transformWithOxc(harnessSource,'electron/translationHarness.ts')
 const {prepareTranslationRequest,inspectTranslationRequest,inspectTranslationBatch}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
 const fixture=JSON.parse(await fs.readFile('scripts/fixtures/engineering-p11-malformed-translation.json','utf8'))
 assert.throws(()=>inspectTranslationBatch(fixture.output,fixture.input),/ID/,'Actual corrupted s15 hash must never be guessed or remapped')
