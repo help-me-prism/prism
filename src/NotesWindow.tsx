@@ -11,8 +11,13 @@ import CurationQueue from './CurationQueue'
 import GraphView from './GraphView'
 import TemplateManager from './TemplateManager'
 import { autoSectionLabels, creatableTypes, isStub, treeTypes, typeLabels } from './knowledgeModel'
+import { createContextRequestGate, noteContextSignature } from './contextRequestGate'
 
 type MainView = 'doc' | 'curation' | 'graph'
+const emptyRelations: KnowledgeRelationView[] = []
+const emptyBacklinks: KnowledgeBacklink[] = []
+type ContextOwner = { libraryPath: string | undefined; activeId: string | undefined; nodes: KnowledgeNodeRecord[] }
+type NoteContext = { owner: ContextOwner; relations: KnowledgeRelationView[]; backlinks: KnowledgeBacklink[]; citations?: CitationLinks; citationsLoading: boolean }
 
 const noteGuides: Record<KnowledgeNodeType, { hint: string; example: string }> = {
   paper: { hint: '논문 한 편의 읽기 기록입니다. PDF는 리더에서 가져오세요.', example: '논문 제목' },
@@ -30,6 +35,11 @@ const noteGuides: Record<KnowledgeNodeType, { hint: string; example: string }> =
  */
 export default function NotesWindow() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const searchMounted = useRef(true)
+  useEffect(() => {
+    searchMounted.current = true
+    return () => { searchMounted.current = false; searchRun.current++ }
+  }, [])
   useDialogFocus(settingsOpen, '.note-settings-dialog', 'button[aria-label="노트 설정"]')
   const [libraryPath, setLibraryPath] = useState<string>()
   const [nodes, setNodes] = useState<KnowledgeNodeRecord[]>([])
@@ -45,17 +55,31 @@ export default function NotesWindow() {
   const [createBusy, setCreateBusy] = useState(false)
   const createLock = useRef(false)
   const searchRun = useRef(0)
+  const searchInFlight = useRef(false)
+  const searchComposing = useRef(false)
   const [searchBusy, setSearchBusy] = useState(false)
+  const [searchInvalidated, setSearchInvalidated] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [notice, setNotice] = useState<{ text: string; tone: 'info' | 'error'; undo?: { label: string; run: () => void | Promise<void> } }>()
   const [deleteReadyId, setDeleteReadyId] = useState<string>()
   const [curation, setCuration] = useState<CurationQueue>()
   // Which notes wrote something the researcher has not looked at yet.
   const [unread, setUnread] = useState<Record<string, { at: number; sections: string[] }>>({})
-  const [relations, setRelations] = useState<KnowledgeRelationView[]>([])
-  const [backlinks, setBacklinks] = useState<KnowledgeBacklink[]>([])
-  const [citations, setCitations] = useState<CitationLinks>()
-  const [citationsLoading, setCitationsLoading] = useState(false)
+  const [context, setContext] = useState<NoteContext>()
+  const contextGate = useRef(createContextRequestGate<ContextOwner>())
+  const nodesRun = useRef(0)
+  const contextSignature = useMemo(() => noteContextSignature(nodes), [nodes])
+  // Retain the owner across equivalent reloads, while revisions of *other* notes
+  // still invalidate backlinks and indirect connections after an external edit.
+  const contextOwner = useMemo(() => ({ libraryPath, activeId, nodes }), [libraryPath, activeId, contextSignature])
+  const contextOwnerRef = useRef(contextOwner)
+  contextOwnerRef.current = contextOwner
+  contextGate.current.setOwner(contextOwner)
+  const ownedContext = context?.owner === contextOwner ? context : undefined
+  const relations = ownedContext?.relations ?? emptyRelations
+  const backlinks = ownedContext?.backlinks ?? emptyBacklinks
+  const citations = ownedContext?.citations
+  const citationsLoading = ownedContext?.citationsLoading ?? false
   const [sideOpen, setSideOpen] = useState(() => window.localStorage.getItem('prism.notes.sideOpen') !== 'off')
   // Everything a model writes in a note is off until a CLI is chosen, and the choice used to live in the
   // Reader's translation toolbar — another window, next to an unrelated setting. It belongs where the writing
@@ -64,11 +88,10 @@ export default function NotesWindow() {
   const [settings, setSettings] = useState<AppSettings>()
   useEffect(() => window.prism.onSettingsChanged(next => {
     setSettings(next)
-    if (next.libraryPath !== libraryPath) { setOpenIds([]); setActiveId(undefined); void reloadNodes(); void reloadCuration() }
+    if (next.libraryPath !== libraryPath) { contextGate.current.invalidate(); nodesRun.current++; setLibraryPath(next.libraryPath); setNodes([]); setContext(undefined); searchRun.current++; setSearchResults(undefined); setSearchInvalidated(searchInFlight.current); setQuery(''); setOpenIds([]); setActiveId(undefined); void reloadNodes(); void reloadCuration() }
   }), [libraryPath])
   const searchRef = useRef<HTMLInputElement>(null)
   const activeIdRef = useRef<string | undefined>(undefined)
-  const nodesRef = useRef<KnowledgeNodeRecord[]>([])
 
   const active = nodes.find((node) => node.id === activeId)
   const openNodes = openIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is KnowledgeNodeRecord => Boolean(node))
@@ -87,18 +110,23 @@ export default function NotesWindow() {
   function notify(text: string, tone: 'info' | 'error' = 'info', undo?: { label: string; run: () => void | Promise<void> }) { setNotice({ text, tone, undo }) }
   useEffect(() => { if (!notice || notice.tone === 'error') return; const timer = window.setTimeout(() => setNotice(undefined), notice.undo ? 12000 : 6000); return () => window.clearTimeout(timer) }, [notice])
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
-  useEffect(() => { nodesRef.current = nodes }, [nodes])
 
   async function reloadNodes() {
+    const run = ++nodesRun.current
     try {
       const next = await window.prism.getSettings()
+      if (run !== nodesRun.current) return
+      if (next.libraryPath !== contextOwnerRef.current.libraryPath) {
+        contextGate.current.invalidate(); setContext(undefined); setNodes([]); setOpenIds([]); setActiveId(undefined)
+      }
       setLibraryPath(next.libraryPath); setSettings(next)
       if (!next.libraryPath) { setNodes([]); return }
       const [nextNodes, nextTemplates, nextAnchors] = await Promise.all([window.prism.listKnowledgeNodes(), window.prism.listTemplates(), window.prism.listEvidenceAnchors()])
+      if (run !== nodesRun.current) return
       setNodes(nextNodes); setTemplates(nextTemplates); setAnchors(nextAnchors)
       setOpenIds((current) => current.filter((id) => nextNodes.some((node) => node.id === id)))
       setActiveId((current) => current && nextNodes.some((node) => node.id === current) ? current : undefined)
-    } catch (reason) { notify(String(reason), 'error') }
+    } catch (reason) { if (run === nodesRun.current) notify(String(reason), 'error') }
   }
   async function reloadCuration() {
     try { setCuration(await window.prism.listCurationQueue()) } catch { setCuration(undefined) }
@@ -107,21 +135,25 @@ export default function NotesWindow() {
     try { setUnread(await window.prism.listAutoUnread()) } catch { setUnread({}) }
   }
   async function reloadContext(refreshCitations?: boolean) {
-    const id = activeIdRef.current
-    const node = nodesRef.current.find((item) => item.id === id)
-    if (!id || !node) { setRelations([]); setBacklinks([]); setCitations(undefined); return }
+    const owner = contextOwnerRef.current
+    const isCurrent = contextGate.current.begin(owner)
+    const id = owner.activeId
+    const node = owner.nodes.find((item) => item.id === id)
+    if (!owner.libraryPath || !id || !node) { setContext(undefined); return }
+    const hasCitations = node.nodeType === 'paper' && Boolean(node.arxivId)
+    setContext({ owner, relations: emptyRelations, backlinks: emptyBacklinks, citationsLoading: hasCitations })
+    const update = (patch: Partial<NoteContext>) => setContext(previous => isCurrent() && previous?.owner === owner ? { ...previous, ...patch } : previous)
     try {
       const [nextRelations, nextBacklinks] = await Promise.all([window.prism.listKnowledgeRelations(id), window.prism.listKnowledgeBacklinks(id)])
-      if (activeIdRef.current !== id) return
-      setRelations(nextRelations); setBacklinks(nextBacklinks)
-    } catch (reason) { notify(String(reason), 'error') }
-    if (node.nodeType !== 'paper' || !node.arxivId) { setCitations(undefined); return }
-    if (refreshCitations) setCitationsLoading(true)
+      if (!isCurrent()) return
+      update({ relations: nextRelations, backlinks: nextBacklinks })
+    } catch (reason) { if (!isCurrent()) return; notify(String(reason), 'error') }
+    if (!isCurrent() || !hasCitations || !node.arxivId) return
     try {
       const next = await window.prism.listPaperCitations(node.arxivId, { refresh: refreshCitations ?? false })
-      if (activeIdRef.current === id) setCitations(next)
-    } catch (reason) { if (refreshCitations) notify(String(reason), 'error') }
-    finally { setCitationsLoading(false) }
+      if (isCurrent()) update({ citations: next })
+    } catch (reason) { if (isCurrent() && refreshCitations) notify(String(reason), 'error') }
+    finally { if (isCurrent()) update({ citationsLoading: false }) }
   }
 
   useEffect(() => { window.document.title = 'Prism Notes'; void reloadNodes().then(reloadCuration).then(reloadUnread) }, [])
@@ -132,7 +164,8 @@ export default function NotesWindow() {
     catch (reason) { notify(String(reason), 'error') }
   }
 
-  useEffect(() => { setRelations([]); setBacklinks([]); setCitations(undefined); void reloadContext() }, [activeId, nodes.length])
+  useEffect(() => { void reloadContext(); return () => contextGate.current.invalidate() }, [contextOwner])
+  useEffect(() => () => { nodesRun.current++; contextGate.current.invalidate() }, [])
   useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
   /**
    * The library folder is shared with Obsidian and the Reader, so outside changes show up without a manual
@@ -208,33 +241,42 @@ export default function NotesWindow() {
     } catch (reason) { notify(String(reason), 'error') }
   }
   async function runSearch() {
+    if (searchInFlight.current || searchComposing.current) return
     const text = query.trim()
     const run = ++searchRun.current
     if (!text) { setSearchResults(undefined); setSearchBusy(false); return }
+    searchInFlight.current = true
+    setSearchInvalidated(false)
     setSearchBusy(true)
+    setSearchResults(undefined)
     try {
       const results = await window.prism.searchResearchKnowledge(text)
       if (run === searchRun.current) setSearchResults(results)
     } catch (reason) { if (run === searchRun.current) notify(String(reason), 'error') }
-    finally { if (run === searchRun.current) setSearchBusy(false) }
+    finally {
+      searchInFlight.current = false
+      if (searchMounted.current) {
+        setSearchBusy(false)
+      }
+    }
   }
   function changeQuery(text: string) {
-    searchRun.current++; setQuery(text); setSearchResults(undefined); setSearchBusy(false)
+    searchRun.current++; setQuery(text); setSearchResults(undefined); setSearchInvalidated(searchInFlight.current)
   }
   function toggleSide() { setSideOpen((value) => { window.localStorage.setItem('prism.notes.sideOpen', value ? 'off' : 'on'); return !value }) }
   function toggleGroup(type: KnowledgeNodeType) {
     setCollapsed((current) => { const next = new Set(current); if (next.has(type)) next.delete(type); else next.add(type); return next })
   }
 
-  const treeRow = (node: KnowledgeNodeRecord, excerpt?: string) => <div key={node.id} className={`tree-row${node.id === activeId && view === 'doc' ? ' active' : ''}`}>
+  const treeRow = (node: KnowledgeNodeRecord, excerpt?: string, searchResult = false) => <div key={node.id} className={`tree-row${searchResult ? ' tree-search-result' : ''}${node.id === activeId && view === 'doc' ? ' active' : ''}`}>
     <button
       className={`tree-file${isStub(node) ? ' is-stub' : ''}`}
       title={unread[node.id] ? `자동으로 새로 쓰인 내용이 있습니다: ${unread[node.id].sections.map((section) => autoSectionLabels[section] ?? section).join(' · ')}` : node.relativePath}
       onClick={() => openNode(node.id)}
     >
-      <span>{node.title}</span>
+      <span className="tree-note-title">{node.title}</span>
       {unread[node.id] && <i className="tree-unread" aria-label="읽지 않은 자동 기록" />}
-      {excerpt && <small>{excerpt}</small>}
+      {excerpt && <small className="tree-note-excerpt">{excerpt}</small>}
     </button>
     <button
       className={`tree-delete${deleteReadyId === node.id ? ' is-ready' : ''}`}
@@ -264,15 +306,22 @@ export default function NotesWindow() {
         <FolderOpen size={13} /><b>{libraryPath ? libraryPath.split(/[\\/]/).filter(Boolean).at(-1) : '라이브러리 선택'}</b>
       </button>
       <div className="tree-search">
-        <Search size={12} />
+        <button type="button" aria-label="노트 검색 실행" title="본문까지 검색" disabled={searchBusy || !query.trim()} onClick={() => void runSearch()}><Search size={12} /></button>
         <input
           ref={searchRef} aria-label="노트 검색" value={query} placeholder="노트 검색 · Enter로 본문까지"
           onChange={(event) => { changeQuery(event.target.value) }}
-          onKeyDown={(event) => { if (event.key === 'Enter') void runSearch(); if (event.key === 'Escape') { changeQuery('') } }}
+          onCompositionStart={() => { searchComposing.current = true }}
+          onCompositionEnd={() => { searchComposing.current = false }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || searchComposing.current) return
+            if (event.key === 'Enter') { event.preventDefault(); void runSearch() }
+            if (event.key === 'Escape') changeQuery('')
+          }}
         />
         {query && <button aria-label="검색 지우기" onClick={() => { changeQuery('') }}><X size={11} /></button>}
       </div>
-      {searchBusy && <p className="tree-search-status" role="status">본문에서 찾는 중…</p>}
+      {query && !searchBusy && !searchResults && <p className="tree-search-status">Enter를 누르면 본문까지 검색합니다.</p>}
+      {searchBusy && <p className="tree-search-status" role="status">{searchInvalidated ? '이전 검색을 마무리하는 중… 완료 후 다시 검색해 주세요.' : '노트에서 찾는 중…'}</p>}
       <button className="tree-new" disabled={!libraryPath || createBusy} onClick={() => setCreating({ nodeType: 'concept', title: query.trim(), templateId: '' })}><FilePlus2 size={12} /> 새 노트</button>
 
       {creating && <div className="tree-create">
@@ -288,12 +337,12 @@ export default function NotesWindow() {
 
       <div className="tree-body">
         {searchResults ? <div className="tree-group">
-          <div className="tree-folder is-static"><span>본문 검색 결과</span><em>{searchResults.length}</em></div>
-          {searchResults.length ? searchResults.map((result) => treeRow(result.node, result.excerpt)) : <p className="tree-empty">일치하는 노트가 없습니다.</p>}
+          <div className="tree-folder is-static"><span>제목·본문 검색 결과</span><em>{searchResults.length}</em></div>
+          {searchResults.length ? searchResults.map((result) => treeRow(result.node, result.excerpt, true)) : <p className="tree-empty">일치하는 노트가 없습니다.</p>}
         </div>
           : filtered ? <div className="tree-group">
-            <div className="tree-folder is-static"><span>검색 결과</span><em>{filtered.length}</em></div>
-            {filtered.length ? filtered.map((node) => treeRow(node)) : <p className="tree-empty">일치하는 제목이 없습니다. Enter를 누르면 본문까지 검색합니다.</p>}
+            <div className="tree-folder is-static"><span>제목·미리보기 결과</span><em>{filtered.length}</em></div>
+            {filtered.length ? filtered.map((node) => treeRow(node, node.preview, true)) : !searchBusy && <p className="tree-empty">제목·미리보기에는 일치하는 내용이 없습니다. Enter를 누르면 본문까지 검색합니다.</p>}
           </div>
             : libraryPath ? grouped.map((group) => <div className="tree-group" key={group.type}>
               <div className="tree-folder-row">

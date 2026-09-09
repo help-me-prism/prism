@@ -41,10 +41,21 @@ New checks cover run-in versus separate-line headings, preserved partitions, bla
 pixel cuts, complete source-pixel coverage, and proportional paper/text/figure zoom.
 Product UI reloads now wait for a new document context; readonly polling tolerates
 temporary CDP navigation detachment. Mutating actions are never retried automatically.
-This addresses a previously observed macOS Intel CI transport failure candidate;
-a subsequent clean remote run is still required to verify that platform.
+Remote validation is now complete for commit `61d02c4`: [CI run 34388352551](https://github.com/help-me-prism/prism/actions/runs/34388352551)
+succeeded for Windows portable, macOS Apple Silicon DMG and macOS Intel DMG.
+Each job passed core, product UI and Electron smoke checks, then packaged and
+uploaded its artifact. The preceding `00b0970` Apple Silicon job failed the zoom
+font-ratio assertion; the subsequent test-only change waits for stable layout
+measurements. This remote result does not establish physical Mac-device usability,
+code signing or notarization.
+
+The local Windows executable in `release/reader-composition` remains the `00b0970`
+runtime identified by its `BUILD-INFO.json`; `61d02c4` changes tests only. That
+executable passed clean product UI and launch smoke checks and is `NotSigned`.
+Its SHA256 is `3CE816B9DF42576CAE3DA94321CBCE0F8BC0E4FF48621F24C55A63F640439F98`.
 
 Native evidence remains local under `tmp/ui/round17-*` and
 `tmp/ui/round18-flow-wrap*.png` because full-window captures contain profile UI.
-The separate multilingual search prototype remains under review: mixed-vault
-ranking and irrelevant-query rejection are not acceptable yet.
+The separate multilingual search prototype was rejected in mixed-vault review
+and is excluded from this PR and the reader-composition release. Its ranking and
+irrelevant-query rejection remain inadequate.

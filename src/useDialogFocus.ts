@@ -9,6 +9,12 @@ export function useDialogFocus(open: boolean, selector: string, fallback?: strin
     const previous = document.activeElement as HTMLElement | null
     const controls = () => [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')].filter(element => element.getClientRects().length > 0)
     if (!dialog.contains(document.activeElement)) controls()[0]?.focus()
+    // Async actions can remove their focused button (download → installed). Keep the
+    // keyboard in this dialog so Escape and the next Tab still reach its controls.
+    const observer = new MutationObserver(() => {
+      if (dialog.isConnected && document.activeElement === document.body) controls()[0]?.focus()
+    })
+    observer.observe(dialog, { childList: true, subtree: true })
     const keydown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return
       const items = controls(); const index = items.indexOf(document.activeElement as HTMLElement)
@@ -19,6 +25,7 @@ export function useDialogFocus(open: boolean, selector: string, fallback?: strin
     document.addEventListener('keydown', keydown)
     return () => {
       document.removeEventListener('keydown', keydown)
+      observer.disconnect()
       if (previous?.isConnected && !dialog.contains(previous)) previous.focus()
       else if (fallback) document.querySelector<HTMLElement>(fallback)?.focus()
     }

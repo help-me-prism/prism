@@ -732,3 +732,32 @@ button.cm-section-fold-summary:focus-visible { outline: 2px solid light-dark(#5f
 .note-settings-body select { padding: 7px 10px; background: light-dark(#fff, #30362a); color: inherit; border: 1px solid light-dark(#c8d1bc, #59674a); border-radius: 5px; font: inherit; }
 .note-settings-body p { font-size: 12px; line-height: 1.7; color: light-dark(#646d5e, #b0baa5); }
 .note-settings-body > button { margin-top: 12px; display: inline-flex; gap: 7px; align-items: center; }
+
+/* Search needs enough context to judge relevance; ordinary folder rows stay compact. */
+.tree-row.tree-search-result { align-items: flex-start; min-width: 0; }
+.tree-search-result .tree-file { padding: 10px 8px 10px 16px; }
+.tree-search-result .tree-file > .tree-note-title,
+.tree-search-result .tree-file > .tree-note-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.tree-search-result .tree-file > .tree-note-title {
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.5;
+  color: light-dark(#4a4238, #b8b6b3);
+}
+.tree-search-result .tree-file > .tree-note-excerpt {
+  -webkit-line-clamp: 3;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: light-dark(#6f695f, #9a9792);
+}
+.tree-search-result .tree-unread { top: 18px; }
+.tree-search-result .tree-delete { flex: 0 0 20px; margin-top: 10px; }

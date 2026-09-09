@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Maximize2, RefreshCw } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
 import MiniGraph, { type MiniEdge, type MiniNode } from './graph/MiniGraph'
-
-type Hop2 = { parentId: string; relation: KnowledgeRelationView }
+import { loadSecondHop, secondHopLimits, type SecondHopResult } from './graph/secondHop'
 
 /**
  * The always-visible right stack: a local graph, backlinks, the automatic citation layer, and pending suggestions.
@@ -22,29 +21,23 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
 }) {
   const [hops, setHops] = useState<1 | 2>(1)
   const [showCitations, setShowCitations] = useState(false)
-  const [secondHop, setSecondHop] = useState<Hop2[]>([])
   // Link relations belong in the graph: they are what the researcher actually wrote in the note.
   const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
-  const edgeKey = approved.map((item) => item.id).join(',')
+  // Identity includes the relation-list generation, not just edge IDs: endpoints and
+  // review/type metadata can change while IDs remain the same.
+  const hopScope = useMemo(() => ({ nodeId: node?.id, approved }), [node?.id, approved, hops])
+  const [hopResult, setHopResult] = useState<{ scope: typeof hopScope; result: SecondHopResult }>()
+  const currentHop = hops === 2 && hopResult?.scope === hopScope ? hopResult.result : undefined
+  const secondHop = currentHop?.entries ?? []
 
   useEffect(() => {
-    if (hops !== 2 || !node) { setSecondHop([]); return }
+    if (hops !== 2 || !hopScope.nodeId) { setHopResult(undefined); return }
     let disposed = false
-    void (async () => {
-      const seen = new Set<string>([node.id, ...approved.map((item) => item.other.id)])
-      const results: Hop2[] = []
-      for (const edge of approved) {
-        try {
-          for (const relation of await window.prism.listKnowledgeRelations(edge.other.id)) {
-            if (seen.has(relation.other.id) || relation.reviewStatus !== 'approved' || relation.type === 'mentions') continue
-            seen.add(relation.other.id); results.push({ parentId: edge.other.id, relation })
-          }
-        } catch { /* a neighbour may have been deleted meanwhile */ }
-      }
-      if (!disposed) setSecondHop(results.slice(0, 24))
-    })()
+    setHopResult(undefined)
+    void loadSecondHop(hopScope.nodeId, hopScope.approved, id => window.prism.listKnowledgeRelations(id), () => disposed)
+      .then(result => { if (!disposed && result) setHopResult({ scope: hopScope, result }) })
     return () => { disposed = true }
-  }, [hops, node?.id, edgeKey])
+  }, [hops, hopScope])
 
   const citationNeighbours = useMemo(() => {
     if (!showCitations || !citations) return []
@@ -111,6 +104,10 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
         {(['paper', 'concept', 'claim', 'question'] as KnowledgeNodeType[]).map((type) => <span key={type}><i className={`kind-dot kind-${type}`} />{typeLabels[type]}</span>)}
         <span><i className="kind-dot is-contra" />반박</span>
       </div>
+      {hops === 2 && <p className="side-empty" role="status">{!currentHop ? '간접 연결을 불러오는 중…'
+        : currentHop.limited ? `일부 간접 연결을 표시합니다. 가까운 노트 ${secondHopLimits.neighbours}개, 간접 연결 ${secondHopLimits.entries}개까지 확인합니다.`
+          : currentHop.entries.length === 0 ? '확인된 간접 연결이 없습니다.' : `간접 연결 ${currentHop.entries.length}개`}
+        {currentHop && currentHop.failures > 0 ? ` 노트 ${currentHop.failures}개의 연결은 불러오지 못했습니다.` : ''}</p>}
     </section>}
 
     {node && backlinks.length > 0 && <section className="side-sec side-links">
