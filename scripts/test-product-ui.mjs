@@ -230,6 +230,51 @@ try {
     assert.equal(await evaluate('document.querySelector(".page-jump input").value'), priorPage)
     assert.equal(await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`), priorZoom, 'Return must restore comparison zoom after changing it in large reading')
   }
+  // Preserve the measured pre-chat fit scale, including non-round percentages.
+  const sizeAnchor = anchorData.anchors.find(anchor => anchor.source === 'The control group received no treatment.')
+  assert(sizeAnchor)
+  const stableRenderScale = async kind => {
+    let last; let stable = 0
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const value = await evaluate(`Number(document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1].rendered')?.dataset.renderScale)`)
+      stable = value > 0 && value === last ? stable + 1 : 0
+      if (stable >= 4) return value
+      last = value; await sleep(60)
+    }
+    throw new Error(`Render scale did not settle for ${kind}`)
+  }
+  const anchorsBeforeSizeOffer = await evaluate('[...document.querySelectorAll(".composer-anchor")].map(node=>node.dataset.placementId)')
+  for (const kind of ['original', 'translated']) {
+    if (await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded") === "true"')) await evaluate('document.querySelector(".reading-focus").click()')
+    await wait('document.querySelector(".reading-focus").getAttribute("aria-expanded") === "false"')
+    await evaluate('document.querySelector(".comparison-options > summary").click(); document.querySelector(".comparison-options .reader-toolbar-popover button:nth-child(2)").click()')
+    await settledPane(kind, 'col')
+    const zoomLabel = kind === 'original' ? '원문 배율' : '번역 배율'
+    await evaluate(`(() => { const select=document.querySelector('select[aria-label="${zoomLabel}"]'); select.value='fit'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+    const beforeScale = await stableRenderScale(kind)
+    const beforePaintWidth = await evaluate(`document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1].rendered > canvas').getBoundingClientRect().width`)
+    assert(Math.abs(beforeScale - 1) > .02, 'Fixture must distinguish measured fit scale from a hardcoded 100%')
+    const layoutBeforeOffer = await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`)
+    const zoomsBeforeOffer = await evaluate('[...document.querySelectorAll(".zoom-control select")].map(select=>({label:select.getAttribute("aria-label"),value:select.value}))')
+    await evaluate(`document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1] [data-anchor="${sizeAnchor.id}"]').click()`)
+    await wait('Boolean(document.querySelector(".composer-editor") && document.querySelector(".reading-size-offer button"))')
+    await evaluate('document.querySelector(".reading-size-offer button").click()')
+    await settledPane(kind, 'single')
+    await wait(`Math.abs(Number(document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1].rendered')?.dataset.renderScale)-${beforeScale})<.001`)
+    assert(Math.abs(await stableRenderScale(kind) - beforeScale) < .001, 'The offer must restore the exact measured scale rather than a rounded dropdown percentage')
+    assert(Math.abs(Number(await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`)) - beforeScale) < .001, 'The restored scale must also have an exact numeric selection rather than an empty or rounded option')
+    const afterPaintWidth = await evaluate(`document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1].rendered > canvas').getBoundingClientRect().width`)
+    assert(Math.abs(afterPaintWidth - beforePaintWidth) <= 1, `Actual painted PDF width must preserve pre-chat size: ${kind} ${beforePaintWidth}→${afterPaintWidth}`)
+    await wait(`(() => { const anchor=document.querySelector('[data-pane=${kind}][data-shown=true] [data-page=${kind}-1] [data-anchor="${sizeAnchor.id}"]'); if(!anchor)return false; const a=anchor.getBoundingClientRect(),pane=anchor.closest('.document-scroll'),p=pane.getBoundingClientRect(); return pane.scrollWidth>pane.clientWidth+10 && a.width>0 && a.top>=p.top-2 && a.bottom<=p.top+pane.clientHeight+2 && a.left>=p.left-2 && a.right<=p.left+pane.clientWidth+2; })()`)
+    assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), layoutBeforeOffer, 'The reading-size offer must not persist its temporary layout')
+    await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+    await settledPane(kind, 'col')
+    assert.deepEqual(await evaluate('[...document.querySelectorAll(".zoom-control select")].map(select=>({label:select.getAttribute("aria-label"),value:select.value}))'), zoomsBeforeOffer, 'Return must restore both original fit/numeric zoom states')
+    assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), layoutBeforeOffer)
+  }
+  await evaluate(`document.querySelectorAll('.composer-anchor').forEach(node=>{if(!${JSON.stringify(anchorsBeforeSizeOffer)}.includes(node.dataset.placementId)) node.querySelector('.composer-anchor-remove').click()})`)
+  if (await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded") === "true"')) await evaluate('document.querySelector(".reading-focus").click()')
+  await wait('document.querySelector(".reading-focus").getAttribute("aria-expanded") === "false"')
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
   await wait('Boolean(document.querySelector(".reading-translation .reading-block"))')
   assert.equal(await evaluate('Boolean(document.querySelector(".translated-text-layer"))'), false)

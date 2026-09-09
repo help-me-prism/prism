@@ -271,6 +271,11 @@ function App() {
   const [savingAnswers, setSavingAnswers] = useState<Record<string, boolean>>({})
   const [paperContextOpen, setPaperContextOpen] = useState(false)
   const [chatVisible, setChatVisible] = useState(() => localStorage.getItem('prism.chat-visible') === 'true')
+  const [readingSizeOffer, setReadingSizeOffer] = useState<ReadingSizeSnapshot>()
+  const [readingSizeRequest, setReadingSizeRequest] = useState<ReadingSizeRequest>()
+  useEffect(() => {
+    if (!chatVisible || readingSizeOffer?.paperId !== workspaceState.activePaperId) setReadingSizeOffer(undefined)
+  }, [chatVisible, workspaceState.activePaperId, workspaceState.libraryPath])
   useEffect(() => { localStorage.setItem('prism.chat-visible', String(chatVisible)) }, [chatVisible])
   const [settingsOpen, setSettingsOpen] = useState(false)
   useDialogFocus(settingsOpen, '.app-settings', 'button[aria-label="설정"]')
@@ -640,7 +645,8 @@ function App() {
     const start = composerCaret - match[0].length + (match[0].startsWith(' ') ? 1 : 0); setInput(`${input.slice(0, start)}${input.slice(composerCaret)}`); setComposerCaret(start)
   }
 
-  function insertAnchor(anchor: ContextAnchor) {
+  function insertAnchor(anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) {
+    if (!chatVisible) setReadingSizeOffer(readingSize)
     setChatVisible(true)
     const placementId = uniqueId('placement'); const offset = Math.max(0, Math.min(input.length, composerCaret))
     setContextAnchors((current) => [...current, { ...anchor, placementId, textOffset: offset }]); setFocusPlacementId(placementId)
@@ -724,7 +730,7 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
+        <PaperWorkspace readingSizeRequest={readingSizeRequest} providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
 
         <aside className="chat-pane" hidden={!chatVisible}>
           <div className="chat-header">
@@ -736,6 +742,7 @@ function App() {
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
+          {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
           <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다.</p>{workspaceState.library.map((paper) => { const selected = contextPaperIds.includes(paper.arxivId) || paper.arxivId === workspaceState.activePaperId; return <button disabled={paper.arxivId === workspaceState.activePaperId} title={paper.arxivId === workspaceState.activePaperId ? "현재 읽는 논문은 자동으로 포함됩니다" : undefined} key={paper.arxivId} onClick={() => setContextPaperIds((current) => selected ? current.filter((id) => id !== paper.arxivId) : [...current, paper.arxivId])}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>

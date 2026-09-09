@@ -365,7 +365,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   </div>
 }
 
-export default function PaperWorkspace({ providers, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState }: { providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
+export default function PaperWorkspace({ providers, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState, readingSizeRequest }: { readingSizeRequest?: ReadingSizeRequest; providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
   const [reloadAttempt, setReloadAttempt] = useState(0)
   const [recovering, setRecovering] = useState(false)
   const [recoveryNotice, setRecoveryNotice] = useState('')
@@ -389,7 +389,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
   const navigationTarget = useRef<ReadingPosition | undefined>(undefined)
-  const explicitAnchorTarget = useRef<ContextAnchor | undefined>(undefined)
+  const explicitAnchorTarget = useRef<(ContextAnchor & { mode?: 'original' | 'translated'; renderScale?: number }) | undefined>(undefined)
   const navigationTimer = useRef<number | undefined>(undefined)
   const lastReadingPosition = useRef<ReadingPosition | undefined>(undefined)
   const positionSaveTimer = useRef<number | undefined>(undefined)
@@ -521,6 +521,44 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     return () => { cancelled = true; window.clearTimeout(timer) }
   }, [pendingAnchor, activeId, pdf, pdfPaperId, layout, loadStatus?.phase])
   useEffect(() => {
+    const request = readingSizeRequest
+    // Requests are one-shot user actions, never deferred onto another paper.
+    if (!request || request.paperId !== activeId || pdfPaperId !== request.paperId || !pdf
+      || !Number.isFinite(request.scale) || request.scale < .15 || request.scale > 2
+      || !Number.isInteger(request.page) || request.page < 1 || request.page > pdf.numPages
+      || !request.anchorId || (request.mode !== 'original' && request.mode !== 'translated')
+      || (request.mode === 'translated' && translationFormat !== 'paper')) return
+    const anchor = anchorCatalog.find(item => item.paperId === request.paperId && item.anchorId === request.anchorId && item.page === request.page)
+    if (!anchor) return
+    if (comparisonReturn?.paperId !== activeId) setComparisonReturn({ paperId: activeId, layout, sourceScale, translatedScale, sourceFit, translatedFit })
+    arrangedRef.current = true
+    const next = request.mode === 'original' ? panePresets.original() : panePresets.translated()
+    layoutRef.current = next; setLayout(next)
+    if (request.mode === 'original') { setSourceFit(false); setSourceScale(request.scale) }
+    else { setTranslatedFit(false); setTranslatedScale(request.scale) }
+    navigationTarget.current = undefined; zoomAnchorRef.current = undefined
+    window.clearTimeout(navigationTimer.current); window.clearTimeout(positionSaveTimer.current)
+    setPendingAnchor(undefined); setPendingTranslationPage(undefined)
+    const target = { ...anchor, mode: request.mode, renderScale: request.scale }
+    explicitAnchorTarget.current = target
+    setHighlighted(anchor.anchorId); setPageNumber(anchor.page)
+    let timer = 0, cancelled = false, stable = 0
+    const deadline = performance.now() + 3000
+    const center = () => {
+      if (cancelled || explicitAnchorTarget.current !== target || activeIdRef.current !== target.paperId) return
+      const pane = request.mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
+      const page = pane?.querySelector<HTMLElement>(`[data-page="${request.mode}-${request.page}"]`)
+      if (page && !page.classList.contains('rendered')) page.scrollIntoView({ block: 'center', inline: 'nearest' })
+      const ready = pane?.clientWidth && page?.classList.contains('rendered') && Math.abs(Number(page.dataset.renderScale)-request.scale) < .001
+        && page.querySelector(`[data-anchor="${CSS.escape(request.anchorId)}"]`)
+      stable = ready ? stable + 1 : 0
+      if (ready) centerExplicitAnchor()
+      if (stable < 3 && performance.now() < deadline) timer = window.setTimeout(center, 50)
+    }
+    timer = window.setTimeout(center, 50)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [readingSizeRequest?.id])
+  useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([saved, papers]) => { setSettings(saved); setLibrary(papers); if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) } }).catch((reason) => setError(String(reason)))
     const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId) setTranslating(true, event.arxivId); if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setCacheExists((event.completedSegments ?? 0) > 0); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
     const offDone = window.prism.onTranslationDone((payload) => { const event = payload as { arxivId?: string; segments?: TranslationSegment[]; warning?: string }; if (event.arxivId) setTranslating(false, event.arxivId); if (event.arxivId === activeIdRef.current) { if (event.warning) setError(event.warning); if (event.segments) { setTranslation(event.segments); setCacheExists(true); const done = event.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length; setTranslationProgress({ completed: done, total: event.segments.filter(segment => ['text', 'heading', 'caption'].includes(segment.kind)).length }) } setTranslating(false) } })
@@ -592,7 +630,17 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
   async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: !force && translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
-  function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
+  function tagSegment(segment: TranslationSegment, mode: 'original' | 'translated') {
+    const anchor = anchorCatalog.find(item => item.anchorId === segment.id)
+    if (!anchor) return
+    const pane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
+    const page = pane?.querySelector<HTMLElement>(`[data-page="${mode}-${segment.page}"]`)
+    const scale = Number(page?.dataset.renderScale)
+    const fitted = mode === 'original' ? sourceFit : translatedFit
+    const readingSize: ReadingSizeSnapshot | undefined = fitted && page?.classList.contains('rendered') && scale >= .15 && scale <= 2 && (mode === 'original' || translationFormat === 'paper')
+      ? { paperId: anchor.paperId, mode, scale, anchorId: anchor.anchorId, page: anchor.page } : undefined
+    onTagAnchor(anchor, readingSize)
+  }
   /** A node in the structure map points at a heading; the reader goes there the same way a note link does. */
   function openAnchorFromMap(anchorId: string, page: number) {
     setPageNumber(page)
@@ -621,19 +669,22 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const syncedScrollPositions = useRef(new WeakMap<HTMLDivElement, number>())
   function centerExplicitAnchor() {
     const anchor = explicitAnchorTarget.current
-    const pane = sourceScrollRef.current
+    const mode = anchor?.mode ?? 'original'
+    const pane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
     if (!anchor || anchor.paperId !== activeIdRef.current || !pane?.clientWidth) return
-    const page = pane.querySelector<HTMLElement>(`[data-page="original-${anchor.page}"]`)
-    if (!page?.classList.contains('rendered')) return
-    const target = page.querySelector<HTMLElement>(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`) ?? page
-    const bounds = target.getBoundingClientRect(); const viewport = pane.getBoundingClientRect()
+    const page = pane.querySelector<HTMLElement>(`[data-page="${mode}-${anchor.page}"]`)
+    if (!page?.classList.contains('rendered') || (anchor.renderScale !== undefined && Math.abs(Number(page.dataset.renderScale) - anchor.renderScale) > .001)) return
+    const targets = [...page.querySelectorAll<HTMLElement>(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`)].map(target => target.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0)
+    if (!anchor.mode) targets.splice(1) // Existing evidence navigation retains its first source slice.
+    const bounds = targets.length ? { top: Math.min(...targets.map(r => r.top)), bottom: Math.max(...targets.map(r => r.bottom)), left: Math.min(...targets.map(r => r.left)), right: Math.max(...targets.map(r => r.right)) } : page.getBoundingClientRect(); const viewport = pane.getBoundingClientRect()
     pane.scrollTop += (bounds.top + bounds.bottom) / 2 - (viewport.top + pane.clientTop + pane.clientHeight / 2)
+    if (anchor.mode) pane.scrollLeft += (bounds.left + bounds.right) / 2 - (viewport.left + pane.clientLeft + pane.clientWidth / 2)
     syncedScrollPositions.current.set(pane, pane.scrollTop)
     paneWidths.current.set(pane, pane.clientWidth)
     lastReadingPane.current = pane
     lastReadingPosition.current = { ...scrollAnchor(pane), page: anchor.page }
     setPageNumber(anchor.page)
-    if (bothDocumentsOpen && syncScrollEnabled) syncScroll(pane, translatedScrollRef.current)
+    if (bothDocumentsOpen && syncScrollEnabled) syncScroll(pane, mode === 'original' ? translatedScrollRef.current : sourceScrollRef.current)
     if (activePaper) saveReadingPosition(activePaper.pdfPath, lastReadingPosition.current)
   }
   function readingScroll(pane: HTMLDivElement, other: HTMLDivElement | null) {
@@ -729,6 +780,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     return () => cancelAnimationFrame(frame)
   }, [layout, pendingTranslationPage, translationFormat])
   function setPaneZoom(mode: 'original' | 'translated', value: number) {
+    explicitAnchorTarget.current = undefined
     if (mode === 'original' || syncZoomEnabled) setSourceFit(false)
     if (mode === 'translated' || syncZoomEnabled) setTranslatedFit(false)
     const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
@@ -736,6 +788,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value)
   }
   function fitPane(mode: 'original' | 'translated') {
+    explicitAnchorTarget.current = undefined
     zoomAnchorRef.current = navigationTarget.current ?? scrollAnchor(mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current)
     if (mode === 'original' || syncZoomEnabled) setSourceFit(true)
     if (mode === 'translated' || syncZoomEnabled) setTranslatedFit(true)
@@ -768,7 +821,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     requestAnimationFrame(() => { syncLock.current = false })
   }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
-  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={segment => tagSegment(segment, mode)} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
   const comparisonPreference = useRef<'dual' | 'stacked' | undefined>(undefined)
   useEffect(() => {
     const dismissMenus = (event: PointerEvent) => {
@@ -811,7 +864,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     const value = mode === 'original' ? sourceScale : translatedScale
     const paperZoom = mode === 'original' || translationFormat === 'paper'
     const fitted = paperZoom && (mode === 'original' ? sourceFit : translatedFit)
-    return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={!fitted && value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : paperZoom ? '번역 배율' : '번역 글자 크기'} value={fitted ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? fitPane(mode) : setPaneZoom(mode, Number(event.target.value))}>{paperZoom && <option value="fit">너비 맞춤</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={!fitted && value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div>
+    return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={!fitted && value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : paperZoom ? '번역 배율' : '번역 글자 크기'} value={fitted ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? fitPane(mode) : setPaneZoom(mode, Number(event.target.value))}>{paperZoom && <option value="fit">너비 맞춤</option>}{!fitted && !zoomLevels.includes(value) && <option value={value}>{Math.round(value * 100)}%</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={!fitted && value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div>
   }
 
   return <section className="reader-pane paper-workspace">
@@ -827,7 +880,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         <div className="document-mode" aria-label="읽기 보기">
           <button className={describeLayout(layout) === describeLayout(panePresets.original()) ? 'active' : ''} onClick={() => readLarger('original')} title="원문을 넓게 읽기">{bothDocumentsOpen ? '원문 크게' : '원문'}</button>
           <button className={describeLayout(layout) === describeLayout(panePresets.translated()) ? 'active' : ''} onClick={() => readLarger('translated')} title="번역을 넓게 읽기">{bothDocumentsOpen ? '번역 크게' : '한국어'}</button>
-          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>{comparisonReturn?.paperId === activeId ? '비교로 복귀' : bothDocumentsOpen && layout.type === 'split' ? layout.dir === 'row' ? '좌우 비교' : '상하 비교' : '비교'}</button>
+          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>{comparisonReturn && comparisonReturn.paperId === activeId ? (openKinds(comparisonReturn.layout).includes('original') && openKinds(comparisonReturn.layout).includes('translated') ? '비교로 복귀' : '이전 보기') : bothDocumentsOpen && layout.type === 'split' ? layout.dir === 'row' ? '좌우 비교' : '상하 비교' : '비교'}</button>
           <details className="reader-toolbar-menu comparison-options" onKeyDown={toolbarMenuKey}>
             <summary aria-label="비교 배치 선택" title="비교 배치 선택">⌄</summary>
             <div className="reader-toolbar-popover">
