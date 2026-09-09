@@ -526,7 +526,7 @@ ${claimAfterRelation}`)
   // ---------- reading-time capture reaches the paper note ----------
   const captureResult = await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'evidence', paperId: 'test.0001', anchorId: 'equation-p2-3', memo: '노이즈 예측은 score matching이다 — 검증 필요' })`)
   assert(captureResult.blockId === 'evidence-test-0001-equation-p2-3', `Reader capture did not return the evidence block id: ${JSON.stringify(captureResult)}`)
-  await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'chat', paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\\n\\n둘째 줄', provider: 'codex', model: 'smoke-model' })`)
+  await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'chat', libraryPath: ${JSON.stringify(libraryPath)}, paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\\n\\n둘째 줄', provider: 'codex', model: 'smoke-model' })`)
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)

@@ -16,7 +16,7 @@ import { validatedScientificSource } from './scientificSource.js'
 export type CapturePaper = EvidencePaper & { notePath: string }
 export type PaperCaptureRequest =
   | { kind: 'evidence'; libraryPath?: string; paperId: string; anchorId: string; memo?: string; concept?: string }
-  | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
+  | { kind: 'chat'; libraryPath?: string; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
 export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string; warning?: string }
 export type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: { paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 

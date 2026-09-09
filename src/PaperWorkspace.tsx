@@ -520,7 +520,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
       window.document.querySelector(pageSelector)?.scrollIntoView({ block: 'center' })
       const deadline = performance.now() + 3000
       function center() {
-        if (cancelled) return
+        if (cancelled || explicitAnchorTarget.current !== anchor) return
         const page = window.document.querySelector(pageSelector)
         const target = page?.querySelector(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`)
         if ((!page?.classList.contains('rendered') || (waitForTarget && !target)) && performance.now() < deadline) { timer = window.setTimeout(center, 50); return }
@@ -530,7 +530,9 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
           if (source) showBacklinks(source)
           else setError('이 근거의 원문 위치를 찾지 못했습니다. 논문에서 문장을 다시 선택해 주세요.')
         }
-        setPendingAnchor(undefined)
+        // A newer command may already be queued before this timer's React commit.
+        // Complete only the request this callback owns, never the newer memo.
+        setPendingAnchor(current => current === anchor ? undefined : current)
       }
       timer = window.setTimeout(center, 50)
     }

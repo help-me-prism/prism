@@ -15,6 +15,14 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
   ipcMain.handle = (channel, listener) => register(channel, async (...args) => {
     if (channel === 'providers:list') return [{ id: 'codex', name: 'Codex', installed: true, available: true, status: 'Offline UI test', models: [{ id: 'gpt-5.6-luna', name: 'Luna', description: 'Offline UI test' }] }]
     if (channel === 'evidence:list') await new Promise(resolve => setTimeout(resolve, 800))
+    if (channel === 'paper:note:capture' && args[1]?.kind === 'chat' && fs.existsSync(path.join(root, 'answer-capture-gate.txt'))) {
+      fs.writeFileSync(path.join(root, 'answer-capture-started.txt'), 'started')
+      const deadline = Date.now() + 10000
+      while (fs.existsSync(path.join(root, 'answer-capture-gate.txt'))) {
+        if (Date.now() > deadline) throw new Error('Answer capture test gate was not released')
+        await new Promise(resolve => setTimeout(resolve, 25))
+      }
+    }
     // Race regressions use real IPC with an explicitly delayed fixture response.
     if (['evidence:backlinks', 'paper:note:capture'].includes(channel)) {
       const delayFile = path.join(root, channel === 'evidence:backlinks' ? 'backlinks-delay.txt' : 'capture-delay.txt')

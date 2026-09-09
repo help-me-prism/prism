@@ -1293,7 +1293,10 @@ ipcMain.handle('paper:note:capture', async (_event, request: PaperCaptureRequest
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.paperId !== 'string' || (request.kind !== 'evidence' && request.kind !== 'chat')) throw new Error('노트 담기 요청이 올바르지 않습니다.')
-  if (request.kind === 'evidence' && request.libraryPath !== undefined && request.libraryPath !== settings.libraryPath) throw new Error('라이브러리가 변경되었습니다. 원래 라이브러리에서 메모를 다시 저장해 주세요.')
+  // The renderer must identify the vault displayed when an answer was saved.
+  // Internal capture callers already supply an explicit path to captureToPaperNote.
+  if (request.kind === 'chat' && (typeof request.libraryPath !== 'string' || !request.libraryPath)) throw new Error('답변을 저장할 라이브러리를 확인하지 못했습니다. 논문을 다시 열어 주세요.')
+  if (request.libraryPath !== undefined && request.libraryPath !== settings.libraryPath) throw new Error('라이브러리가 변경되었습니다. 원래 라이브러리에서 메모나 답변을 다시 저장해 주세요.')
   if (request.kind === 'evidence' && (typeof request.anchorId !== 'string' || request.anchorId.length < 1 || request.anchorId.length > 300 || (request.memo !== undefined && (typeof request.memo !== 'string' || request.memo.length > 4_000)) || (request.concept !== undefined && (typeof request.concept !== 'string' || request.concept.length > 200)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
   if (request.kind === 'chat' && (typeof request.question !== 'string' || typeof request.answer !== 'string' || request.answer.length > 200_000 || typeof request.provider !== 'string' || typeof request.model !== 'string' || (request.anchors !== undefined && !Array.isArray(request.anchors)))) throw new Error('노트 담기 요청이 올바르지 않습니다.')
   const record = (await readLibraryAt(settings.libraryPath)).find((paper) => paper.arxivId === request.paperId)
