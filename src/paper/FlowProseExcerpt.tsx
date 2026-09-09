@@ -15,6 +15,9 @@ export default function FlowProseExcerpt({ source, rects, label, fallback = null
 function LinePixels({ source, line }: { source: HTMLCanvasElement; line: FlowProseLine }) {
   const [rendered, setRendered] = useState<{ canvas: HTMLCanvasElement; pieces: Array<{ left: number; width: number }>; fontPixels: number }>()
   useEffect(() => {
+    // The source may have been released after React's ready-state snapshot.
+    // A completed replacement PDF render provides the next excerpt instance.
+    if (source.width <= 0 || source.height <= 0) { setRendered(undefined); return }
     const canvas = document.createElement('canvas')
     const ratio = source.width / Math.max(1, parseFloat(source.style.width) || source.width)
     canvas.width = Math.max(1, Math.ceil(line.rect.width * ratio))
@@ -38,7 +41,7 @@ function WordPixels({ canvas, piece, fontPixels }: { canvas: HTMLCanvasElement; 
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const target = ref.current
-    if (!target) return
+    if (!target || canvas.width <= 0 || canvas.height <= 0) return
     target.width = piece.width; target.height = canvas.height
     target.getContext('2d')?.drawImage(canvas, piece.left, 0, piece.width, canvas.height, 0, 0, piece.width, canvas.height)
   }, [canvas, piece.left, piece.width])

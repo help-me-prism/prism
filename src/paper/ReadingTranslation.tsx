@@ -4,14 +4,17 @@ import PaperTranslationLayout from './PaperTranslationLayout'
 import FlowProseExcerpt from './FlowProseExcerpt'
 import { clearCropBoundary, sourceParagraphIndent } from './paperLayout'
 import { groupReadingSegments } from './readingBlocks'
-import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices } from './excerptGeometry'
+import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices, mayMaskExcerpt } from './excerptGeometry'
 import { unsafeParagraphIds } from '../../electron/translationScope'
 
 type Rect = { left: number; top: number; width: number; height: number; fontSize?: number }
 export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, alignProse = false }: { source: HTMLCanvasElement; rect: Rect; label: string; padding?: number; clipRects?: Rect[]; alignProse?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
-    if (!canvas.current) return
+    // PDF.js can release/reset a source canvas between the render that passed
+    // `ready` and this passive effect (for example during a fitted-pane resize).
+    // The next completed PDF render remounts the excerpt with fresh pixels.
+    if (!canvas.current || source.width <= 0 || source.height <= 0) return
     const ratio = source.width / Math.max(1, parseFloat(source.style.width) || source.width)
     // Fitted PDF viewports can have fractional CSS dimensions. Recalculating a
     // full-page crop from the width ratio can lose a pixel from the other axis.
@@ -26,7 +29,7 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
     const left = Math.max(0, rect.left - padding); const top = Math.max(0, rect.top - padding)
     const width = Math.min(source.width / ratio - left, rect.width + padding * 2)
     const height = Math.min(source.height / ratio - top, rect.height + padding * 2)
-    if (width <= 0 || height <= 0) return
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
     canvas.current.width = Math.round(width * ratio); canvas.current.height = Math.round(height * ratio)
     canvas.current.style.width = `${width}px`
     const context = canvas.current.getContext('2d')
@@ -59,7 +62,7 @@ export default function ReadingTranslation({ segments, translation, source, read
   }))
   // Follow the parser's reading order. Embedded bitmap figures join their nearest caption.
   const placed = new Set<number>()
-  const clips = (items: TranslationSegment[]) => items.every(item => ['text', 'artifact', 'heading', 'caption'].includes(item.kind) && item.preciseRects?.length) ? items.flatMap(rectangles) : items.every(item => ['text', 'artifact'].includes(item.kind) && item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId)) ? items.flatMap(rectangles) : undefined
+  const clips = (items: TranslationSegment[]) => mayMaskExcerpt(items, mixedParagraphs, originalParagraphs) && (items.every(item => item.preciseRects?.length) || items.every(item => ['text', 'artifact'].includes(item.kind) && item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId))) ? items.flatMap(rectangles) : undefined
   const crop = (rect: Rect, label: string, clipRects?: Rect[], alignProse = false) => {
     if (!source || !ready) return null
     const original = <OriginalExcerpt source={source} rect={rect} label={label} clipRects={clipRects} alignProse={alignProse} />

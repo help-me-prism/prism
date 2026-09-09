@@ -92,7 +92,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-layout-block.heading { font-family: inherit; }
 .paper-layout-block.caption { line-height: 1.48; color: inherit; }
 .paper-layout-block .original-excerpt, .paper-layout-block figure { width: 100%; margin: 0; }
-.paper-layout-block canvas { width: 100% !important; height: auto; }
+.paper-layout-block canvas { display: block; width: 100% !important; height: auto; }
 .translation-format { min-width: 76px; max-width: 105px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 11px; }
 .flow-loading { color: #65736b; font-size: 12px; }
 

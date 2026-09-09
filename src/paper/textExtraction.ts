@@ -54,6 +54,10 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       const headingBoundary = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix)\b/i.test(value)
         || captionStart.test(value)
         || (verticalGap > height * .75 && /^\d+(?:\.\d+)*\s+[A-Z]/.test(value))
+        // Numbered run-in subsection titles can use the same regular font and
+        // line spacing as prose. Preserve their new paragraph without inventing
+        // bold weight or splitting the body that follows on the same baseline.
+        || (verticalGap > height * .75 && /^\(\d{1,3}\)\s+[A-Z][^.!?]{1,100}[.:]$/.test(value) && value.split(/\s+/).length <= 9)
       const displayGap = verticalGap > height * 1.8
       const fontSizeBoundary = verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
       const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset

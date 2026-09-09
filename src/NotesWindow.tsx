@@ -47,6 +47,7 @@ export default function NotesWindow() {
   const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [openIds, setOpenIds] = useState<string[]>([])
   const [activeId, setActiveId] = useState<string>()
+  const [pendingOpenId, setPendingOpenId] = useState<string>()
   const [view, setView] = useState<MainView>('doc')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ResearchSearchResult[]>()
@@ -166,7 +167,12 @@ export default function NotesWindow() {
 
   useEffect(() => { void reloadContext(); return () => contextGate.current.invalidate() }, [contextOwner])
   useEffect(() => () => { nodesRun.current++; contextGate.current.invalidate() }, [])
-  useEffect(() => window.prism.onOpenKnowledgeNode((id) => { openNode(id) }), [])
+  useEffect(() => window.prism.onOpenKnowledgeNode((id) => { setPendingOpenId(id) }), [])
+  // Initial settings/tree reads can reset activeId. Consume external navigation
+  // only once that requested record is in the loaded vault, never against an empty tree.
+  useEffect(() => {
+    if (libraryPath && pendingOpenId && nodes.some(node => node.id === pendingOpenId)) openNode(pendingOpenId)
+  }, [libraryPath, nodes, pendingOpenId])
   /**
    * The library folder is shared with Obsidian and the Reader, so outside changes show up without a manual
    * refresh. One save arrives as a burst of events and a sweep as one per note; reloading the tree, the
@@ -189,6 +195,7 @@ export default function NotesWindow() {
   }, [])
 
   function openNode(id: string) {
+    setPendingOpenId(undefined)
     setView('doc')
     setOpenIds((current) => current.includes(id) ? current : [...current, id].slice(-8))
     setActiveId(id)

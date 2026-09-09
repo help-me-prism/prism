@@ -228,6 +228,16 @@ const chooseSelect = (connection, label, value) => setField(connection, 'select'
 
 try {
   mainConnection = await connect(await waitForPage('Prism'))
+  // Regression: request a source note while its window does not exist yet. The
+  // request must survive both preload→React handoff and initial vault loading.
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-test.0001')`)
+  notesConnection = await connect(await waitForPage('Prism Notes'))
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture'`), 'First-window source-note navigation was lost during startup.', 15000)
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-2401.01234')`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'An existing Notes window did not navigate to the next requested source note.')
+  await notesConnection.evaluate(`(() => { setTimeout(() => window.close(), 0); return true })()`)
+  notesConnection.socket.close()
+  await waitFor(async () => !(await pages()).some(page => page.title === 'Prism Notes'), 'Notes test window did not close.')
   await mainConnection.evaluate('window.prism.openNotes()')
   notesConnection = await connect(await waitForPage('Prism Notes'))
   await notesConnection.evaluate(`(() => { window.__vaultEvents = []; window.prism.onVaultChanged((event) => window.__vaultEvents.push(event)) })()`)

@@ -379,6 +379,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
+  const [pdfPaperId, setPdfPaperId] = useState<string>()
   const [translatedFit, setTranslatedFit] = useState(true)
   const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [sourceFit, setSourceFit] = useState(true); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
   const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
@@ -475,7 +476,10 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     }
   }, [command?.id])
   useEffect(() => {
-    if (!pendingAnchor || pendingAnchor.paperId !== activeId || !pdf) return
+    if (!pendingAnchor || pendingAnchor.paperId !== activeId || pdfPaperId !== pendingAnchor.paperId || !pdf) return
+    // A source request owns the new paper's initial view. Cached translation
+    // restoration must not switch it back to translated-only after PDF loading.
+    arrangedRef.current = true
     // Explicit source navigation owns layout/resize scrolls until the reader takes over.
     // An old page restoration timer must not replay after the source pane is opened.
     explicitAnchorTarget.current = pendingAnchor
@@ -486,6 +490,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     const sourceGroup = groupHolding(layout, 'original')
     if (!sourceGroup) { openPane('original'); return }
     if (sourceGroup.active !== 'original') { applyLayout(activateKind(layout, 'original')); return }
+    if (loadStatus?.phase === 'analyzing') return
     let cancelled = false; let timer = 0
     const anchor = pendingAnchor
     setHighlighted(anchor.anchorId); setPageNumber(anchor.page); setFocusedFigure(undefined)
@@ -512,7 +517,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     }
     void locate()
     return () => { cancelled = true; window.clearTimeout(timer) }
-  }, [pendingAnchor, activeId, pdf, layout])
+  }, [pendingAnchor, activeId, pdf, pdfPaperId, layout, loadStatus?.phase])
   useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([saved, papers]) => { setSettings(saved); setLibrary(papers); if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) } }).catch((reason) => setError(String(reason)))
     const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId) setTranslating(true, event.arxivId); if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setCacheExists((event.completedSegments ?? 0) > 0); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
@@ -522,17 +527,17 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   }, [])
 
   useEffect(() => {
-    if (!activePaper) { setPdf(undefined); return }
+    if (!activePaper) { setPdf(undefined); setPdfPaperId(undefined); return }
     if (explicitAnchorTarget.current?.paperId !== activePaper.arxivId) explicitAnchorTarget.current = undefined
     const remembered = readReadingPosition(activePaper.pdfPath)
     lastReadingPane.current = null; lastReadingPosition.current = remembered; navigationTarget.current = remembered
     window.clearTimeout(navigationTimer.current)
-    setComparisonReturn(undefined); setPageDraft(undefined); setPdf(undefined)
+    setComparisonReturn(undefined); setPageDraft(undefined); setPdf(undefined); setPdfPaperId(undefined)
     let disposed = false; let loadingTask: ReturnType<typeof pdfjs.getDocument> | undefined; setPageNumber(remembered?.page ?? 1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError('')
     const stored = readStoredLayout(activePaper.arxivId); layoutRef.current = stored.layout; arrangedRef.current = stored.stored; setLayout(stored.layout); setLoadStatus({ phase: 'pdf', completed: 0, total: 0 })
     Promise.all([window.prism.readPaperPdf(activePaper.arxivId), window.prism.readLatexStructure(activePaper.arxivId), window.prism.readPaperFigures(activePaper.arxivId)]).then(async ([data, latex, figures]) => {
       void Promise.all(figures.map(prepareFigureAsset)).then((preparedFigures) => { if (!disposed) setFigureAssets(preparedFigures) })
-      if (disposed) return; loadingTask = pdfjs.getDocument({ data, ...pdfOptions }); const loaded = await loadingTask.promise; if (disposed) return; if (navigationTarget.current) navigationTarget.current = { ...navigationTarget.current, page: Math.min(navigationTarget.current.page, loaded.numPages) }; setPdf(loaded); setLoadStatus({ phase: 'analyzing', completed: 0, total: loaded.numPages })
+      if (disposed) return; loadingTask = pdfjs.getDocument({ data, ...pdfOptions }); const loaded = await loadingTask.promise; if (disposed) return; if (navigationTarget.current) navigationTarget.current = { ...navigationTarget.current, page: Math.min(navigationTarget.current.page, loaded.numPages) }; setPdfPaperId(activePaper.arxivId); setPdf(loaded); setLoadStatus({ phase: 'analyzing', completed: 0, total: loaded.numPages })
       await new Promise((resolve) => window.setTimeout(resolve, 0))
       const segments: TranslationSegment[] = []
       for (let page = 1; page <= loaded.numPages; page += 1) {

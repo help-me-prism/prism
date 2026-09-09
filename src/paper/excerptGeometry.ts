@@ -1,4 +1,9 @@
 export type ExcerptRect = { left: number; top: number; width: number; height: number }
+/** Standalone scientific artifacts need their rules/bars, not just glyph ink. */
+export function mayMaskExcerpt(items: Array<{ kind: string; blockId?: string }>, mixedParagraphs: Set<string>, originalParagraphs: Set<string>) {
+  return items.every(item => ['text', 'heading', 'caption'].includes(item.kind)
+    || item.kind === 'artifact' && !!item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId))
+}
 /** Keep only the requested text slices, including partial first/last lines. */
 export function excerptSlices(bounds: ExcerptRect, slices: ExcerptRect[]) {
   return slices.flatMap(slice => {

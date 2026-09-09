@@ -16,7 +16,10 @@ export default function PaperTranslationLayout({ items, sourceWidth, sourceHeigh
       const heights = [...element.children].map(child => (child as HTMLElement).offsetHeight)
       const tops = placePaperBlocks(items.map(item => item.rect), heights, ratio)
       const lastBottom = Math.max(0, ...items.map((_, index) => tops[index] + (heights[index] ?? 0)))
-      const next = { tops, height: Math.max(sourceHeight * ratio, lastBottom + 28), ratio }
+      // Header/footer crops already include the original page margins. Adding
+      // another fixed margin made every translated page drift from its source.
+      const bottomMargin = Math.max(0, sourceHeight - Math.max(0, ...items.map(item => item.rect.top + item.rect.height))) * ratio
+      const next = { tops, height: Math.max(sourceHeight * ratio, lastBottom + bottomMargin), ratio }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
     }
     const observer = new ResizeObserver(measure)

@@ -4,6 +4,10 @@ export function joinVectorRegions(rects: FigureRect[], scale: number, pageArea: 
   const groups: FigureRect[] = []
   const gap = 6 * scale
   for (const rect of rects.slice(0, 1500)) {
+    // Page backgrounds/clip paths touch every scientific stroke. Joining them
+    // first turns all tables into a page-sized region that the final filter
+    // discards. Such bounds are not eligible figures in the first place.
+    if (rect.width * rect.height >= pageArea * .78) continue
     let next = { ...rect }
     for (let i = 0; i < groups.length;) {
       const other = groups[i]

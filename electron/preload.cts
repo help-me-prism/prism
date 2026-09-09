@@ -6,6 +6,26 @@ function subscribe(channel: string, callback: (payload: unknown) => void) {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// The main process can finish loading before React mounts its listener. Keep the
+// newest navigation intent until a subscriber exists; ordinary events need no replay.
+let pendingKnowledgeOpen: string | undefined
+const knowledgeOpenListeners = new Set<(id: unknown) => void>()
+ipcRenderer.on('knowledge:open-requested', (_event: Electron.IpcRendererEvent, id: unknown) => {
+  if (typeof id !== 'string') return
+  pendingKnowledgeOpen = id
+  if (knowledgeOpenListeners.size) {
+    pendingKnowledgeOpen = undefined
+    for (const listener of knowledgeOpenListeners) listener(id)
+  }
+})
+function subscribeKnowledgeOpen(callback: (id: unknown) => void) {
+  knowledgeOpenListeners.add(callback)
+  if (pendingKnowledgeOpen !== undefined) {
+    const id = pendingKnowledgeOpen; pendingKnowledgeOpen = undefined; callback(id)
+  }
+  return () => { knowledgeOpenListeners.delete(callback) }
+}
+
 contextBridge.exposeInMainWorld('prism', {
   setAppearance: (theme: unknown) => ipcRenderer.invoke('appearance:set', theme),
   listProviders: () => ipcRenderer.invoke('providers:list'),
@@ -86,7 +106,7 @@ contextBridge.exposeInMainWorld('prism', {
   onOpenEvidenceAnchor: (callback: (anchor: unknown) => void) => subscribe('evidence:open-requested', callback),
   listEvidenceBacklinks: (anchor: unknown) => ipcRenderer.invoke('evidence:backlinks', anchor),
   openKnowledgeNodeInNotes: (id: string) => ipcRenderer.invoke('knowledge:open-in-notes', id),
-  onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribe('knowledge:open-requested', callback),
+  onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribeKnowledgeOpen(callback),
   readSavedFigure: (paperId: string, anchorId: string) => ipcRenderer.invoke('paper:figure:read', paperId, anchorId),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),

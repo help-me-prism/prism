@@ -48,9 +48,14 @@ input, select, textarea, button { font-family: var(--font-ui); }
 .message-body h3, .message-body h4 { font-size: 14px; }
 .message-body table { font-size: 12px; }
 .anchor-token { font-size: 11px; }
+.paper-context-menu header { font-size: 12px; letter-spacing: 0; color: var(--ink); }
+.paper-context-hint { margin: 0; padding: 0 7px 7px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.message-actions button { min-height: 28px; border-radius: 5px; font-size: 11px; }
+.message-actions span { font-size: 11px; }
 
 /* Reflow is a screen-reading view. Keep the source-like serif metrics confined
    to paper mode; source canvases retain their actual scientific glyphs. */
+.reading-translation.paper-format { font-weight: 500; }
 .reading-translation:not(.paper-format) {
   font-family: var(--font-ui);
   font-weight: 400;

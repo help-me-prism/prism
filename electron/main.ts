@@ -1546,8 +1546,9 @@ ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
   if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   await readKnowledgeNode(settings.libraryPath, id)
   openNotesWindow()
-  const notify = () => notesWindow?.webContents.send('knowledge:open-requested', id)
-  if (notesWindow?.webContents.isLoading()) notesWindow.webContents.once('did-finish-load', notify); else notify()
+  const target = notesWindow
+  const notify = () => { if (target && !target.isDestroyed()) target.webContents.send('knowledge:open-requested', id) }
+  if (target?.webContents.isLoading()) target.webContents.once('did-finish-load', notify); else notify()
   notesWindow?.show(); notesWindow?.focus()
   return true
 })

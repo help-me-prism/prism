@@ -12,12 +12,16 @@ await fs.mkdir(path.join(root, 'profile')); await fs.writeFile(path.join(root, '
 const sample = path.join(root, 'Cell biology.pdf')
 // A deterministic two-column PDF with prose, a numeric table and a vector diagram.
 const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET'
+function fixturePdf(content) {
 const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
 objects.push(objects[2], objects[2])
 let pdf = '%PDF-1.4\n'; const offsets = [0]
 objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
 const xref = Buffer.byteLength(pdf)
 pdf += `xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+return pdf
+}
+const pdf = fixturePdf(content)
 await fs.writeFile(sample, pdf); await fs.writeFile(path.join(root, 'selection.txt'), sample)
 const port = 9341
 const processHandle = spawn(require('electron'), [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(root, 'profile')}`, 'scripts/product-test-host.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PRISM_PRODUCT_TEST_CHAT: '1', PRISM_PRODUCT_TEST_ROOT: root, PRISM_TEST_LIBRARY_PATH: '', PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1280x900' } })
@@ -127,7 +131,10 @@ try {
   for (const [choice, kind] of [[1, 'translated'], [2, 'original']]) {
     await evaluate(`document.querySelector('.comparison-options > summary').click()`)
     await evaluate(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(${choice})').click()`)
-    await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 2')
+    // Both layouts already have two visible panes. Wait for the requested axis,
+    // not the previous comparison's count, before recording its dimensions.
+    await wait(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(${choice})')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('.pane-body[data-shown=true]').length === 2`)
+    await wait(`(() => { const a=document.querySelector('[data-pane=original]').getBoundingClientRect(), b=document.querySelector('[data-pane=translated]').getBoundingClientRect(); return ${choice === 1 ? 'Math.abs(a.top-b.top)<2 && Math.abs(a.left-b.left)>a.width*.9' : 'Math.abs(a.left-b.left)<2 && Math.abs(a.top-b.top)>a.height*.9'}; })()`)
     const storedLayout = await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`)
     const priorPage = await evaluate('document.querySelector(".page-jump input").value')
     const zoomLabel = kind === 'original' ? '원문 배율' : '번역 배율'
@@ -136,7 +143,7 @@ try {
     await evaluate(`document.querySelector('.document-mode > button:nth-child(${kind === 'original' ? 1 : 2})').click()`)
     await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
     const enlarged = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
-    assert(choice === 1 ? enlarged.width > before.width * 1.8 : enlarged.height > before.height * 1.8, 'Large reading must provide actual space')
+    assert(choice === 1 ? enlarged.width > before.width * 1.8 : enlarged.height > before.height * 1.8, `Large reading must provide actual space: ${JSON.stringify({ choice, kind, before, enlarged, storedLayout })}`)
     assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), storedLayout, 'Temporary reading must preserve the saved comparison layout')
     await evaluate(`(() => { const select=document.querySelector('select[aria-label="${zoomLabel}"]'); select.value='1.25'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
     await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
@@ -289,10 +296,12 @@ try {
   await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
   await evaluate('document.querySelector(".reading-focus").click()')
   await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({ paperId: paper.arxivId, anchorId: citedSource.id, type: 'sentence', page: 1, label: '근거1' })})`)
-  await wait('Boolean(document.querySelector("[data-page=original-1].rendered"))')
+  // Original canvases remain mounted while hidden. A cached render alone does
+  // not mean the evidence event has opened the pane or highlighted its anchor.
+  await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1].rendered [data-anchor="${citedSource.id}"].highlighted'))`)
   assert(await evaluate('document.querySelector("[data-page=original-1]").closest(".document-scroll").clientWidth > 500'), 'A source link from Korean-only mode must open a readable original pane even with chat open')
   await evaluate('window.prism.choosePaperStorage()')
-  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, `${pdf}\n% Second paper`); await fs.writeFile(path.join(root, 'selection.txt'), second)
+  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, fixturePdf(content.replace('Cell biology: a reading fixture', 'Engineering: a reading fixture'))); await fs.writeFile(path.join(root, 'selection.txt'), second)
   const external = await evaluate('window.prism.importLocalPaper()')
   assert(external.pdfPath.startsWith(path.join(root, 'external-papers')))
   assert(external.notePath.startsWith(vault)); assert.equal(external.externalAssets, true)
@@ -300,6 +309,35 @@ try {
   assert.equal(records.length, 2); assert.equal(records.find(item => item.arxivId === paper.arxivId).pdfPath, paper.pdfPath)
   assert.equal(records.find(item => item.arxivId === external.arxivId).pdfPath, external.pdfPath)
   const note = await fs.readFile(external.notePath, 'utf8'); assert(note.includes('file:///')); assert(!note.includes('tags: [paper, arxiv]'))
+  // Two genuinely different PDFs deliberately share the cited sentence/anchor
+  // ID. The first evidence event after a paper switch must bind to the new PDF,
+  // survive cached-translation loading, and open its actual original pane.
+  // Direct IPC import bypasses the import dialog's renderer library refresh.
+  await reload()
+  await wait(`Boolean([...document.querySelectorAll('.paper-tree button')].find(button => button.querySelector('strong')?.textContent === 'Engineering'))`)
+  await evaluate(`([...document.querySelectorAll('.paper-tree button')].find(button => button.querySelector('strong')?.textContent === 'Engineering')).click()`)
+  let externalAnchors
+  for (let attempt = 0; attempt < 100 && !externalAnchors; attempt++) { try { externalAnchors = JSON.parse(await fs.readFile(path.join(path.dirname(external.pdfPath), 'anchors.json'), 'utf8')) } catch { await sleep(100) } }
+  assert(externalAnchors, 'Second PDF must finish real extraction')
+  const externalCited = externalAnchors.anchors.find(anchor => anchor.source === citedSource.source)
+  assert.equal(externalCited.id, citedSource.id, 'Fixture exercises a cross-paper anchor ID collision')
+  const engineeringTitle = externalAnchors.anchors.find(anchor => anchor.source.includes('Engineering:'))
+  const biologyTitle = anchorData.anchors.find(anchor => anchor.source.includes('Cell biology:'))
+  assert(engineeringTitle && biologyTitle && engineeringTitle.id !== biologyTitle.id)
+  await fs.writeFile(external.translationPath, JSON.stringify({ segments: externalAnchors.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
+  for (const [targetPaper, targetTitle, previousPaper, previousTitle] of [[paper, biologyTitle, external, engineeringTitle], [external, engineeringTitle, paper, biologyTitle]]) {
+    await evaluate('document.querySelector(".document-mode > button:nth-child(2)").click()')
+    await wait('document.querySelector("[data-pane=translated]")?.dataset.shown === "true" && document.querySelector("[data-pane=original]")?.dataset.shown === "false"')
+    await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({ paperId: targetPaper.arxivId, anchorId: citedSource.id, type: 'sentence', page: 1, label: 'Cross-paper evidence' })})`)
+    await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1].rendered [data-anchor="${targetTitle.id}"]'))`)
+    await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1] [data-anchor="${citedSource.id}"].highlighted'))`)
+    assert.equal(await evaluate(`Boolean(document.querySelector('[data-pane=original] [data-anchor="${previousTitle.id}"]'))`), false, `${targetPaper.title} must not retain ${previousPaper.title}'s PDF anchors`)
+    // Cache restoration is asynchronous. It must not subsequently hide the
+    // explicit source navigation once the initial highlight has appeared.
+    await sleep(850)
+    assert(await evaluate(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1] [data-anchor="${citedSource.id}"].highlighted'))`), 'Cached translation must not overwrite explicit cross-paper evidence navigation')
+    assert(await evaluate(`(() => { const anchor=document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1] [data-anchor="${citedSource.id}"].highlighted'); const a=anchor.getBoundingClientRect(), p=anchor.closest('.document-scroll').getBoundingClientRect(); return a.width>0 && a.height>0 && a.top>=p.top && a.bottom<=p.bottom && a.left>=p.left && a.right<=p.right; })()`), 'Cross-paper evidence must be visibly located in the original pane, not only marked in a hidden/offscreen page')
+  }
   const oldStorage = path.join(root, 'external-papers'), movedStorage = path.join(root, 'moved-papers')
   assert.equal(path.dirname(path.resolve(oldStorage)), path.resolve(root))
   assert.equal(path.dirname(path.resolve(movedStorage)), path.resolve(root))
