@@ -185,6 +185,30 @@ try {
     if (format === 'paper') assert(await evaluate('(() => { const page = document.querySelector("[data-page=translated-3]"); return page.scrollWidth <= page.clientWidth + 2 })()'), 'Restored paper layout must fit its visible width')
     assert(await evaluate('(() => { const page = document.querySelector("[data-page=translated-3]").getBoundingClientRect(); const pane = document.querySelector("[data-page=translated-3]").closest(".document-scroll").getBoundingClientRect(); const marker = pane.top + pane.height * .28; return page.top <= marker && page.bottom >= marker })()'), `${format} must preserve the visible page when document heights change`)
   }
+  // Width changes from opening/closing chat must not let intermediate reflow scroll events
+  // replace the reading position (the native p11 regression moved back a page on close).
+  const initialFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")')
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    for (let toggle = 0; toggle < 2; toggle += 1) {
+      const previousFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")')
+      const chatTogglePoint = await evaluate('(() => { const rect = document.querySelector(".reading-focus").getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } })()')
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...chatTogglePoint, button: 'left', clickCount: 1 })
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...chatTogglePoint, button: 'left', clickCount: 1 })
+      await wait(`document.querySelector('.reading-focus').getAttribute('aria-pressed') !== ${JSON.stringify(previousFocusState)}`)
+      await sleep(1000)
+      assert.equal(await evaluate('document.querySelector(".page-jump input").value'), '3', `Chat toggle ${cycle + 1}.${toggle + 1} must retain page 3 after width reflow settles`)
+      const pagePositions = await evaluate(`(() => {
+        return [...document.querySelectorAll('[data-page="original-3"], [data-page="translated-3"]')].map(page => {
+          const pane = page.closest('.document-scroll'); const bounds = pane?.getBoundingClientRect(); const rect = page.getBoundingClientRect();
+          if (!bounds || bounds.width <= 0 || bounds.height <= 0 || !page.getClientRects().length) return null;
+          const marker = bounds.top + bounds.height * .28;
+          return { page: page.dataset.page, top: rect.top, bottom: rect.bottom, marker, visible: rect.top <= marker && rect.bottom >= marker };
+        }).filter(Boolean);
+      })()`)
+      assert(pagePositions.length > 0 && pagePositions.every(page => page.visible), `Chat toggle must preserve actual page 3 in each visible pane, not just its counter: ${JSON.stringify(pagePositions)}`)
+    }
+  }
+  assert.equal(await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")'), initialFocusState)
   await evaluate(`document.querySelector('[aria-label="설정"]').click()`)
   await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   await evaluate(`document.querySelector('[aria-label="설정 닫기"]').click()`)
