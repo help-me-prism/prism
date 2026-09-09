@@ -42,7 +42,7 @@ try {
   const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject, method }); socket.send(JSON.stringify({ id, method, params })) })
   const evaluate = async expression => { const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails)); return result.result.value }
   const wait = async expression => { for (let i = 0; i < 200; i++) {
-    try { if (await evaluate(expression)) return } catch (error) {
+    try { const value = await evaluate(expression); if (value) return value } catch (error) {
       // These are readonly predicates. A navigation can temporarily detach its
       // execution context; never apply this retry to imports, saves or clicks.
       if (error.code !== -32000 || !/active page|context|navigat/i.test(error.message)) throw error
@@ -165,7 +165,7 @@ try {
   assert(Object.values(figureMetadata.rect).every(Number.isFinite))
   assert(figureMetadata.rect.width > 0 && figureMetadata.rect.width <= 1)
   assert(figureMetadata.rect.height > 0 && figureMetadata.rect.height <= 1)
-  const renderedPageWidth = await evaluate('parseFloat(document.querySelector(".paper-layout-page.rendered > canvas").style.width)')
+  const renderedPageWidth = await wait('(() => { const canvas=document.querySelector(".paper-layout-page.rendered > canvas"); return canvas && parseFloat(canvas.style.width); })()')
   const displayedCropWidth = renderedPageWidth * figureMetadata.rect.width
   assert(imageBytes.readUInt32BE(16) >= Math.min(displayedCropWidth * 3.9, 1900), 'Figure capture must rerender PDF detail above the display resolution')
   await evaluate('document.querySelector(".figure-attachment").click()')
