@@ -656,7 +656,7 @@ function App() {
       <header className="titlebar">
         <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><span>Prism</span></div>
         <div className="document-title"><FileText size={14} /><span>{workspaceState.library.find(paper => paper.arxivId === workspaceState.activePaperId)?.title ?? "Prism · 논문 읽기"}</span></div>
-      <button className="reading-focus" aria-pressed={!chatVisible} onClick={() => setChatVisible(value => !value)}>{chatVisible ? "읽기에 집중" : "AI 대화 열기"}</button></header>
+      <button className="reading-focus" aria-expanded={chatVisible} onClick={() => setChatVisible(value => !value)}>{chatVisible ? "AI 대화 닫기" : "AI 대화 열기"}</button></header>
 
       <div className="workspace">
         {sidebarOpen && (

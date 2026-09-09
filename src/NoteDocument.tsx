@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { copySavedEvidence } from './noteEvidenceCopy'
 import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import NoteHistoryDialog from './NoteHistoryDialog'
@@ -362,8 +363,13 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     } catch (reason) { onNotify(String(reason), 'error') }
   }
   async function copyEvidence(evidence: EmbeddedEvidence, target: KnowledgeNodeRecord) {
+    const sourceId = node.id
+    const sourceContent = contentRef.current
     try {
-      const result = await window.prism.copyKnowledgeEvidence({ sourceNodeId: node.id, targetNodeId: target.id, blockId: evidence.blockId, expectedTargetRevision: target.revision })
+      const result = await copySavedEvidence(save,
+        () => nodeIdRef.current === sourceId && contentRef.current === sourceContent && !dirtyRef.current,
+        () => window.prism.copyKnowledgeEvidence({ sourceNodeId: sourceId, targetNodeId: target.id, blockId: evidence.blockId, expectedTargetRevision: target.revision }))
+      if (!result) { onNotify('근거 복사 전에 원본 노트의 저장을 완료해 주세요. 편집 중이거나 저장 충돌이 있으면 복사하지 않습니다.'); return }
       if (!result.saved) { await onReloadNodes(); onNotify('대상 노트가 외부에서 변경되어 복사하지 않았습니다. 다시 선택해 주세요.', 'error'); return }
       setPicker(undefined); await onReloadNodes(); onNotify(`근거 카드를 '${target.title}'에 복사했습니다.`)
     } catch (reason) { onNotify(String(reason), 'error') }

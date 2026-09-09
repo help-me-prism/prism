@@ -372,7 +372,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   </div>
 }
 
-export default function PaperWorkspace({ providers, command, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState }: { providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
+export default function PaperWorkspace({ providers, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState }: { providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
   const [reloadAttempt, setReloadAttempt] = useState(0)
   const [recovering, setRecovering] = useState(false)
   const [recoveryNotice, setRecoveryNotice] = useState('')
@@ -382,6 +382,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [translatedFit, setTranslatedFit] = useState(true)
   const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [sourceFit, setSourceFit] = useState(true); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
   const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
+  const [comparisonReturn, setComparisonReturn] = useState<{ paperId: string; layout: PaneNode; sourceScale: number; translatedScale: number; sourceFit: boolean; translatedFit: boolean }>()
   const [translationFormat, setTranslationFormat] = useState<'paper' | 'flow'>(() => localStorage.getItem('prism.translation-format') === 'flow' ? 'flow' : 'paper'); const [cacheExists, setCacheExists] = useState(false)
   const [backlinkPanel, setBacklinkPanel] = useState<{ anchor: ContextAnchor; items: EvidenceBacklink[]; loading: boolean; error?: string }>()
   const [captureMemo, setCaptureMemo] = useState(''); const [captureStatus, setCaptureStatus] = useState('')
@@ -411,10 +412,18 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const activePaper = library.find((paper) => paper.arxivId === activeId); const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
   const openPanes = openKinds(layout)
   const bothDocumentsOpen = openPanes.includes('original') && openPanes.includes('translated')
-  /** Every arrangement change goes through here, so the tree, the ref async loaders read, and storage agree. */
-  function applyLayout(next: PaneNode, forPaper = activeIdRef.current) { layoutRef.current = next; arrangedRef.current = true; setLayout(next); if (forPaper) writeStoredLayout(forPaper, next) }
+  /** Explicit arrangement edits replace the saved layout; temporary large reading does not. */
+  function applyLayout(next: PaneNode, forPaper = activeIdRef.current) {
+    if (comparisonReturn && JSON.stringify(next) === JSON.stringify(layoutRef.current)) return
+    setComparisonReturn(undefined); layoutRef.current = next; arrangedRef.current = true; setLayout(next)
+    if (forPaper) writeStoredLayout(forPaper, next)
+  }
   /** Opening a closed window: into an empty group if the researcher left one, otherwise beside the original. */
   function openPane(kind: PaneKind) {
+    if (kind === 'original' && comparisonReturn?.paperId === activeId && activeId) {
+      const next = panePresets.original()
+      layoutRef.current = next; setLayout(next); return
+    }
     const empty = paneGroups(layout).find((group) => !group.tabs.length)
     if (empty) return applyLayout(moveKindToGroup(layout, empty.id, kind))
     if (kind === 'translated') return applyLayout(withTranslated(layout))
@@ -518,7 +527,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const remembered = readReadingPosition(activePaper.pdfPath)
     lastReadingPane.current = null; lastReadingPosition.current = remembered; navigationTarget.current = remembered
     window.clearTimeout(navigationTimer.current)
-    setPageDraft(undefined); setPdf(undefined)
+    setComparisonReturn(undefined); setPageDraft(undefined); setPdf(undefined)
     let disposed = false; let loadingTask: ReturnType<typeof pdfjs.getDocument> | undefined; setPageNumber(remembered?.page ?? 1); setAllSegments([]); setTranslation([]); setFigureAssets([]); setCacheExists(false); setError('')
     const stored = readStoredLayout(activePaper.arxivId); layoutRef.current = stored.layout; arrangedRef.current = stored.stored; setLayout(stored.layout); setLoadStatus({ phase: 'pdf', completed: 0, total: 0 })
     Promise.all([window.prism.readPaperPdf(activePaper.arxivId), window.prism.readLatexStructure(activePaper.arxivId), window.prism.readPaperFigures(activePaper.arxivId)]).then(async ([data, latex, figures]) => {
@@ -782,7 +791,22 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const details = element.closest('details')
     if (details) { details.open = false; details.querySelector('summary')?.focus() }
   }
+  function readLarger(kind: 'original' | 'translated') {
+    queueReadingPosition()
+    const next = kind === 'original' ? panePresets.original() : panePresets.translated()
+    if (!activeId || (!comparisonReturn && !bothDocumentsOpen)) { applyLayout(next); return }
+    // Temporary reading space must not replace the saved comparison arrangement.
+    if (comparisonReturn?.paperId !== activeId) setComparisonReturn({ paperId: activeId, layout, sourceScale, translatedScale, sourceFit, translatedFit })
+    layoutRef.current = next; setLayout(next)
+  }
   function chooseComparison(element: HTMLElement, explicit?: 'dual' | 'stacked') {
+    if (!explicit && comparisonReturn && comparisonReturn.paperId === activeId) {
+      queueReadingPosition()
+      setSourceScale(comparisonReturn.sourceScale); setTranslatedScale(comparisonReturn.translatedScale)
+      setSourceFit(comparisonReturn.sourceFit); setTranslatedFit(comparisonReturn.translatedFit)
+      layoutRef.current = comparisonReturn.layout; setLayout(comparisonReturn.layout); setComparisonReturn(undefined)
+      closeToolbarMenu(element); return
+    }
     if (explicit) comparisonPreference.current = explicit
     const choice = explicit ?? comparisonPreference.current ?? ((element.closest('.paper-workspace')?.clientWidth ?? window.innerWidth) < 960 ? 'stacked' : 'dual')
     queueReadingPosition(); applyLayout(choice === 'stacked' ? panePresets.stacked() : panePresets.dual())
@@ -800,7 +824,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   return <section className="reader-pane paper-workspace">
     {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}
-    <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
+    <div className="editor-tabs"><button className="icon-button" aria-label={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} title={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>
 
       <i title="논문 닫기" onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i>
@@ -809,14 +833,14 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
       <div className="page-nav"><button aria-label="이전 페이지" disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><form className="page-jump" onSubmit={event => { event.preventDefault(); const target = Number(pageDraft); if (pageDraft?.trim() && Number.isInteger(target) && target > 0) scrollToPage(target); setPageDraft(undefined); (event.currentTarget.querySelector('input') as HTMLInputElement)?.blur() }}><input aria-label="페이지 번호" title="번호 입력 후 Enter로 이동" inputMode="numeric" value={pageDraft ?? String(pageNumber)} onFocus={event => event.currentTarget.select()} onChange={event => setPageDraft(event.target.value)} onBlur={() => setPageDraft(undefined)} onKeyDown={event => { if (event.key === 'Escape') { setPageDraft(undefined); event.currentTarget.blur() } }} /><span>/ {pdf.numPages}</span></form><button aria-label="다음 페이지" disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div>
       <div className="reader-actions">
         <div className="document-mode" aria-label="읽기 보기">
-          <button className={describeLayout(layout) === describeLayout(panePresets.original()) ? 'active' : ''} onClick={() => { queueReadingPosition(); applyLayout(panePresets.original()) }}>원문</button>
-          <button className={describeLayout(layout) === describeLayout(panePresets.translated()) ? 'active' : ''} onClick={() => { queueReadingPosition(); applyLayout(panePresets.translated()) }}>한국어</button>
-          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>비교</button>
+          <button className={describeLayout(layout) === describeLayout(panePresets.original()) ? 'active' : ''} onClick={() => readLarger('original')} title="원문을 넓게 읽기">{bothDocumentsOpen ? '원문 크게' : '원문'}</button>
+          <button className={describeLayout(layout) === describeLayout(panePresets.translated()) ? 'active' : ''} onClick={() => readLarger('translated')} title="번역을 넓게 읽기">{bothDocumentsOpen ? '번역 크게' : '한국어'}</button>
+          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>{comparisonReturn?.paperId === activeId ? '비교로 복귀' : bothDocumentsOpen && layout.type === 'split' ? layout.dir === 'row' ? '좌우 비교' : '상하 비교' : '비교'}</button>
           <details className="reader-toolbar-menu comparison-options" onKeyDown={toolbarMenuKey}>
             <summary aria-label="비교 배치 선택" title="비교 배치 선택">⌄</summary>
             <div className="reader-toolbar-popover">
-              <button onClick={event => chooseComparison(event.currentTarget, 'dual')}><Columns2 size={14} /> 좌우 비교</button>
-              <button onClick={event => chooseComparison(event.currentTarget, 'stacked')}><Rows2 size={14} /> 상하 비교</button>
+              <button aria-pressed={bothDocumentsOpen && layout.type === 'split' && layout.dir === 'row'} onClick={event => chooseComparison(event.currentTarget, 'dual')}><Columns2 size={14} /> 좌우 비교</button>
+              <button aria-pressed={bothDocumentsOpen && layout.type === 'split' && layout.dir === 'col'} onClick={event => chooseComparison(event.currentTarget, 'stacked')}><Rows2 size={14} /> 상하 비교</button>
               {bothDocumentsOpen && <><label><input type="checkbox" checked={syncScrollEnabled} onChange={event => setSyncScrollEnabled(event.target.checked)} /> 같은 위치로 스크롤</label><label><input type="checkbox" checked={syncZoomEnabled} onChange={event => { setSyncZoomEnabled(event.target.checked); if (event.target.checked) setTranslatedScale(sourceScale) }} /> 확대 배율 함께 변경</label></>}
             </div>
           </details>

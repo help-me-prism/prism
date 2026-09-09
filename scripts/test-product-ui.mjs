@@ -124,6 +124,29 @@ try {
   assert(await evaluate('(() => { const button = document.querySelector(".comparison-options .reader-toolbar-popover button"); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()'), 'Comparison choices must be visible and clickable, not clipped by their parent')
   await evaluate('document.querySelector(".comparison-options").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))')
   assert.equal(await evaluate('document.querySelector(".comparison-options").open'), false)
+  for (const [choice, kind] of [[1, 'translated'], [2, 'original']]) {
+    await evaluate(`document.querySelector('.comparison-options > summary').click()`)
+    await evaluate(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(${choice})').click()`)
+    await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 2')
+    const storedLayout = await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`)
+    const priorPage = await evaluate('document.querySelector(".page-jump input").value')
+    const zoomLabel = kind === 'original' ? '원문 배율' : '번역 배율'
+    const priorZoom = await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`)
+    const before = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
+    await evaluate(`document.querySelector('.document-mode > button:nth-child(${kind === 'original' ? 1 : 2})').click()`)
+    await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
+    const enlarged = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
+    assert(choice === 1 ? enlarged.width > before.width * 1.8 : enlarged.height > before.height * 1.8, 'Large reading must provide actual space')
+    assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), storedLayout, 'Temporary reading must preserve the saved comparison layout')
+    await evaluate(`(() => { const select=document.querySelector('select[aria-label="${zoomLabel}"]'); select.value='1.25'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+    await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+    await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 2')
+    await sleep(850)
+    const restored = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
+    assert(Math.abs(restored.width - before.width) < 2 && Math.abs(restored.height - before.height) < 2, 'Return must restore the prior split instead of choosing a new layout')
+    assert.equal(await evaluate('document.querySelector(".page-jump input").value'), priorPage)
+    assert.equal(await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`), priorZoom, 'Return must restore comparison zoom after changing it in large reading')
+  }
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
   await wait('Boolean(document.querySelector(".reading-translation .reading-block"))')
   assert.equal(await evaluate('Boolean(document.querySelector(".translated-text-layer"))'), false)
@@ -196,7 +219,10 @@ try {
   } finally { await fs.rename(path.join(figureDirectory, savedFigure + '.held'), path.join(figureDirectory, savedFigure)).catch(() => {}) }
   await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({paperId:paper.arxivId, anchorId:savedFigure.replace(/\.png$/, ''), type:'figure',page:figureMetadata.page,label:'피겨'})})`)
   await wait('Boolean(document.querySelector("[data-saved-figure]"))')
-  await wait('(() => { const marker = document.querySelector("[data-saved-figure]"); const pane = marker?.closest(".document-scroll"); if (!pane) return false; const a = marker.getBoundingClientRect(), b = pane.getBoundingClientRect(); return Math.abs((a.top+a.bottom)/2 - (b.top + pane.clientTop + pane.clientHeight/2)) < 8 })()')
+  // Large single-pane reading may already place this first-page figure above
+  // the viewport midpoint at scrollTop=0. Require full visibility and the
+  // nearest reachable centered position, rather than an impossible negative scroll.
+  await wait('(() => { const marker = document.querySelector("[data-saved-figure]"); const pane = marker?.closest(".document-scroll"); if (!pane) return false; const a = marker.getBoundingClientRect(), b = pane.getBoundingClientRect(); const top=b.top+pane.clientTop, desired=pane.scrollTop+(a.top+a.bottom)/2-(top+pane.clientHeight/2), reachable=Math.max(0,Math.min(pane.scrollHeight-pane.clientHeight,desired)); return Math.abs(pane.scrollTop-reachable)<8 && a.top>=top-1 && a.bottom<=top+pane.clientHeight+1 })()')
   const userMessagesBeforeFailure = await evaluate('document.querySelectorAll(".message.user").length')
   await evaluate('document.querySelector(".composer-editor").focus()')
   await send('Input.insertText', { text: '첨부 이미지 입력 전달 검사' })
@@ -209,6 +235,9 @@ try {
   assert(await evaluate('Boolean(document.querySelector(".figure-attachment"))'), 'Rejected dispatch must restore the attached figure')
   await evaluate('document.querySelector(".composer-anchor-remove").click()')
   await evaluate('document.querySelector(".reading-focus").click()')
+  assert.equal(await evaluate('document.querySelector(".document-mode > button:nth-child(3)").textContent'), '비교로 복귀', 'Opening source evidence must preserve the temporary reading return action')
+  await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+  await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 2')
   await evaluate('document.querySelector(".page-jump input").focus()')
   await send('Input.insertText', { text: '3' })
   await evaluate('document.querySelector(".page-jump").requestSubmit()')
@@ -225,10 +254,10 @@ try {
   }
   // Width changes from opening/closing chat must not let intermediate reflow scroll events
   // replace the reading position (the native p11 regression moved back a page on close).
-  const initialFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")')
+  const initialFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded")')
   for (let cycle = 0; cycle < 2; cycle += 1) {
     for (let toggle = 0; toggle < 2; toggle += 1) {
-      const previousFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")')
+      const previousFocusState = await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded")')
       const chatTogglePoint = await evaluate('(() => { const rect = document.querySelector(".reading-focus").getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } })()')
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...chatTogglePoint, button: 'left', clickCount: 1 })
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...chatTogglePoint, button: 'left', clickCount: 1 })
@@ -246,7 +275,7 @@ try {
       assert(pagePositions.length > 0 && pagePositions.every(page => page.visible), `Chat toggle must preserve actual page 3 in each visible pane, not just its counter: ${JSON.stringify(pagePositions)}`)
     }
   }
-  assert.equal(await evaluate('document.querySelector(".reading-focus").getAttribute("aria-pressed")'), initialFocusState)
+  assert.equal(await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded")'), initialFocusState)
   await evaluate(`document.querySelector('[aria-label="설정"]').click()`)
   await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   await evaluate(`document.querySelector('[aria-label="설정 닫기"]').click()`)
@@ -256,6 +285,8 @@ try {
   await sleep(200)
   assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
   await shot('product-pdf-dark')
+  await evaluate('document.querySelector(".document-mode > button:nth-child(2)").click()')
+  await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
   await evaluate('document.querySelector(".reading-focus").click()')
   await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({ paperId: paper.arxivId, anchorId: citedSource.id, type: 'sentence', page: 1, label: '근거1' })})`)
   await wait('Boolean(document.querySelector("[data-page=original-1].rendered"))')

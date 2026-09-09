@@ -384,7 +384,7 @@ export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnaps
 
 export function evidenceBlock(source: string, blockId: string) {
   const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n\\r?\\n|$)`))
+  const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n(?:\\r?\\n|$)|$)`))
   return match?.[1]
 }
 
