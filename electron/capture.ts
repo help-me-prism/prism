@@ -6,6 +6,7 @@ import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode
 import { createKnowledgeRelation, listKnowledgeRelationRecords } from './relations.js'
 import { mineRegion } from './noteContract.js'
 import type { KnowledgeNodeType } from './templates.js'
+import { wikiTargetResolver } from './wikiTargets.js'
 
 /**
  * Reading-time capture: the Reader and the chat append into the Paper note's `## Notes` section
@@ -189,7 +190,7 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
 export async function ensureLinkStubs(libraryPath: string, content: string): Promise<string[]> {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
   const apply = mineRegion(searchable, 'apply')
-  const targets = new Map<string, KnowledgeNodeType>()
+  const targets = new Map<string, { name: string; nodeType: KnowledgeNodeType }>()
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
     const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim()
     if (!raw) continue
@@ -202,23 +203,27 @@ export async function ensureLinkStubs(libraryPath: string, content: string): Pro
     if (name.length < 2 || name.length > 120 || /^[\d.v]+$/.test(name) || /[<>:"|?*]/.test(name)) continue
     // A link that only names a vault folder ("[[Concepts]]") is navigation, not a note.
     if (vaultFolders.has(name.toLocaleLowerCase())) continue
-    targets.set(name, nodeType)
+    targets.set(raw, { name, nodeType })
   }
   if (!targets.size) return []
   const nodes = await listKnowledgeNodes(libraryPath)
+  const resolveTarget = wikiTargetResolver(nodes)
   const known = new Set<string>()
+  const normalize = (value: string) => value.replaceAll('\\', '/').replace(/\.md$/i, '').trim().toLocaleLowerCase()
   for (const node of nodes) {
-    known.add(node.title.toLocaleLowerCase())
-    known.add(node.relativePath.replace(/\.md$/i, '').split('/').at(-1)!.toLocaleLowerCase())
+    known.add(normalize(node.title))
+    known.add(normalize(node.relativePath).split('/').at(-1)!)
+    // Ambiguous existing names are not missing notes. Do not shadow them with a new stub.
+    for (const alias of node.aliases ?? []) known.add(normalize(alias))
   }
   const created: string[] = []
-  for (const [name, nodeType] of targets) {
-    if (known.has(name.toLocaleLowerCase())) continue
+  for (const [raw, { name, nodeType }] of targets) {
+    if (resolveTarget(raw) || known.has(normalize(raw)) || (!raw.includes('/') && known.has(normalize(name)))) continue
     try { await fs.access(path.join(libraryPath, nodeType === 'project' ? 'Projects' : 'Concepts', `${name}.md`)); continue } catch { /* not present: create the stub */ }
     // Born as a stub in one write, so a reader never sees it in a half-created state.
     await createKnowledgeNode(libraryPath, { title: name, nodeType, status: 'inbox' })
     created.push(name)
-    known.add(name.toLocaleLowerCase())
+    known.add(normalize(name))
   }
   return created
 }

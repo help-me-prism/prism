@@ -1,4 +1,5 @@
 import { planPaperRecovery, updateRecoveredPdfLink } from './paperRecovery.js'
+import { renamedPaperNote, updatePaperTitleRecord, type PaperTitleRequest } from './paperTitle.js'
 import { readSavedFigure, resolveChatImages, type ChatImage } from './chatImages.js'
 import { buildCodexImageInputs, buildClaudeImageMessage } from './chatImageInputs.js'
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
@@ -1127,6 +1128,44 @@ ipcMain.handle('storage:reconnect-papers', async (event) => {
     }
     return { restored: result.restored, skipped: result.skipped, noteWarnings }
   })
+  libraryWrites.set(libraryPath, operation)
+  try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
+})
+ipcMain.handle('paper:update-title', async (_event, input: PaperTitleRequest) => {
+  const libraryPath = input?.libraryPath
+  if (typeof libraryPath !== 'string' || !libraryPath) throw new Error('노트 볼트가 올바르지 않습니다.')
+  const operation = (libraryWrites.get(libraryPath) ?? Promise.resolve()).catch(() => undefined).then(() => updatePaperTitleRecord(input, {
+    currentLibrary: async () => (await readSettings()).libraryPath,
+    read: () => readLibraryAt(libraryPath),
+    commit: records => atomicWriteFile(libraryIndexPath(libraryPath), JSON.stringify(records, null, 2)),
+    propagate: async (paper, oldTitle) => {
+      const warnings: string[] = []
+      try {
+        const file = path.join(path.dirname(paper.pdfPath), 'metadata.json')
+        const metadata = JSON.parse(await fs.readFile(file, 'utf8'))
+        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Invalid metadata')
+        await atomicWriteFile(file, JSON.stringify({ ...metadata, title: paper.title }, null, 2))
+      } catch { warnings.push('논문 제목은 저장했지만 PDF 폴더의 metadata.json은 갱신하지 못했습니다.') }
+      try {
+        const id = paperNodeId(paper.arxivId); const snapshot = await readKnowledgeNode(libraryPath, id)
+        const content = renamedPaperNote(snapshot.content, oldTitle, paper.title)
+        if (content === undefined) warnings.push('논문 제목은 저장했습니다. 사용자가 편집한 노트 제목 또는 별칭 형식을 보존하여 노트는 변경하지 않았습니다.')
+        else if (content !== snapshot.content) {
+          const saved = await saveKnowledgeNode(libraryPath, id, { content, expectedRevision: snapshot.revision })
+          if (!saved.saved) warnings.push('논문 제목은 저장했지만 노트가 다른 곳에서 변경되어 노트 제목은 갱신하지 못했습니다.')
+        }
+      } catch { warnings.push('논문 제목은 저장했지만 논문 노트의 제목은 갱신하지 못했습니다.') }
+      invalidateKnowledgeCache(libraryPath)
+      return warnings
+    },
+    notify: records => {
+      const paper = records.find(item => item.arxivId === input.paperId)!
+      for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) {
+        safeSend(window.webContents, 'library:changed', records)
+        safeSend(window.webContents, 'knowledge:vault-changed', { paths: [path.relative(libraryPath, paper.notePath).split(path.sep).join('/')] })
+      }
+    },
+  }))
   libraryWrites.set(libraryPath, operation)
   try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
 })

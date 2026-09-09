@@ -14,11 +14,11 @@ const sample = path.join(root, 'Cell biology.pdf')
 const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET\nBT /F1 8 Tf 48 460 Td (https://doi.org/10.1371/journal.pone.0287690.t001) Tj ET'
 function fixturePdf(content) {
 const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
-objects.push(objects[2], objects[2])
+objects.push(objects[2], objects[2], '<< /Title (Cell biology and controlled experiments) >>')
 let pdf = '%PDF-1.4\n'; const offsets = [0]
 objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
 const xref = Buffer.byteLength(pdf)
-pdf += `xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+pdf += `xref\n0 9\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 9 /Root 1 0 R /Info 8 0 R >>\nstartxref\n${xref}\n%%EOF`
 return pdf
 }
 const pdf = fixturePdf(content)
@@ -72,6 +72,46 @@ try {
   await wait('document.querySelectorAll("[data-anchor]").length > 3')
   await wait('document.querySelector(".page-jump input").value === "1"')
   assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
+  const userObservation = '\nA personal observation that must survive title editing.\n'
+  await fs.appendFile(paper.notePath, userObservation)
+  const metadataBeforeTitle = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'metadata.json'), 'utf8'))
+  const openTitleDialog = async () => {
+    await evaluate('document.querySelector(".reader-more summary").click()')
+    await evaluate('[...document.querySelectorAll(".reader-more button")].find(button => button.textContent.includes("논문 제목 편집")).click()')
+    await wait('Boolean(document.querySelector(".paper-title-dialog"))')
+  }
+  await openTitleDialog()
+  await evaluate('document.querySelector(".pdf-title-suggestion").click()')
+  await wait('document.querySelector("#paper-title-input").value === "Cell biology and controlled experiments"')
+  await evaluate('document.querySelector(".paper-title-dialog footer button[type=button]").click()')
+  assert.equal((await evaluate('window.prism.listLibrary()'))[0].title, paper.title, 'Cancel must not write suggested PDF metadata')
+  await openTitleDialog()
+  await evaluate('document.querySelector(".pdf-title-suggestion").click()')
+  await wait('document.querySelector("#paper-title-input").value === "Cell biology and controlled experiments"')
+  await evaluate('document.querySelector(".paper-title-dialog button[type=submit]").click()')
+  await wait('!document.querySelector(".paper-title-dialog")')
+  const renamedPaper = (await evaluate('window.prism.listLibrary()'))[0]
+  assert.equal(renamedPaper.title, 'Cell biology and controlled experiments')
+  for (const key of ['arxivId','pdfPath','notePath','translationPath','pdfSha256']) assert.equal(renamedPaper[key], paper[key], `Title edit cannot change ${key}`)
+  const noteAfterTitle = await fs.readFile(paper.notePath, 'utf8')
+  assert(noteAfterTitle.includes(userObservation))
+  assert(noteAfterTitle.includes('aliases: ["Cell biology"]'), 'Old title remains resolvable as a wiki alias')
+  assert(noteAfterTitle.includes('# Cell biology and controlled experiments'))
+  const metadataAfterTitle = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'metadata.json'), 'utf8'))
+  assert.deepEqual(metadataAfterTitle, { ...metadataBeforeTitle, title: renamedPaper.title })
+  assert(await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:'Stale overwrite',expectedTitle:paper.title,libraryPath:vault})}).then(()=>false,()=>true)`), 'Stale title editors cannot overwrite a newer title')
+  const metadataFile = path.join(path.dirname(paper.pdfPath), 'metadata.json')
+  await fs.rename(metadataFile, metadataFile + '.held')
+  try {
+    const partial = await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:renamedPaper.title,expectedTitle:renamedPaper.title,libraryPath:vault})})`)
+    assert.equal(partial.paper.title, renamedPaper.title)
+    assert(partial.warnings.some(warning => warning.includes('metadata.json')), 'Secondary write failures must be visible rather than reported as full success')
+  } finally { await fs.rename(metadataFile + '.held', metadataFile) }
+  assert(await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:'Wrong vault',expectedTitle:renamedPaper.title,libraryPath:path.join(root,'wrong-vault')})}).then(()=>false,()=>true)`), 'An editor from another vault cannot rename the active paper')
+  paper.title = renamedPaper.title
+  await wait('document.querySelector(".paper-tab-title").textContent.includes("Cell biology and controlled experiments")')
+  await reload(); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
+  assert.equal((await evaluate('window.prism.listLibrary()'))[0].title, paper.title, 'Title survives reopening the application')
   const titlebarSafe = await evaluate(`(() => { const button = document.querySelector('.reading-focus'); const rect = button.getBoundingClientRect(); const mac = document.documentElement.dataset.platform === 'mac'; return rect.left >= (mac ? 80 : 0) && rect.right <= innerWidth - (mac ? 10 : 130) && button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()`)
   assert(titlebarSafe, 'Reading controls must remain clickable and clear of the platform window controls')
   await evaluate('document.querySelector(".reading-focus").click()')
@@ -395,7 +435,7 @@ try {
   const bad = path.join(root, 'invalid.pdf'); await fs.writeFile(bad, 'not PDF'); await fs.writeFile(path.join(root, 'selection.txt'), bad)
   assert(await evaluate('window.prism.importLocalPaper().then(() => false, () => true)'))
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 2)
-  const node = (await evaluate('window.prism.listKnowledgeNodes()')).find(node => node.title === 'Cell biology')
+  const node = (await evaluate('window.prism.listKnowledgeNodes()')).find(node => node.title === paper.title)
   assert(node)
   const snapshot = await evaluate(`window.prism.readKnowledgeNode(${JSON.stringify(node.id)})`)
   assert(snapshot.vaultId)

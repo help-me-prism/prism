@@ -65,7 +65,7 @@ type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 type KnowledgeLevel = 'low' | 'medium' | 'high'
 type ClaimOrigin = 'paper' | 'mine'
 type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
-type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; arxivId?: string; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[]; preview: string; evidenceCount: number; relativePath: string; revision: string; modifiedAt: number }
+type KnowledgeNodeRecord = { id: string; title: string; aliases?: string[]; nodeType: KnowledgeNodeType; status: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; arxivId?: string; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[]; preview: string; evidenceCount: number; relativePath: string; revision: string; modifiedAt: number }
 type ResearchSearchResult = KnowledgeSearchResult & { textScore: number; semanticScore: number }
 type KnowledgeSuggestion = { id: string; kind: 'duplicate_concept' | 'supports' | 'contradicts' | 'evidence_gap' | 'research_gap'; source: KnowledgeNodeRecord; target?: KnowledgeNodeRecord; proposedRelation?: KnowledgeRelationType; confidence: number; reason: string }
 type ObsidianOpenRequest = { nodeId: string; heading?: string; blockId?: string }
@@ -113,6 +113,7 @@ interface Window {
     choosePaperStorage: (reset?: boolean) => Promise<AppSettings | null>
     chooseWorkspace: () => Promise<AppSettings | null>
     listLibrary: () => Promise<PaperRecord[]>
+    updatePaperTitle: (input: { paperId: string; title: string; expectedTitle: string; libraryPath: string }) => Promise<{ paper: PaperRecord; warnings: string[] }>
     searchCrossref: (query: string) => Promise<ArxivPaper[]>
     openDoi: (id: string) => Promise<void>
     searchArxiv: (input: string) => Promise<ArxivPaper[]>

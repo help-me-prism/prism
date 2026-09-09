@@ -1,3 +1,4 @@
+import { textItemRect, segmentRects, type ItemRect } from './paper/itemGeometry'
 import { collectSourceFontWeights, dominantSourceWeight } from './paper/sourceEmphasis'
 import { captureGlyphGeometry } from './paper/glyphGeometry'
 import { mixedProseParagraphs } from './paper/excerptGeometry'
@@ -7,6 +8,7 @@ import { withoutBibliography, unsafeParagraphIds } from '../electron/translation
 import { useDialogFocus } from './useDialogFocus'
 import { joinVectorRegions } from './paper/figureGeometry'
 import ReadingTranslation from './paper/ReadingTranslation'
+import PaperTitleDialog from './PaperTitleDialog'
 import './readerToolbar.css'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import * as pdfjs from 'pdfjs-dist'
@@ -28,7 +30,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
 
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
-type ItemRect = { left: number; top: number; width: number; height: number; fontSize?: number; text?: string }
 /** Which windows this reader can draw. The structure map joins the list once it exists. */
 const readerKinds: PaneKind[] = ['original', 'translated', 'map']
 
@@ -198,16 +199,6 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
   </section></div>
 }
 
-function segmentRects(segment: TranslationSegment, itemRects: ItemRect[], scale = 1) {
-  if (segment.preciseRects?.length) return segment.preciseRects.map(rect => ({ left: rect.left * scale, top: rect.top * scale, width: rect.width * scale, height: rect.height * scale, fontSize: rect.fontSize * scale }))
-  if (segment.itemSlices?.length) return segment.itemSlices.map((slice) => {
-    const rect = itemRects[slice.itemIndex]
-    if (!rect) return undefined
-    return { left: rect.left + rect.width * slice.start, top: rect.top, width: Math.max(2, rect.width * (slice.end - slice.start)), height: rect.height }
-  }).filter(Boolean) as ItemRect[]
-  return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean).map(({ text: _text, ...rect }) => rect)
-}
-
 function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure, onCaptureError, focusedFigure }: {
   document: PdfDocument; pageNumber: number; scale: number; fitWidth?: boolean; translationFormat?: 'paper' | 'flow'; segments: TranslationSegment[]; translation: Map<string, string>; mode: 'original' | 'translated'
   highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void
@@ -259,9 +250,9 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
       if (!cancelled) setRendered(true)
       const content = await page.getTextContent(); const items = content.items.filter((item) => 'str' in item) as unknown as PdfTextItem[]; const styles = content.styles as Record<string, PdfTextStyle>
       if (!cancelled) setItemRects(items.map((item) => {
-        const tx = pdfjs.Util.transform(viewport.transform, item.transform); const height = Math.max(5, Math.hypot(tx[2], tx[3])); const style = item.fontName ? styles[item.fontName] : undefined
+        const tx = pdfjs.Util.transform(viewport.transform, item.transform); const style = item.fontName ? styles[item.fontName] : undefined
         const ascent = typeof style?.ascent === 'number' ? style.ascent : typeof style?.descent === 'number' ? 1 + style.descent : .8
-        return { left: tx[4], top: tx[5] - height * ascent, width: Math.max(2, item.width * scale), height, text: item.str }
+        return textItemRect(tx, item.width, scale, ascent, item.str)
       }))
       try {
         const operators = await page.getOperatorList(); let transform = [1, 0, 0, 1, 0, 0]; const stack: number[][] = []; const figures: ItemRect[] = []; const vectors: ItemRect[] = []
@@ -378,6 +369,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const [recoveryNotice, setRecoveryNotice] = useState('')
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
+  const [editingPaper, setEditingPaper] = useState<{ paper: PaperRecord; libraryPath: string; document: PdfDocument }>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
   const [pdfPaperId, setPdfPaperId] = useState<string>()
   const [translatedFit, setTranslatedFit] = useState(true)
@@ -460,7 +452,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     })
     const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index): ContextAnchor => ({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${index + 1}`, type: 'page', page: index + 1, label: `페이지${index + 1}`, source: `Page ${index + 1} of ${activePaper.title}` })) : []
     return [...anchors, ...pages]
-  }, [activePaper?.arxivId, allSegments, pdf])
+  }, [activePaper?.arxivId, activePaper?.title, allSegments, pdf])
 
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { onAnchorCatalog(anchorCatalog) }, [anchorCatalog])
@@ -870,6 +862,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         <details className="reader-toolbar-menu reader-more" onKeyDown={toolbarMenuKey}>
           <summary>더보기</summary>
           <div className="reader-toolbar-popover">
+            <button onClick={event => { closeToolbarMenu(event.currentTarget); if (settings.libraryPath) setEditingPaper({ paper: activePaper, libraryPath: settings.libraryPath, document: pdf }) }}><FileText size={14} /> 논문 제목 편집</button>
             <button onClick={event => { closeToolbarMenu(event.currentTarget); queueReadingPosition(); openPane('map') }}><Sigma size={14} /> 구조 맵</button>
             <button onClick={event => { closeToolbarMenu(event.currentTarget); setFigureSelect(value => !value) }}><Image size={14} /> {figureSelect ? '피겨 캡처 끝내기' : '피겨 캡처'}</button>
             <button onClick={event => { closeToolbarMenu(event.currentTarget); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` }) }}><Tag size={14} /> 현재 페이지 근거로 담기</button>
@@ -898,6 +891,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         }}
       />
     </> : activePaper && error ? <div className="reader-empty library-empty" role="alert"><FileText size={32} strokeWidth={1.5} /><h1>논문을 열지 못했습니다</h1><p>{error}</p>{activePaper.externalAssets && <button disabled={recovering} onClick={() => void recoverMissingPaper()}><FolderOpen size={17} />{recovering ? '논문 확인 중…' : '이동한 폴더 다시 연결'}</button>}<button disabled={recovering} onClick={() => setReloadAttempt(value => value + 1)}>다시 시도</button></div> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}
+    {editingPaper && <PaperTitleDialog paper={editingPaper.paper} libraryPath={editingPaper.libraryPath} readPdfTitle={async () => { const metadata = await editingPaper.document.getMetadata(); const info = metadata.info as { Title?: unknown }; return typeof info?.Title === 'string' ? info.Title : '' }} onClose={() => setEditingPaper(undefined)} />}
     {finderOpen && <Finder library={library} settings={settings} onChooseFolder={() => void chooseFolder()} onOpen={openPaper} onDownloaded={(paper) => { setLibrary((current) => current.some((item) => item.arxivId === paper.arxivId) ? current : [paper, ...current]); openPaper(paper); setFinderOpen(false) }} onSettings={(patch) => void updateSettings(patch)} onClose={() => setFinderOpen(false)} />}
   </section>
 }

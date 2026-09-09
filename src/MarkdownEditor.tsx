@@ -3,11 +3,20 @@ import { mineHeadings, minePrompts, type MineSection } from '../electron/noteCon
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
+import { defaultHighlightStyle, HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 import katex from 'katex'
 import { evidenceFromUri } from './paper/evidenceUri'
 import { noteBlockInsertionPosition } from './noteInsertion'
+import { wikiTargetResolver } from '../electron/wikiTargets'
+
+// Live prose already expresses heading hierarchy through size and weight.
+// Retain syntax colors and actual link underlines without underlining every heading.
+const proseHighlightStyle = syntaxHighlighting(HighlightStyle.define(defaultHighlightStyle.specs.map(spec =>
+  spec.tag === tags.heading ? { ...spec, textDecoration: 'none' } : spec,
+)))
 
 class SourceEvidenceLink extends WidgetType {
   constructor(readonly uri: string, readonly label: string) { super() }
@@ -30,7 +39,7 @@ class SourceEvidenceLink extends WidgetType {
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence'
 export type MarkdownEditorHandle = { insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
-export type WikiLinkOption = { id: string; label: string; target: string; description: string; searchText?: string; preview?: string; evidenceCount?: number }
+export type WikiLinkOption = { id: string; label: string; target: string; aliases?: string[]; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
 type MarkdownEditorProps = {
@@ -654,7 +663,7 @@ function liveEditDecorationSet(view: EditorView) {
       if (match.index === undefined) continue
       const from = lineFrom + match.index
       const to = from + match[0].length
-      ranges.push({ from: from + 2, to: to - 2, decoration: Decoration.mark({ class: 'cm-md-wikilink' }) })
+      ranges.push({ from: from + 2, to: to - 2, decoration: Decoration.mark({ class: 'cm-md-wikilink', attributes: { 'data-wiki-target': match[1].split('|', 1)[0] } }) })
       if (isActive(from, to)) continue
       ranges.push({ from, to: from + 2, decoration: Decoration.replace({}) })
       ranges.push({ from: to - 2, to, decoration: Decoration.replace({}) })
@@ -1022,7 +1031,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -1084,8 +1093,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
           mouseover: (event) => {
             const marker = (event.target as HTMLElement).closest?.('.cm-md-wikilink') as HTMLElement | null
             if (!marker || !hostRef.current) return false
-            const key = marker.textContent?.split('|')[0].replaceAll('\\', '/').toLocaleLowerCase()
-            const option = wikiLinksRef.current.find((item) => item.target.toLocaleLowerCase() === key || item.label.toLocaleLowerCase() === key)
+            const key = marker.dataset.wikiTarget
+            const option = key ? wikiTargetResolver(wikiLinksRef.current.map(item => ({ ...item, title: item.label, relativePath: item.target })))(key) : undefined
             if (!option) return false
             const markerBounds = marker.getBoundingClientRect(); const hostBounds = hostRef.current.getBoundingClientRect()
             setHoverWiki({ option, top: markerBounds.bottom - hostBounds.top + 6, left: Math.min(markerBounds.left - hostBounds.left, Math.max(12, hostBounds.width - 280)) }); return false
@@ -1096,7 +1105,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             if (event.altKey || event.button !== 0) return false
             const marker = (event.target as HTMLElement).closest?.('.cm-md-wikilink') as HTMLElement | null
             if (!marker || !onOpenWikiLinkRef.current) return false
-            const target = marker.textContent?.replace(/^\[\[|\]\]$/g, '').split('|')[0].split('#')[0].trim()
+            const target = marker.dataset.wikiTarget
             if (!target) return false
             event.preventDefault(); setHoverWiki(undefined); onOpenWikiLinkRef.current(target)
             return true
@@ -1156,7 +1165,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 
@@ -1166,7 +1175,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     </div>}
     {wiki && <div className="wiki-link-menu" role="listbox" aria-label="지식 링크 자동완성" style={{ top: wiki.top, left: wiki.left }}>
       {filteredWikiLinks.length ? filteredWikiLinks.map((option, index) => <button key={option.id} className={index === activeWikiIndex ? 'active' : ''} role="option" aria-selected={index === activeWikiIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseWikiLink(option)}><strong>{option.label}</strong><small>{option.description} · {option.target}</small></button>) : <p>일치하는 지식 노트가 없습니다</p>}
-      {wiki.query.trim() && !wikiLinks.some((option) => option.label.toLocaleLowerCase() === wiki.query.trim().toLocaleLowerCase()) && onCreateWikiLink && <footer><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('concept')}>Concept로 만들기</button><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('claim')}>Claim으로 만들기</button></footer>}
+      {wiki.query.trim() && !wikiLinks.some((option) => [option.label, ...(option.aliases ?? [])].some(label => label.toLocaleLowerCase() === wiki.query.trim().toLocaleLowerCase())) && onCreateWikiLink && <footer><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('concept')}>Concept로 만들기</button><button onMouseDown={(event) => event.preventDefault()} onClick={() => void createWikiLink('claim')}>Claim으로 만들기</button></footer>}
     </div>}
     {evidence && <div className="evidence-link-menu" role="listbox" aria-label="PDF 근거 자동완성" style={{ top: evidence.top, left: evidence.left }}>{filteredEvidenceLinks.length ? filteredEvidenceLinks.map((option, index) => <button key={option.id} className={index === activeEvidenceIndex ? 'active' : ''} role="option" aria-selected={index === activeEvidenceIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseEvidenceLink(option)}><strong>{option.label}</strong><small>{option.description}</small></button>) : <p>일치하는 PDF 근거가 없습니다</p>}</div>}
     {hoverWiki && <aside className="wiki-link-preview" role="tooltip" style={{ top: hoverWiki.top, left: hoverWiki.left }}><small>{hoverWiki.option.description}</small><strong>{hoverWiki.option.label}</strong><p>{hoverWiki.option.preview || '작성된 요약이 없습니다.'}</p><span>PDF 근거 {hoverWiki.option.evidenceCount ?? 0}개</span></aside>}

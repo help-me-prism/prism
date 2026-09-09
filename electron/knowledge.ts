@@ -5,6 +5,7 @@ import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, waitForNoteWrite, wa
 import { atomicWriteFile } from './atomicFile.js'
 import { listNoteHistory, readNoteHistory, recoverNoteReplacements, listPendingNoteRecoveries, recoverPendingNote } from './noteReplacement.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
+import { wikiTargetResolver } from './wikiTargets.js'
 
 /**
  * `understood` is the one status nobody has to set. A note earns it the moment it holds a sentence only the
@@ -19,6 +20,7 @@ export type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
 export type KnowledgeNodeRecord = {
   id: string
   title: string
+  aliases?: string[]
   nodeType: KnowledgeNodeType
   status: KnowledgeStatus
   readingStatus?: KnowledgeReadingStatus
@@ -120,7 +122,10 @@ function listField(source: string, key: string) {
   const index = lines.findIndex((line) => line.startsWith(`${key}:`))
   if (index < 0) return undefined
   const rest = lines[index].slice(key.length + 1).trim()
-  if (rest.startsWith('[')) return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  if (rest.startsWith('[')) {
+    try { const values: unknown = JSON.parse(rest); if (Array.isArray(values)) return values.filter((value): value is string => typeof value === 'string' && !!value.trim()) } catch { /* Unquoted YAML flow list. */ }
+    return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  }
   if (rest) return [unquote(rest)]
   const items: string[] = []
   for (let cursor = index + 1; cursor < lines.length; cursor += 1) { const match = lines[cursor].match(/^\s+-\s*(.*)$/); if (!match) break; items.push(unquote(match[1])) }
@@ -152,6 +157,7 @@ function parseNode(source: string, fallbackPaperId?: string) {
   const claimOrigin = field(frontmatter[1], 'claim_origin') as ClaimOrigin
   const evidenceKind = field(frontmatter[1], 'evidence_kind') as EvidenceKind
   return {
+    aliases: listField(frontmatter[1], 'aliases'),
     claimOrigin: nodeType === 'claim' ? claimOrigins.has(claimOrigin) ? claimOrigin : 'paper' : undefined,
     evidenceKind: evidenceKinds.has(evidenceKind) ? evidenceKind : undefined,
     scopeDomain: field(frontmatter[1], 'scope_domain'), scopeRegime: field(frontmatter[1], 'scope_regime'),
@@ -350,24 +356,18 @@ export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnaps
   const records = entries.map((entry) => toRecord(libraryPath, entry))
   const contents = new Map<string, string>()
   const backlinks = new Map<string, KnowledgeBacklink[]>()
-  const byPath = new Map<string, string>()
-  const byBase = new Map<string, string[]>()
+  const resolveTarget = wikiTargetResolver(records)
   records.forEach((record, index) => {
     contents.set(record.id, entries[index].snapshot.content)
     backlinks.set(record.id, [])
-    const route = record.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-    byPath.set(route, record.id)
-    const base = route.split('/').at(-1)!
-    byBase.set(base, [...(byBase.get(base) ?? []), record.id])
   })
   records.forEach((source, index) => {
     const content = entries[index].snapshot.content
     // One entry per source-target pair: the first link is the one whose line gets quoted, as before.
     const claimed = new Set<string>()
     for (const link of linkTargets(content)) {
-      const normalized = link.target.toLocaleLowerCase()
-      const exact = byPath.get(normalized)
-      const targets = exact ? [exact] : normalized.includes('/') ? [] : byBase.get(normalized) ?? []
+      const target = resolveTarget(link.target)
+      const targets = target ? [target.id] : []
       for (const targetId of targets) {
         if (targetId === source.id || claimed.has(targetId)) continue
         claimed.add(targetId)

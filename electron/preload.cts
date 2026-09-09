@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('prism', {
   choosePaperStorage: (reset = false) => ipcRenderer.invoke('storage:choose-papers', reset),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   listLibrary: () => ipcRenderer.invoke('library:list'),
+  updatePaperTitle: (input: unknown) => ipcRenderer.invoke('paper:update-title', input),
   searchCrossref: (query: string) => ipcRenderer.invoke('papers:search-crossref', query),
   openDoi: (id: string) => ipcRenderer.invoke('papers:open-doi', id),
   searchArxiv: (input: string) => ipcRenderer.invoke('arxiv:search', input),

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
 import { listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
+import { wikiTargetResolver } from './wikiTargets.js'
 
 export type KnowledgeRelationType = 'defines' | 'uses' | 'supports' | 'contradicts' | 'extends' | 'raises' | 'answers' | 'link' | 'mentions' | 'discusses' | 'presents' | 'explains' | 'evidence_for' | 'derived_from' | 'related'
 export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
@@ -58,16 +59,12 @@ export async function listKnowledgeRelationRecords(libraryPath: string) { return
 function linkTargetIds(content: string, nodes: KnowledgeNodeRecord[], sourceId: string) {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
   const targets = new Set<string>()
+  const resolveTarget = wikiTargetResolver(nodes)
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
-    const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
+    const raw = match[1]
     if (!raw) continue
-    const base = raw.split('/').at(-1)
-    const node = nodes.find((item) => {
-      if (item.id === sourceId) return false
-      const nodePath = item.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-      return nodePath === raw || (!raw.includes('/') && nodePath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
-    })
-    if (node) targets.add(node.id)
+    const node = resolveTarget(raw)
+    if (node && node.id !== sourceId) targets.add(node.id)
   }
   return targets
 }

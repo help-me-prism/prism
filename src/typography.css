@@ -84,3 +84,9 @@ input, select, textarea, button { font-family: var(--font-ui); }
   font-size: .9em;
   line-height: 1.65;
 }
+
+/* Notes are editable screen prose, with the same locally bundled type as UI. */
+.markdown-editor .cm-live-edit { font-family: var(--font-ui); font-size: 14px; line-height: 1.8; }
+.cm-live-edit .cm-md-heading { font-family: var(--font-ui); font-weight: 600; line-height: 1.45; letter-spacing: -.02em; }
+.cm-live-edit .cm-md-h1 { font-size: 24px; }
+.cm-live-edit .cm-md-h2 { font-size: 19px; }

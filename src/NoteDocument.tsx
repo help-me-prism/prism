@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { copySavedEvidence } from './noteEvidenceCopy'
+import { wikiTargetResolver } from '../electron/wikiTargets'
 import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import NoteHistoryDialog from './NoteHistoryDialog'
@@ -68,8 +69,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     return [...groups.entries()]
   }, [approved])
   const wikiLinks = useMemo<WikiLinkOption[]>(() => nodes.filter((item) => item.id !== node.id).map((item) => ({
-    id: item.id, label: item.title, target: nodePath(item), description: typeLabels[item.nodeType],
-    searchText: `${item.nodeType} ${item.preview}`, preview: item.preview, evidenceCount: item.evidenceCount,
+    id: item.id, label: item.title, target: nodePath(item), aliases: item.aliases, description: typeLabels[item.nodeType],
+    searchText: `${item.nodeType} ${item.preview} ${(item.aliases ?? []).join(' ')}`, preview: item.preview, evidenceCount: item.evidenceCount,
   })), [nodes, node.id])
   const evidenceLinks = useMemo(() => anchors
     .filter((anchor) => !linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId))
@@ -391,14 +392,9 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }
   /** Follows a `[[link]]` in the body: same-name notes open, unresolved ones are created on the spot. */
   function openWikiLink(target: string) {
-    const raw = target.replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
-    const base = raw.split('/').at(-1)
-    const match = nodes.find((item) => {
-      const itemPath = nodePath(item).toLocaleLowerCase()
-      return itemPath === raw || (!raw.includes('/') && itemPath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
-    })
+    const match = wikiTargetResolver(nodes)(target)
     if (match) { onOpenNode(match.id); return }
-    onNotify(`'${target}' 노트가 아직 없습니다. 저장하면 개념 노트로 만들어집니다.`)
+    onNotify(`'${target}'의 연결 대상을 확정하지 못했습니다. 노트 이름이나 경로를 확인해 주세요.`)
   }
   async function insertLink(target: KnowledgeNodeRecord) {
     editorRef.current?.insertWikiLink({ id: target.id, label: target.title, target: nodePath(target), description: typeLabels[target.nodeType] })

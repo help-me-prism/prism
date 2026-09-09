@@ -61,3 +61,32 @@ assert.equal(sourceParagraphLineHeight(sourceLines.map((line, index) => index > 
 assert.equal(sourceParagraphLineHeight(preciseExcerpt.rects, 10.8), undefined, 'Actual p11 sentence begins halfway across a line; do not infer paragraph leading')
 assert.equal(sourceParagraphLineHeight([{ ...sourceLines[0], top: NaN }, ...sourceLines.slice(1)], 10.8), undefined)
 console.log('Source leading passed: actual engineering pitch, Korean safety floor, scaling, raised symbols and ambiguous-layout fallback.')
+
+// Actual public PDF text items at narrow-pane scales: the 5px interaction
+// minimum must never become the nominal font size of translated text.
+const itemGeometryCode = await transformWithOxc(await fs.readFile('src/paper/itemGeometry.ts', 'utf8'), 'src/paper/itemGeometry.ts')
+const { textItemRect, segmentRects } = await import('data:text/javascript;base64,' + Buffer.from(itemGeometryCode.code).toString('base64'))
+const { Util } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+const pdfFixture = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p4-doi-items.json', 'utf8'))
+const pdfItems = pdfFixture.items.filter(item => item.str && item.height > 0)
+assert(pdfItems.length > 0)
+for (const scale of [.15, .4, .5, 1, 2]) {
+  // PDF.js viewport transform for this unrotated, zero-origin 612x792 page.
+  const viewport = { transform: [scale, 0, 0, -scale, 0, pdfFixture.page.height * scale] }
+  for (const item of pdfItems) {
+    const tx = Util.transform(viewport.transform, item.transform)
+    const box = textItemRect(tx, item.width, scale, .8, item.str)
+    const nominal = Math.hypot(item.transform[2], item.transform[3]) * scale
+    assert(Math.abs(box.fontSize - nominal) < 1e-8)
+    assert.equal(box.height, Math.max(5, nominal), 'Keep existing clickable/crop bounds')
+    for (const segment of [{ itemIndexes: [0] }, { itemSlices: [{ itemIndex: 0, start: .2, end: .8 }] }]) {
+      const [fallback] = segmentRects(segment, [box], scale)
+      assert.equal(fallback.fontSize, nominal, 'Slices and whole-item fallback retain uncapped em, without scaling twice')
+      assert(Math.abs((fallback.fontSize ?? fallback.height) * 1.08 - nominal * 1.08) < 1e-8)
+    }
+    const [precise] = segmentRects({ preciseRects: [{ left: 10, top: 20, width: 30, height: 7, fontSize: nominal / scale }] }, [], scale)
+    assert(Math.abs(precise.fontSize - nominal) < 1e-8, 'Validated geometry remains equivalent in nominal font size')
+    if (scale === .5 && item.height < 8.01) assert(box.height / box.fontSize > 1.24, 'Fixture actually reproduces the previous 25% font inflation')
+  }
+}
+console.log('Real PDF fallback font geometry passed at 15%, 40%, 50%, 100%, 200%: hit bounds isolated from nominal em; precise and fallback scaling agree.')

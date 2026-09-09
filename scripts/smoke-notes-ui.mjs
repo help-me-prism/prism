@@ -20,6 +20,7 @@ type: paper
 prism_id: "paper-2401.01234"
 arxiv_id: "2401.01234"
 title: "Linked Paper Fixture"
+aliases: ["Former linked title"]
 reading_status: to_read
 ---
 
@@ -278,6 +279,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture'`), 'Clicking a tree row did not open the note.')
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-body .cm-md-h1'))`), 'The document did not render Markdown as a live document.')
+  assert(!await notesConnection.evaluate(`Array.from(document.querySelectorAll('.note-body .cm-md-h1 span')).some(span => getComputedStyle(span).textDecorationLine.includes('underline'))`), 'Live headings must not inherit syntax-editor underlines after mode reconfiguration.')
   const opened = await notesConnection.evaluate(`JSON.stringify({
     tabs: [...document.querySelectorAll('.notes-tab')].map((tab) => tab.textContent.replace(/\\s+/g, ' ').trim()),
     props: [...document.querySelectorAll('.note-props td:first-child')].map((cell) => cell.textContent),
@@ -304,11 +306,20 @@ try {
   assert(firstLink.indexOf('# Research note') < firstLink.indexOf('|Linked Paper Fixture]]') && firstLink.includes('# Research note\n'), 'Toolbar link damaged or preceded the note title.')
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.innerText.includes('Linked Paper Fixture') && !document.querySelector('.note-body .cm-content')?.innerText.includes('[[papers/2401.01234')`), 'The newly inserted link exposed its internal path instead of its alias.')
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
-  await notesConnection.send('Input.insertText', { text: '\n\n연구 메모 한 줄.' })
+  await notesConnection.send('Input.insertText', { text: '\n\n연구 메모 한 줄.\n\n[[Former linked title|Historical label]]' })
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('연구 메모 한 줄.'), 'Autosave did not write the edit to disk.', 8000)
   const roundTrip = await fs.readFile(notePath, 'utf8')
   assert(roundTrip.startsWith('---\ntype: paper') && roundTrip.includes('> [!note] Evidence') && roundTrip.includes('| Item | Value |') && roundTrip.includes('<!-- keep-this-comment -->'), `Editing rewrote untouched Markdown:\n${roundTrip}`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-save')?.textContent.includes('저장됨')`), 'The save indicator stayed busy after autosave.', 8000)
+
+  // A visible label is not the link target. The old title resolves through the
+  // target note's aliases to its current title for both hover and navigation.
+  await notesConnection.evaluate(`document.querySelector('.note-doc-title h1').focus(); document.querySelector('[data-wiki-target="Former linked title"]').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.wiki-link-preview strong')?.textContent === 'Linked Paper Fixture'`), 'An old-title alias did not show the current note in its hover preview.')
+  await notesConnection.evaluate(`document.querySelector('[data-wiki-target="Former linked title"]').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}))`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'An old-title alias with a different visible label did not open its existing note.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-tab [role=tab]')].find(button=>button.textContent.includes('Editor fixture')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'The original note did not reopen after alias navigation.')
 
   // Unresolved [[links]] become inbox concept stubs once editing settles.
   // Wait for what is being asserted, not for the file to exist: a stub is created and then given its
