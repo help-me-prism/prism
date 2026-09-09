@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-product-ui-'))
+const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'prism-product-ui-')))
 const vault = path.join(root, 'vault'); await fs.mkdir(vault)
 await fs.mkdir(path.join(root, 'profile')); await fs.writeFile(path.join(root, 'profile', 'settings.json'), JSON.stringify({ libraryPath: vault, autoTranslate: false }))
 const sample = path.join(root, 'Cell biology.pdf')
@@ -242,5 +242,5 @@ try {
 } finally {
   socket?.close(); processHandle.kill()
   if (processHandle.exitCode === null) await new Promise(resolve => processHandle.once('exit', resolve))
-  if (path.basename(root).startsWith('prism-product-ui-') && path.dirname(root) === os.tmpdir()) await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  if (path.basename(root).startsWith('prism-product-ui-') && path.dirname(root) === await fs.realpath(os.tmpdir())) await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 }

@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { transformWithOxc } from 'vite'
 const { code } = await transformWithOxc(await fs.readFile('electron/paperRecovery.ts', 'utf8'), 'electron/paperRecovery.ts')
 const { planPaperRecovery, updateRecoveredPdfLink } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
-const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-recovery-'))
+const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'prism-recovery-')))
 try {
   const root = path.join(temp, 'moved'); await fs.mkdir(root)
   const bytes = Buffer.from('%PDF-1.7\nrecovery fixture')
