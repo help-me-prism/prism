@@ -211,7 +211,8 @@ try {
     assert.equal(await evaluate('document.querySelector(".page-jump input").value'), '3')
     assert(await evaluate('document.querySelector("[data-page=translated-3] canvas").width >= 1000'), 'A format change must render the replacement source canvas, not leave a blank 300px canvas')
     if (format === 'paper') assert(await evaluate('(() => { const page = document.querySelector("[data-page=translated-3]"); return page.scrollWidth <= page.clientWidth + 2 })()'), 'Restored paper layout must fit its visible width')
-    assert(await evaluate('(() => { const page = document.querySelector("[data-page=translated-3]").getBoundingClientRect(); const pane = document.querySelector("[data-page=translated-3]").closest(".document-scroll").getBoundingClientRect(); const marker = pane.top + pane.height * .28; return page.top <= marker && page.bottom >= marker })()'), `${format} must preserve the visible page when document heights change`)
+    const position = await evaluate('(() => { const element=document.querySelector("[data-page=translated-3]"), page=element.getBoundingClientRect(), pane=element.closest(".document-scroll").getBoundingClientRect(), marker=pane.top+pane.height*.28; return {valid:page.top<=marker && page.bottom>=marker,top:page.top,bottom:page.bottom,marker,scroll:element.closest(".document-scroll").scrollTop,heights:[...element.parentElement.children].map(item=>item.getBoundingClientRect().height)}; })()')
+    assert(position.valid, `${format} must preserve the visible page when document heights change: ${JSON.stringify(position)}`)
   }
   // Width changes from opening/closing chat must not let intermediate reflow scroll events
   // replace the reading position (the native p11 regression moved back a page on close).
