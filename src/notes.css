@@ -633,3 +633,38 @@
 .graph-inspect-list > button:hover { background: light-dark(#eae6de, #31302e); }
 .graph-inspect-list > button span { display: flex; align-items: center; gap: 5px; color: light-dark(#4a4238, #b8b6b3); font-size: 10.5px; }
 .graph-inspect-list > button small { display: block; padding-left: 11px; color: light-dark(#a09a90, #8b8883); font-size: 9px; }
+
+/* A calm, actionable first stop for researchers who do not know the graph vocabulary yet. */
+.notes-blank { display: block; overflow: auto; padding: clamp(24px, 5vw, 64px); }
+.notes-start { max-width: 680px; margin: 0 auto; color: light-dark(#44483f, #d3d7cf); }
+.notes-start-eyebrow { font-size: 12px; color: light-dark(#627267, #a0b3a5); }
+.notes-start h1 { margin: 12px 0; font-size: clamp(22px, 2.2vw, 30px); line-height: 1.45; font-weight: 550; letter-spacing: -.035em; }
+.notes-start > p { font-size: 13px; line-height: 1.85; color: light-dark(#686c63, #b0b5aa); }
+.notes-start .blank-actions { margin: 22px 0 30px; flex-wrap: wrap; }
+.notes-start .blank-actions button { min-height: 36px; font-size: 12px; padding: 7px 12px; }
+.notes-start-steps { display: grid; gap: 18px; padding-left: 22px; margin: 0 0 28px; }
+.notes-start-steps li { padding-left: 7px; font-size: 12px; color: light-dark(#788276, #a8b6a4); }
+.notes-start-steps strong { display: block; margin-bottom: 5px; color: light-dark(#42483f, #d3d9cf); font-size: 13px; font-weight: 550; }
+.notes-start-steps span { display: block; line-height: 1.75; color: light-dark(#74786e, #aeb4a7); }
+.notes-start-papers { padding-top: 18px; border-top: 1px solid light-dark(#dfdfd6, #3a3e36); }
+.notes-start-papers h2 { font-size: 12px; font-weight: 550; }
+.notes-start-papers button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 5px; border: 0; border-radius: 5px; background: transparent; color: inherit; text-align: left; font-size: 12px; cursor: pointer; }
+.notes-start-papers button:hover { background: light-dark(#ebeee7, #30382d); }
+.notes-start-papers button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-start > .notes-start-storage { margin-top: 26px; font-size: 11px; }
+.tree-create .create-guide { margin: 3px 0; font-size: 11px; line-height: 1.6; color: light-dark(#70766a, #abb5a2); }
+.tree-search-status { margin: 4px 12px; font-size: 11px; color: light-dark(#627267, #a0b3a5); }
+.notes-window button:disabled { cursor: default; opacity: .5; }
+
+button.cm-section-fold-summary { cursor: pointer; font: inherit; text-align: left; border: 1px solid light-dark(#dcded4, #40463b); border-radius: 5px; background: light-dark(#f4f5ef, #2a3026); padding: 6px 10px; min-height: 30px; }
+button.cm-section-fold-summary:hover { background: light-dark(#e9eee2, #37412f); }
+button.cm-section-fold-summary:focus-visible { outline: 2px solid light-dark(#5f8054, #a3bf8f); outline-offset: 2px; }
+
+/* Keep the knowledge actions legible at laptop widths. */
+.note-doc-head { flex-wrap: wrap; }
+.note-doc-title { flex: 1 1 100%; }
+.note-doc-actions { flex-wrap: wrap; }
+.note-hint { flex-wrap: wrap; gap: 8px; }
+.note-hint button { flex-shrink: 0; white-space: nowrap; min-height: 28px; }
+.note-hint > span { flex: 1 1 220px; line-height: 1.7; }
+.picker-direction { margin: 0; padding: 7px 14px; color: light-dark(#68745e, #aab89e); font-size: 11px; line-height: 1.6; }

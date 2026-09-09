@@ -1,0 +1,31 @@
+/* Three purposeful rows: paper tabs, reading actions, and per-pane view controls. */
+.paper-toolbar.reader-toolbar-compact { display: flex; flex: 0 0 auto; min-height: 44px; height: auto; padding: 6px 10px; gap: 12px; }
+.reader-toolbar-compact .page-nav { flex: 0 0 auto; gap: 3px; }
+.reader-toolbar-compact .page-nav > span { min-width: 43px; text-align: center; }
+.reader-toolbar-compact .reader-actions { display: flex; flex: 1 1 auto; justify-content: flex-end; align-items: center; gap: 7px; min-width: 0; flex-wrap: wrap; }
+.reader-toolbar-compact button, .reader-toolbar-compact summary { min-height: 29px; white-space: nowrap; }
+.reader-toolbar-compact .document-mode { overflow: visible; display: flex; align-items: center; gap: 0; flex: 0 0 auto; }
+.reader-toolbar-compact .document-mode > button { padding: 0 8px; }
+.reader-toolbar-menu { position: relative; flex: 0 0 auto; }
+.reader-toolbar-menu > summary { display: flex; align-items: center; justify-content: center; padding: 0 8px; list-style: none; cursor: pointer; color: var(--ink); border: 1px solid var(--line); border-radius: 5px; background: var(--paper); font-size: 12px; }
+.reader-toolbar-menu > summary::-webkit-details-marker { display: none; }
+.reader-toolbar-menu[open] > summary { border-color: var(--accent); }
+.reader-toolbar-menu > .reader-toolbar-popover { position: absolute; top: calc(100% + 6px); right: 0; left: auto; z-index: 90; display: flex; flex-direction: column; gap: 8px; width: 270px; max-width: calc(100vw - 28px); padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); box-shadow: 0 8px 28px #0003; }
+.reader-toolbar-popover > button { display: flex; align-items: center; gap: 8px; text-align: left; justify-content: flex-start; width: 100%; padding: 7px 8px; height: auto; white-space: normal; }
+.reader-toolbar-popover label { display: flex; align-items: center; justify-content: space-between; gap: 9px; font-size: 12px; line-height: 1.5; }
+.reader-toolbar-popover label:has(input[type=checkbox]) { justify-content: flex-start; }
+.reader-toolbar-popover select { min-width: 0; max-width: 185px; font-size: 12px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 5px; padding: 5px; }
+.reader-toolbar-popover small { font-size: 11px; color: var(--muted); }
+.reader-toolbar-compact .translation-control.translation-compact { display: flex; flex: 0 0 auto; min-height: 0; height: auto; padding: 0; margin: 0; border: 0; gap: 0; background: transparent; }
+.translation-compact > button { border-radius: 5px 0 0 5px; }
+.translation-compact > details > summary { border-radius: 0 5px 5px 0; border-left: 0; min-width: 25px; }
+.reader-toolbar-compact .translation-options { margin: 0; }
+.reader-toolbar-compact .translation-options > summary { padding: 0 7px; }
+.reader-toolbar-compact .translation-options label { flex-direction: row; }
+.comparison-options > summary { min-width: 22px; border-left: 0; border-radius: 0 5px 5px 0; }
+.reader-more > summary { min-width: 46px; }
+.reader-capture-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--paper); color: var(--muted); border-bottom: 1px solid var(--line); font-size: 12px; }
+.reader-capture-status button { border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); padding: 5px 9px; }
+@media (max-width: 1100px) { .paper-toolbar.reader-toolbar-compact { align-items: flex-start; gap: 6px; }.reader-toolbar-compact .reader-actions { gap: 5px; }.reader-toolbar-compact .document-mode > button { padding: 0 6px; } }
+
+.reader-toolbar-compact .document-mode > button:first-child { border-radius: 5px 0 0 5px; }

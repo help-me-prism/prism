@@ -1,13 +1,17 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/noto-serif-kr'
+import 'pretendard/dist/web/variable/pretendardvariable.css'
 import App from './App'
 import NotesWindow from './NotesWindow'
 import './styles.css'
 import './product.css'
+import './typography.css'
 import { applyTheme } from './ThemeControl'
 applyTheme()
+document.documentElement.dataset.platform = /Mac/.test(navigator.platform) ? 'mac' : 'windows'
 window.addEventListener('storage', applyTheme)
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme)
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {}

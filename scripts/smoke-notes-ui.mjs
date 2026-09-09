@@ -230,10 +230,11 @@ try {
   })`)
   const shellState = JSON.parse(shell)
   assert(shellState.rail.includes('논문 리더') && shellState.rail.includes('정리 대기열') && shellState.rail.includes('검색'), `The activity rail is incomplete: ${shell}`)
-  assert(shellState.folders.includes('papers'), `The tree did not group nodes by folder: ${shell}`)
+  assert(shellState.folders.includes('논문'), `The tree did not group nodes by folder: ${shell}`)
   assert(shellState.side, 'The connections panel is not visible by default.')
   assert(shellState.status.includes('노드 2'), `The status bar did not count nodes: ${shell}`)
   assert(shellState.modes === 0, 'A retired mode bar or knowledge modal is still rendered.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-start-papers button')) && document.querySelector('.notes-start').textContent.includes('Obsidian')`), 'The note start screen did not offer a real paper note and vault guidance.')
 
   // ---------- opening a note ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
@@ -340,7 +341,9 @@ try {
   await notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.getAttribute('aria-expanded') === 'false'`), 'The section fold control did not collapse.')
   assert(await fs.readFile(notePath, 'utf8') === beforeFold, 'Folding a section changed the stored Markdown.')
-  await notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.click()`)
+  await notesConnection.evaluate(`document.querySelector('button.cm-section-fold-summary').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.getAttribute('aria-expanded') === 'true'`), 'Clicking the visible folded summary did not reveal the content.')
+  assert(await fs.readFile(notePath, 'utf8') === beforeFold, 'Expanding the summary changed the stored Markdown.')
 
   // ---------- inline link and evidence autocomplete ----------
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
@@ -401,7 +404,7 @@ try {
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('청크가 길면'))`), 'A note created outside the window did not appear in the tree.', 8000)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('노이즈 예측')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent.includes('노이즈 예측')`), 'The first claim did not reopen.')
-  await notesConnection.evaluate(`document.querySelector('.prop-add button').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.trim() === '관계').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-picker .picker-types'))`), 'The relation picker did not open.')
   const relationChoices = await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-types button')].map((button) => button.textContent)`)
   assert(JSON.stringify(relationChoices) === JSON.stringify(['사용함', '지지함', '반박함', '확장함', '질문 제기', '답함']), `The claim relation picker offered the wrong model: ${JSON.stringify(relationChoices)}`)
@@ -422,6 +425,8 @@ ${claimAfterRelation}`)
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-body .cm-content').innerText.includes('scope_domain:')`), 'Updating note properties moved the editor into raw YAML metadata.')
+
   // ---------- graph and backlinks in the standing panel ----------
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
@@ -431,7 +436,7 @@ ${claimAfterRelation}`)
     return circle ? Math.hypot(Number(circle.getAttribute('cx')) - 160, Number(circle.getAttribute('cy')) - 125) : -1
   })()`)
   assert(centreOffset >= 0 && centreOffset < 1, `The open note is not at the centre of its own graph: ${centreOffset}`)
-  await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '2홉').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '간접 연결').click()`)
   await sleep(400)
   const graphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-panel.png'), Buffer.from(graphShot.data, 'base64'))
@@ -483,7 +488,7 @@ ${claimAfterRelation}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.curation-item')].find((item) => item.textContent.includes('검증 필요')).querySelector('.curation-actions button').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-form input[aria-label="승격 노트 제목"]'))`), 'Choosing promotion did not open the title form.')
   await setInput(notesConnection, '승격 노트 제목', '노이즈 예측은 가중 score matching이다 (스모크)')
-  await notesConnection.evaluate(`[...document.querySelectorAll('.curation-form-actions button')].find((button) => button.textContent.includes('승격하기')).click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.curation-form-actions button')].find((button) => button.textContent.includes('노트로 만들기')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent.includes('(스모크)')`), 'Promoting a memo did not open the new claim.', 10000)
   const promoted = await fs.readFile(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다 (스모크).md'), 'utf8')
   assert(promoted.includes('claim_origin: paper') && promoted.includes('^evidence-test-0001-equation-p2-3') && promoted.includes('> [[papers/test.0001/test.0001|Editor fixture]]'), `The promoted claim lost its evidence or source link:\n${promoted}`)
@@ -538,7 +543,7 @@ ${claimAfterRelation}`)
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].length === 1 && document.querySelector('.tree-file').textContent.includes('역확산')`), 'Typing did not filter the tree.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="노트 검색"]'); input.focus(); })()`)
   await pressKey(notesConnection, 'Enter', 'Enter')
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.tree-folder.is-static')?.textContent.includes('의미 검색')`), 'Enter did not run the semantic search.', 8000)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.tree-folder.is-static')?.textContent.includes('본문 검색')`), 'Enter did not run the semantic search.', 8000)
   await pressKey(notesConnection, 'Escape', 'Escape')
 
   // ---------- templates remain reachable ----------

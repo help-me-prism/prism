@@ -12,14 +12,15 @@ await fs.mkdir(path.join(root, 'profile')); await fs.writeFile(path.join(root, '
 const sample = path.join(root, 'Cell biology.pdf')
 // A deterministic two-column PDF with prose, a numeric table and a vector diagram.
 const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET'
-const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
+const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
+objects.push(objects[2], objects[2])
 let pdf = '%PDF-1.4\n'; const offsets = [0]
 objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
 const xref = Buffer.byteLength(pdf)
-pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+pdf += `xref\n0 8\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
 await fs.writeFile(sample, pdf); await fs.writeFile(path.join(root, 'selection.txt'), sample)
 const port = 9341
-const processHandle = spawn(require('electron'), [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(root, 'profile')}`, 'scripts/product-test-host.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PRISM_PRODUCT_TEST_ROOT: root, PRISM_TEST_LIBRARY_PATH: '', PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1280x900' } })
+const processHandle = spawn(require('electron'), [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(root, 'profile')}`, 'scripts/product-test-host.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PRISM_PRODUCT_TEST_CHAT: '1', PRISM_PRODUCT_TEST_ROOT: root, PRISM_TEST_LIBRARY_PATH: '', PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1280x900' } })
 let logs = ''; processHandle.stdout.on('data', chunk => { logs += chunk }); processHandle.stderr.on('data', chunk => { logs += chunk })
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 let socket; let sequence = 0; const pending = new Map(); const exceptions = []
@@ -33,13 +34,14 @@ try {
   socket = new WebSocket(target.webSocketDebuggerUrl)
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Runtime.consoleAPICalled') logs += '\n' + message.params.args.map(item => item.value ?? item.description ?? '').join(' ')
     if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text)
     if (message.id) { const handler = pending.get(message.id); pending.delete(message.id); message.error ? handler.reject(message.error) : handler.resolve(message.result) }
   })
   await new Promise(resolve => socket.addEventListener('open', resolve))
   const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })) })
   const evaluate = async expression => { const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails)); return result.result.value }
-  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${logs}`) }
+  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,s:e.getAttribute('style')})))")}\n${logs}`) }
   const shot = async name => { const image = await send('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('tmp/ui', { recursive: true }); await fs.writeFile(`tmp/ui/${name}.png`, Buffer.from(image.data, 'base64')) }
   await send('Runtime.enable'); await wait('Boolean(window.prism && document.querySelector(".reader-empty"))')
   assert.equal((await evaluate('window.prism.getSettings()')).autoTranslate, false)
@@ -51,10 +53,35 @@ try {
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 1)
   await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   await wait('document.querySelectorAll("[data-anchor]").length > 3')
+  await wait('document.querySelector(".page-nav span").textContent === "1 / 3"')
+  assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
+  assert(await evaluate('document.querySelector(".reading-focus").getBoundingClientRect().right < innerWidth - 130'))
+  await evaluate('document.querySelector(".reading-focus").click()')
+  await wait('Boolean(document.querySelector(".composer-editor"))')
+  await evaluate('document.querySelector(".composer-editor").focus()')
+  await send('Input.insertText', { text: '근거 준비 중 취소하는 UI 회귀 검사' })
+  await evaluate('document.querySelector("button[aria-label=보내기]").click()')
+  await wait('Boolean(document.querySelector(".send-button.stop"))')
+  await evaluate('document.querySelector(".send-button.stop").click()')
+  await sleep(1000)
+  assert.equal(await fs.stat(path.join(root, 'unexpected-chat-call.txt')).then(() => true, () => false), false)
+  assert.equal(await evaluate('Boolean(document.querySelector(".send-button.stop"))'), false)
+  await evaluate('document.querySelector(".reading-focus").click()')
+  await evaluate('document.querySelector(".page-nav button:last-child").click()')
+  await wait('document.querySelector(".page-nav span").textContent === "2 / 3"')
+  await evaluate('document.querySelector(".page-nav button:first-child").click()')
+  await wait('document.querySelector(".page-nav span").textContent === "1 / 3"')
   await shot('product-pdf-light')
   let anchorData
   for (let attempt = 0; attempt < 30 && !anchorData; attempt++) { try { anchorData = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'anchors.json'), 'utf8')) } catch { await sleep(100) } }
   assert(anchorData)
+  const citedSource = anchorData.anchors.find(anchor => anchor.source.includes('[1]'))
+  assert(citedSource)
+  await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [{ ...citedSource, kind: citedSource.type, translation: '인용 표시가 누락된 잘못된 번역' }] }))
+  assert.equal((await evaluate(`window.prism.readTranslation(${JSON.stringify(paper.arxivId)})`)).segments[0].translation, undefined)
+  await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
+  await wait('Boolean(document.querySelector(".untouched-paper > canvas"))')
+  assert(await evaluate('(() => { const page = document.querySelector(".paper-layout-page.rendered"); return page.querySelector(":scope > canvas").toDataURL() === page.querySelector(".untouched-paper > canvas").toDataURL(); })()'), 'An untranslated page must preserve the complete original pixels, without recropping headings or sentences')
   const translations = new Map([
     ['Cells respond to changes in their environment.', '세포는 주변 환경의 변화에 반응한다. 번역문이 원문보다 길어져도 수식이나 표를 덮지 않고 자연스럽게 다음 줄로 이어져야 한다.'],
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
@@ -64,13 +91,19 @@ try {
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
   await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".document-mode"))')
 
+  await evaluate('document.querySelector(".comparison-options > summary").click()')
+  assert(await evaluate('(() => { const button = document.querySelector(".comparison-options .reader-toolbar-popover button"); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()'), 'Comparison choices must be visible and clickable, not clipped by their parent')
+  await evaluate('document.querySelector(".comparison-options").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))')
+  assert.equal(await evaluate('document.querySelector(".comparison-options").open'), false)
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
   await wait('Boolean(document.querySelector(".reading-translation .reading-block"))')
   assert.equal(await evaluate('Boolean(document.querySelector(".translated-text-layer"))'), false)
   assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
   await wait('document.querySelectorAll(".reading-translation figure canvas").length >= 2')
   assert(await evaluate('[...document.querySelectorAll(".reading-translation figure canvas")].every(canvas => canvas.width > 10 && canvas.height > 10)'))
-  await shot('product-translation-flow')
+  assert.equal(await evaluate('Boolean(document.querySelector(".paper-layout-page > .flow-page-heading, .paper-layout-page > .flow-original"))'), false)
+  assert(await evaluate('[...document.querySelectorAll(".paper-layout-page.rendered > canvas")].every(canvas => canvas.width >= 1000)'))
+  await shot('product-translation-paper')
   await evaluate(`document.querySelector('[aria-label="설정"]').click()`)
   await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   await evaluate(`document.querySelector('[aria-label="설정 닫기"]').click()`)

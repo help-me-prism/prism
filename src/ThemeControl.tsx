@@ -10,6 +10,8 @@ export function applyTheme() {
   const theme = read()
   document.documentElement.style.colorScheme = theme === 'system' ? 'light dark' : theme
   document.documentElement.dataset.theme = theme
+  const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme
+  void window.prism?.setAppearance?.(resolved).catch(() => {})
 }
 function subscribe(callback: () => void) {
   const update = () => { applyTheme(); callback() }

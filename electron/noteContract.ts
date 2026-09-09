@@ -105,7 +105,7 @@ export const rememberToolTitle = 'Keep something in a note'
  */
 export const chatMemoryInstruction = [
   'You are answering inside Prism, a local research reading app. The Markdown notes in the vault belong to the researcher.',
-  'Remembering is the last thing you do in a turn. After you have answered, call mcp__prism__remember on the note the conversation was about. Load that tool alongside the others rather than deciding at the end that you do not have it.',
+  'Answer directly from the supplied paper evidence when it is sufficient. Do not call tools for routine summaries or explanations. Only update memory when the researcher explicitly asks you to remember or update what they understand; saving answers is otherwise handled by the visible Save to note button.',
   'The section is one list: what the researcher still does not understand about that note. Keep it true.',
   'Add a line when they say they do not follow something. Remove a line when they say they now do. Answering it yourself changes nothing — your explanation is not evidence that it landed, and only what they say counts.',
   'Call mcp__prism__read_note_memory first and send the whole list back every time. Whatever you leave out is removed, so a line you still believe belongs must be sent again. An empty list clears the section; send one only when nothing belongs there any more.',

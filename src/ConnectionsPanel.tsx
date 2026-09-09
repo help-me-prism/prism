@@ -10,7 +10,7 @@ type Hop2 = { parentId: string; relation: KnowledgeRelationView }
  * The manual graph and the citation layer are drawn separately on purpose — approved edges must never be
  * buried under thousands of citations.
  */
-export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, onOpenNode, onRefreshCitations, onAddCitationRelation, onOpenFullGraph }: {
+export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, onOpenNode, onRefreshCitations, onOpenFullGraph }: {
   node?: KnowledgeNodeRecord
   relations: KnowledgeRelationView[]
   backlinks: KnowledgeBacklink[]
@@ -18,7 +18,6 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   citationsLoading: boolean
   onOpenNode: (id: string) => void
   onRefreshCitations: () => void
-  onAddCitationRelation: (entry: CitationEntry, direction: 'references' | 'citations') => void
   onOpenFullGraph: () => void
 }) {
   const [hops, setHops] = useState<1 | 2>(1)
@@ -49,7 +48,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
 
   const citationNeighbours = useMemo(() => {
     if (!showCitations || !citations) return []
-    return [...citations.references.filter((item) => item.inLibrary), ...citations.citations.filter((item) => item.inLibrary)]
+    return [...citations.references.filter((item) => item.inLibrary).map(item => ({ ...item, direction: 'outgoing' as const })), ...citations.citations.filter((item) => item.inLibrary).map(item => ({ ...item, direction: 'incoming' as const }))]
       .filter((item) => item.nodeId && item.nodeId !== node?.id && !approved.some((edge) => edge.other.id === item.nodeId))
       .slice(0, 10)
   }, [showCitations, citations, approved, node?.id])
@@ -86,7 +85,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
     }
     for (const entry of citationNeighbours) {
       add({ id: entry.nodeId!, title: entry.title, nodeType: 'paper', kind: 'citation' })
-      graphEdges.push({ id: `citation-${entry.nodeId}`, sourceId: node.id, targetId: entry.nodeId!, type: 'mentions', origin: 'manual', approved: false, label: `인용 관계 · ${entry.title}` })
+      graphEdges.push({ id: `citation-${entry.direction}-${entry.nodeId}`, sourceId: entry.direction === 'outgoing' ? node.id : entry.nodeId!, targetId: entry.direction === 'outgoing' ? entry.nodeId! : node.id, type: 'mentions', origin: 'manual', approved: false, label: `${entry.direction === 'outgoing' ? '인용한 논문' : '나를 인용한 논문'} · ${entry.title}` })
     }
     return { nodes: graphNodes, edges: graphEdges }
   }, [node, approved, secondHop, citationNeighbours])
@@ -97,9 +96,9 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
     {!node && <p className="side-idle">노트를 열면 연결·백링크가 여기에 표시됩니다.</p>}
     {node && <section className="side-sec side-graph">
       <header>
-        <span>연결 그래프{hops === 2 ? ' · 2홉' : ''}</span>
+        <span>연결 그래프{hops === 2 ? ' · 한 단계 더' : ''}</span>
         <div className="side-chips">
-          <button className={hops === 2 ? 'on' : ''} aria-pressed={hops === 2} onClick={() => setHops(hops === 2 ? 1 : 2)}>2홉</button>
+          <button className={hops === 2 ? 'on' : ''} aria-pressed={hops === 2} onClick={() => setHops(hops === 2 ? 1 : 2)}>간접 연결</button>
           <button className={showCitations ? 'on' : ''} aria-pressed={showCitations} title="라이브러리에 있는 인용 논문을 회색 점선으로 겹쳐 봅니다" onClick={() => setShowCitations((value) => !value)}>인용</button>
           <button title="볼트 전체 그래프 열기" aria-label="볼트 전체 그래프 열기" onClick={onOpenFullGraph}><Maximize2 size={11} /></button>
         </div>
@@ -115,7 +114,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
     </section>}
 
     {node && backlinks.length > 0 && <section className="side-sec side-links">
-      <header><span>백링크</span><small>{backlinks.length}</small></header>
+      <header><span>이 노트를 언급한 노트</span><small>{backlinks.length}</small></header>
       <div className="side-list">
         {backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>
           <span className="side-row-title"><i className={`kind-dot kind-${item.nodeType}`} />{item.title}</span>
@@ -131,6 +130,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
         <button className="side-refresh" aria-label="Semantic Scholar에서 인용 새로고침" disabled={citationsLoading} onClick={onRefreshCitations}><RefreshCw size={12} /></button>
       </header>
       <div className="side-list">
+        <p className="side-empty">인용은 출처 정보입니다. 지지·반박·확장 관계는 내용을 확인한 뒤 노트에서 지정하세요.</p>
         {citationsLoading ? <p className="side-empty">Semantic Scholar에서 불러오는 중…</p>
           : !citations?.fetchedAt ? (citations?.error ? <p className="side-empty">{citations.error}</p> : null)
             : <>
@@ -139,9 +139,8 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
                 {citations[key].slice(0, 30).map((item, index) => <div key={`${item.arxivId ?? item.title}-${index}`} className={`citation-row${item.inLibrary ? ' in-library' : ''}`}>
                   <span><strong>{item.title}</strong><small>{[item.year, item.authors.slice(0, 2).join(', '), item.citationCount !== undefined ? `인용 ${item.citationCount}` : ''].filter(Boolean).join(' · ')}</small></span>
                   {item.inLibrary && item.nodeId
-                    ? relations.some((relation) => relation.other.id === item.nodeId && relation.type === 'extends' && relation.reviewStatus === 'approved')
-                      ? <em>확장함</em>
-                      : <button title="자동 인용을 직접 승인한 확장함 관계로 올립니다" onClick={() => onAddCitationRelation(item, key)}>관계로</button>
+                    ? <button title="인용 논문 노트 열기" onClick={() => onOpenNode(item.nodeId!)}>노트 열기</button>
+                    : item.doi ? <a href={`https://doi.org/${item.doi}`} aria-label={`${item.title} 출판사에서 열기`} onClick={(event) => { event.preventDefault(); void window.prism.openDoi(item.doi!) }}><ExternalLink size={11} /></a>
                     : item.arxivId ? <a href={`https://arxiv.org/abs/${item.arxivId}`} aria-label={`${item.title} arXiv에서 열기`} onClick={(event) => { event.preventDefault(); void window.prism.openArxiv(item.arxivId!) }}><ExternalLink size={11} /></a> : null}
                 </div>)}
               </details>)}

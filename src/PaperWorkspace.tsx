@@ -1,25 +1,29 @@
+import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
+import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
 import { joinVectorRegions } from './paper/figureGeometry'
 import ReadingTranslation from './paper/ReadingTranslation'
+import './readerToolbar.css'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, Columns2, Download, ExternalLink, FileText,
-  FolderOpen, Image, Languages, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
-  Settings2, Sigma, Sparkles, Square, Table2, Tag, Unlink2, X, ZoomIn, ZoomOut,
+  FolderOpen, Image, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
+  Settings2, Sigma, Sparkles, Square, Table2, Tag, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import PaperMap from './paper/PaperMap'
 import PaperPanes from './paper/PaperPanes'
 import {
-  activateKind, closeKind, describeLayout, groupHolding, moveKindToGroup, openKinds, paneGroups, paneKinds,
-  panePresets, paneShortTitles, parseLayout, splitGroupWithKind, type PaneKind, type PaneNode,
+  activateKind, describeLayout, groupHolding, moveKindToGroup, openKinds, paneGroups, paneKinds,
+  panePresets, parseLayout, splitGroupWithKind, type PaneKind, type PaneNode,
 } from './paper/panes'
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
-type PdfTextItem = { str: string; width: number; height: number; transform: number[]; hasEOL?: boolean; fontName?: string }
+type ReadingPosition = { page: number; progress: number; anchorId?: string; anchorProgress?: number; align?: 'top' }
+
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
 type ItemRect = { left: number; top: number; width: number; height: number }
 /** Which windows this reader can draw. The structure map joins the list once it exists. */
@@ -46,135 +50,16 @@ function writeStoredLayout(arxivId: string, layout: PaneNode) {
   try { window.localStorage.setItem(layoutStorageKey(arxivId), JSON.stringify(layout)) } catch { /* private mode, quota, or no storage at all */ }
 }
 
-/** Opening the translation puts it beside the original rather than replacing whatever is on screen. */
+/** Small reading areas open a readable translation; comparison remains an explicit layout choice. */
 function withTranslated(layout: PaneNode): PaneNode {
   if (openKinds(layout).includes('translated')) return activateKind(layout, 'translated')
+  if ((document.querySelector('.paper-workspace')?.clientWidth ?? window.innerWidth) < 1200) return panePresets.translated()
   const host = groupHolding(layout, 'original') ?? paneGroups(layout)[0]
   return host ? splitGroupWithKind(layout, host.id, 'translated', 'right') : panePresets.dual()
 }
 
 const pdfResourceRoot = import.meta.env.DEV ? '/node_modules/pdfjs-dist/' : new URL('./pdfjs/', document.baseURI).href
 const pdfOptions = { standardFontDataUrl: `${pdfResourceRoot}standard_fonts/`, cMapUrl: `${pdfResourceRoot}cmaps/`, cMapPacked: true, wasmUrl: `${pdfResourceRoot}wasm/`, isEvalSupported: false }
-
-function shortHash(value: string) {
-  let hash = 2166136261
-  for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619)
-  return (hash >>> 0).toString(36)
-}
-
-function isEquation(text: string) {
-  const compact = text.replace(/\s/g, '')
-  if (!compact) return false
-  const proseWords = text.match(/[A-Za-z]{3,}/g)?.length ?? 0
-  if (proseWords >= 4) return false
-  const symbols = (compact.match(/[=+\-×÷∑∫√∞≈≠≤≥<>^_{}()[\]\\|\u2200-\u22ff︷︸]/g) ?? []).length
-  const letters = (compact.match(/[A-Za-z가-힣]/g) ?? []).length
-  return (symbols >= 2 && symbols / compact.length > .12) || (letters === 0 && symbols > 0)
-}
-
-function isPdfMetadataArtifact(text: string) {
-  if (!text) return false
-  if (text.includes('\u0000') || /<\/?latexit\b|sha1_base64\s*=|<\?xml\b/i.test(text)) return true
-  const compact = text.replace(/\s/g, '')
-  return compact.length > 120 && /^[A-Za-z0-9+/=]+$/.test(compact) && /[+/=]/.test(compact)
-}
-
-function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegment[] {
-  let combined = ''
-  const ranges: Array<{ start: number; end: number; itemIndex: number }> = []
-  const bodyHeights = items.filter((item) => item.str.trim().length > 20).map((item) => Math.max(1, Math.abs(item.height || item.transform[3]))).sort((a, b) => a - b)
-  const bodyHeight = bodyHeights[Math.floor(bodyHeights.length / 2)] ?? 10
-  let previous: PdfTextItem | undefined
-  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
-    const item = items[itemIndex]; const value = item.str.trim()
-    if (!value || isPdfMetadataArtifact(value)) continue
-    if (previous && combined) {
-      const previousY = previous.transform[5]; const nextY = item.transform[5]
-      const height = Math.max(5, Math.abs(previous.height || previous.transform[3]))
-      const nextHeight = Math.max(1, Math.abs(item.height || item.transform[3]))
-      const verticalGap = Math.abs(previousY - nextY)
-      const columnReset = nextY > previousY + height * 1.2
-      const paragraphGap = previous.hasEOL && Math.abs(previousY - nextY) > height * 1.55
-      const headingBoundary = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix|figure\s+\d+|table\s+\d+|\d+(?:\.\d+)*\s+[A-Z])/i.test(value)
-      const displayGap = verticalGap > height * 1.8
-      const fontSizeBoundary = verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
-      const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset
-      if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
-      combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
-    }
-    const start = combined.length; combined += value
-    ranges.push({ start, end: combined.length, itemIndex }); previous = item
-  }
-
-  const parts: Array<{ text: string; start: number; end: number; blockId: string; paragraphContext: string }> = []
-  let paragraphIndex = 0
-  for (const paragraphMatch of combined.matchAll(/[^\n]+/g)) {
-    const paragraph = paragraphMatch[0].trim()
-    if (!paragraph) continue
-    const blockId = `pdf-p${page}-b${paragraphIndex++}`
-    const paragraphStart = paragraphMatch.index + paragraphMatch[0].indexOf(paragraph)
-    if ((isEquation(paragraph) && paragraph.length < 260) || /^(?:figure|fig\.|table|algorithm)\s*\d+/i.test(paragraph)) {
-      parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
-    }
-    const sentences = typeof Intl.Segmenter === 'function'
-      ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(paragraph)]
-      : paragraph.split(/(?<=[.!?])\s+/).map((segment, index, all) => ({ segment, index: all.slice(0, index).join(' ').length + (index ? 1 : 0) }))
-    for (const sentence of sentences) {
-      const text = sentence.segment.trim()
-      if (text.length < 2) continue
-      const start = paragraphStart + sentence.index + sentence.segment.indexOf(text)
-      parts.push({ text, start, end: start + text.length, blockId, paragraphContext: paragraph })
-    }
-  }
-  const preliminary = parts.map((part, index) => {
-    const matchedRanges = ranges.filter((range) => range.end > part.start && range.start < part.end)
-    const itemSlices = matchedRanges.map((range) => ({
-      itemIndex: range.itemIndex,
-      start: Math.max(0, Math.min(1, (Math.max(part.start, range.start) - range.start) / Math.max(1, range.end - range.start))),
-      end: Math.max(0, Math.min(1, (Math.min(part.end, range.end) - range.start) / Math.max(1, range.end - range.start))),
-    })).filter((slice) => slice.end > slice.start)
-    const matchedItems = itemSlices.map((slice) => items[slice.itemIndex])
-    const heights = matchedItems.map((item) => Math.max(1, Math.abs(item.height || item.transform[3])))
-    const averageHeight = heights.reduce((sum, value) => sum + value, 0) / Math.max(1, heights.length)
-    const punctuation = (part.text.match(/[.!?;:]/g) ?? []).length
-    const digits = (part.text.match(/\d/g) ?? []).length
-    const numberedHeading = /^\d+(?:\.\d+)+\s+/.test(part.text) || (/^\d+\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
-    const sectionHeading = numberedHeading || /^(?:abstract$|references$|acknowledg(?:e)?ments?$|appendix\b)/i.test(part.text)
-    const caption = /^(?:figure|fig\.|table|algorithm)\s*\d+/i.test(part.text)
-    const shortFragments = matchedItems.filter((item) => item.str.trim().length < 32).length
-    const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
-    const digitRatio = digits / Math.max(1, part.text.length)
-    const numericLayout = digits >= 6 && digitRatio > .12 && matchedItems.length >= 5
-    const likelyGraphicOrTable = !caption && averageHeight <= bodyHeight * 1.08 && (numericLayout || (!sectionHeading && (
-      (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
-      || (digitRatio > .18 && matchedItems.length >= 4)
-    )))
-    const kind: TranslationSegment['kind'] = isEquation(part.text) ? 'equation'
-      : caption ? 'caption'
-        : likelyGraphicOrTable ? 'artifact'
-          : sectionHeading || (punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading' : 'text'
-    return { id: `p${page}-s${index}-${shortHash(part.text)}`, page, source: part.text, kind, blockId: part.blockId, paragraphContext: part.paragraphContext, itemIndexes: itemSlices.map((slice) => slice.itemIndex), itemSlices }
-  })
-  const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)).length
-  const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
-  const classified = preliminary.map((segment, index) => {
-    if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
-    const semanticHeading = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix\b|\d+(?:\.\d+)*\s+)/i.test(segment.source)
-    if (denseLayoutPage && ['text', 'heading'].includes(segment.kind) && !semanticHeading && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
-    return segment
-  })
-  const merged: TranslationSegment[] = []
-  for (let index = 0; index < classified.length; index += 1) {
-    const current = classified[index]; const next = classified[index + 1]; const after = classified[index + 2]
-    if (current.kind === 'equation' && next?.kind === 'artifact' && after?.kind === 'equation') {
-      const source = `${current.source} ${next.source} ${after.source}`.replace(/\s+/g, ' ').trim()
-      merged.push({ ...current, id: `p${page}-eq-${shortHash(source)}`, source, itemIndexes: [...(current.itemIndexes ?? []), ...(next.itemIndexes ?? []), ...(after.itemIndexes ?? [])], itemSlices: [...(current.itemSlices ?? []), ...(next.itemSlices ?? []), ...(after.itemSlices ?? [])] })
-      index += 2; continue
-    }
-    merged.push(current)
-  }
-  return merged
-}
 
 function matchTokens(value: string) {
   return value.toLowerCase().replace(/\$[^$]*\$/g, ' math ').replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter((token) => token.length > 1)
@@ -319,17 +204,32 @@ function segmentRects(segment: TranslationSegment, itemRects: ItemRect[]) {
   return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean)
 }
 
-function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onVisible, onFigure }: {
-  document: PdfDocument; pageNumber: number; scale: number; segments: TranslationSegment[]; translation: Map<string, string>; mode: 'original' | 'translated'
-  highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void; onVisible: (page: number) => void
+function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure }: {
+  document: PdfDocument; pageNumber: number; scale: number; fitWidth?: boolean; translationFormat?: 'paper' | 'flow'; segments: TranslationSegment[]; translation: Map<string, string>; mode: 'original' | 'translated'
+  highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void
   sourceFigures: Array<PaperFigureAsset & { captionAnchorId?: string; preview?: string }>
   onFigure: (page: number, dataUrl: string, preview: string, rect: { x: number; y: number; width: number; height: number }, sourceFigure?: PaperFigureAsset) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null); const pageRef = useRef<HTMLDivElement>(null); const [itemRects, setItemRects] = useState<ItemRect[]>([])
+  const [availableWidth, setAvailableWidth] = useState(612)
+  const [naturalWidth, setNaturalWidth] = useState(612)
+  const [naturalHeight, setNaturalHeight] = useState(792)
+  const scale = fitWidth ? Math.min(2, Math.max(.15, availableWidth / naturalWidth)) : requestedScale
+  useEffect(() => {
+    const pane = pageRef.current?.parentElement
+    if (!pane || !fitWidth) return
+    const measure = () => {
+      const style = getComputedStyle(pane)
+      setAvailableWidth(Math.max(100, pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)))
+    }
+    measure()
+    const observer = new ResizeObserver(measure); observer.observe(pane)
+    return () => observer.disconnect()
+  }, [fitWidth])
   const [pageError, setPageError] = useState('')
   const [renderAttempt, setRenderAttempt] = useState(0)
   const [detectedFigureRects, setDetectedFigureRects] = useState<ItemRect[]>([])
-  const [pageSize, setPageSize] = useState({ width: 612 * scale, height: 792 * scale })
+  const pageSize = { width: naturalWidth * scale, height: naturalHeight * scale }
   const [nearViewport, setNearViewport] = useState(pageNumber <= 2); const [rendered, setRendered] = useState(false)
   const [selection, setSelection] = useState<{ startX: number; startY: number; x: number; y: number }>()
   const selectionRef = useRef<{ startX: number; startY: number; x: number; y: number } | undefined>(undefined)
@@ -345,7 +245,9 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
     let cancelled = false; let renderTask: ReturnType<Awaited<ReturnType<PdfDocument['getPage']>>['render']> | undefined
     pdfDocument.getPage(pageNumber).then(async (page) => {
       if (cancelled || !canvasRef.current) return
-      const viewport = page.getViewport({ scale }); setPageSize({ width: viewport.width, height: viewport.height }); const ratio = window.devicePixelRatio || 1; const canvas = canvasRef.current; const context = canvas.getContext('2d')!
+      setNaturalWidth(page.getViewport({ scale: 1 }).width)
+      setNaturalHeight(page.getViewport({ scale: 1 }).height)
+      const viewport = page.getViewport({ scale }); const deviceRatio = window.devicePixelRatio || 1; const ratio = mode === 'translated' ? Math.max(deviceRatio, Math.min(4, Math.ceil(1000 / viewport.width) * deviceRatio)) : deviceRatio; const canvas = canvasRef.current; const context = canvas.getContext('2d')!
       canvas.width = Math.floor(viewport.width * ratio); canvas.height = Math.floor(viewport.height * ratio); canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`
       renderTask = page.render({ canvas, canvasContext: context, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] }); await renderTask.promise
       if (!cancelled) setRendered(true)
@@ -384,7 +286,6 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
     }).catch(reason => { if (!cancelled) setPageError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { cancelled = true; renderTask?.cancel() }
   }, [pdfDocument, pageNumber, scale, nearViewport, renderAttempt])
-  useEffect(() => { if (!pageRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting && entry.intersectionRatio > .3) onVisible(pageNumber) }, { threshold: [.3, .6] }); observer.observe(pageRef.current); return () => observer.disconnect() }, [pageNumber, onVisible])
   function point(event: ReactPointerEvent) { const box = pageRef.current!.getBoundingClientRect(); return { x: event.clientX - box.left, y: event.clientY - box.top } }
   function captureFigure(x: number, y: number, width: number, height: number, sourceFigure?: PaperFigureAsset & { preview?: string }) {
     if (!canvasRef.current) return
@@ -421,12 +322,12 @@ function PdfPage({ document: pdfDocument, pageNumber, scale, segments, translati
   const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = detectedFigureRects.length
     ? [...detectedFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(detectedFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
     : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
-  if (mode === 'translated') return <div className={`continuous-page translated flow-page ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} style={{ width: pageSize.width, fontSize: 15 * scale }}>
-    <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>
-    <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details>
+  if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} style={{ width: translationFormat === 'paper' ? 'min(100%, 1000px)' : pageSize.width, fontSize: 15 * scale }}>
+    {translationFormat === 'flow' && <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>}
+    {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
-    <ReadingTranslation segments={segments} translation={translation} source={canvasRef.current} ready={rendered} rectangles={segment => segmentRects(segment, itemRects)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onTag={onTag} onFindNotes={onFindNotes} />
-    <span className="page-badge">{pageNumber}</span>
+    <ReadingTranslation format={translationFormat} fontScale={requestedScale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onTag={onTag} onFindNotes={onFindNotes} />
+    {translationFormat === 'flow' && <span className="page-badge">{pageNumber}</span>}
   </div>
   return <div className={`continuous-page ${mode} ${rendered ? 'rendered' : 'pending'}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
     {!rendered && <div className="page-loading">{pageError ? <><span role="alert">페이지를 표시하지 못했습니다: {pageError}</span><button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button></> : <><LoaderCircle className="spin" size={16} /><span>페이지 {pageNumber} 준비 중</span></>}</div>}
@@ -444,19 +345,23 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
-  const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
+  const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [sourceFit, setSourceFit] = useState(true); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
   const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
-  const [cacheExists, setCacheExists] = useState(false)
+  const [translationFormat, setTranslationFormat] = useState<'paper' | 'flow'>(() => localStorage.getItem('prism.translation-format') === 'flow' ? 'flow' : 'paper'); const [cacheExists, setCacheExists] = useState(false)
   const [backlinkPanel, setBacklinkPanel] = useState<{ anchor: ContextAnchor; items: EvidenceBacklink[]; loading: boolean; error?: string }>()
   const [captureMemo, setCaptureMemo] = useState(''); const [captureStatus, setCaptureStatus] = useState('')
   const [captureConcept, setCaptureConcept] = useState(''); const [conceptOptions, setConceptOptions] = useState<string[]>([])
   const [sourceStatus, setSourceStatus] = useState<{ mode: 'latex' | 'pdf'; matched: number; total: number }>({ mode: 'pdf', matched: 0, total: 0 })
-  const [translating, setTranslating] = useState(false); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
+  const [translationTargetPage, setTranslationTargetPage] = useState(1); const [pendingTranslationPage, setPendingTranslationPage] = useState<number>(); const [translationScope, setTranslationScope] = useState<'page' | 'all'>('page'); const [translationJobs, setTranslationJobs] = useState<Record<string, boolean>>({}); const translating = Boolean(activeId && translationJobs[activeId]); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
-  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(true); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
+  const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(false); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
+  const navigationTarget = useRef<ReadingPosition | undefined>(undefined)
+  const navigationTimer = useRef<number | undefined>(undefined)
+  const lastReadingPosition = useRef<ReadingPosition | undefined>(undefined)
+  const paneWidths = useRef(new WeakMap<HTMLDivElement, number>())
   useEffect(() => window.prism.onSettingsChanged(next => {
     setSettings(next)
     if (next.libraryPath !== settings.libraryPath) {
@@ -477,8 +382,12 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     applyLayout(host ? splitGroupWithKind(layout, host.id, kind, 'right') : panePresets.original())
   }
   const translationMap = useMemo(() => new Map(translation.map((segment) => [segment.id, segment.translation ?? ''])), [translation])
-  const translatableSegments = allSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind))
-  const translatedCount = translation.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length
+  const preservedParagraphs = unsafeParagraphIds(allSegments)
+  const preservedParagraphCount = new Set(allSegments.filter(segment => segment.page === pageNumber && preservedParagraphs.has(segment.blockId ?? '')).map(segment => segment.blockId)).size
+  const translatableSegments = allSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && !preservedParagraphs.has(segment.blockId ?? ''))
+  const translatedCount = translatableSegments.filter(segment => translationMap.get(segment.id)).length
+  const scopedSegments = translationScope === 'all' ? withoutBibliography(translatableSegments) : translatableSegments.filter(segment => segment.page === pageNumber)
+  const scopedMissing = scopedSegments.filter(segment => !translation.some(saved => saved.id === segment.id && saved.source === segment.source && saved.translation)).length
   const hasCachedTranslation = cacheExists
   const translationPercent = translationProgress.total ? Math.round(translationProgress.completed / translationProgress.total * 100) : (hasCachedTranslation ? 100 : 0)
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
@@ -522,9 +431,9 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   }, [pendingAnchor, activeId, allSegments])
   useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([saved, papers]) => { setSettings(saved); setLibrary(papers); if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) } }).catch((reason) => setError(String(reason)))
-    const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setCacheExists((event.completedSegments ?? 0) > 0); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
-    const offDone = window.prism.onTranslationDone((payload) => { const event = payload as { arxivId?: string; segments?: TranslationSegment[] }; if (event.arxivId === activeIdRef.current) { if (event.segments) { setTranslation(event.segments); setCacheExists(true); const done = event.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length; setTranslationProgress({ completed: done, total: done }) } setTranslating(false) } })
-    const offError = window.prism.onTranslationError((payload) => { const event = payload as { arxivId?: string; message?: string }; if (event.arxivId === activeIdRef.current) { setError(event.message ?? '번역에 실패했습니다.'); setTranslating(false) } })
+    const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId) setTranslating(true, event.arxivId); if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setCacheExists((event.completedSegments ?? 0) > 0); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
+    const offDone = window.prism.onTranslationDone((payload) => { const event = payload as { arxivId?: string; segments?: TranslationSegment[]; warning?: string }; if (event.arxivId) setTranslating(false, event.arxivId); if (event.arxivId === activeIdRef.current) { if (event.warning) setError(event.warning); if (event.segments) { setTranslation(event.segments); setCacheExists(true); const done = event.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.translation).length; setTranslationProgress({ completed: done, total: event.segments.filter(segment => ['text', 'heading', 'caption'].includes(segment.kind)).length }) } setTranslating(false) } })
+    const offError = window.prism.onTranslationError((payload) => { const event = payload as { arxivId?: string; message?: string }; if (event.arxivId) setTranslating(false, event.arxivId); if (event.arxivId === activeIdRef.current) { setError(event.message ?? '번역에 실패했습니다.'); setTranslating(false) } })
     return () => { offProgress(); offDone(); offError() }
   }, [])
 
@@ -551,7 +460,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
         const restored = source.segments.map((segment) => ({ ...segment, translation: (byId.get(segment.id)?.source === segment.source ? byId.get(segment.id)?.translation : undefined) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) })).filter((segment) => segment.translation)
-        setCacheExists(true); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
+        setCacheExists(restored.some(segment => ['text', 'heading', 'caption'].includes(segment.kind))); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
       else if (settings.autoTranslate && translationProvider?.available && !autoStartedRef.current.has(activePaper.arxivId)) {
         autoStartedRef.current.add(activePaper.arxivId); setTranslating(true); setTranslationProgress({ completed: 0, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
@@ -561,11 +470,12 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     }).catch((reason) => { setLoadStatus(undefined); setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { disposed = true }
   }, [activePaper?.arxivId])
+  function setTranslating(running: boolean, paperId = activeId) { if (paperId) setTranslationJobs(current => ({ ...current, [paperId]: running })) }
   function openPaper(paper: PaperRecord) { setTabs((current) => current.includes(paper.arxivId) ? current : [...current, paper.arxivId]); setActiveId(paper.arxivId) }
   function closeTab(id: string) { setTabs((current) => { const next = current.filter((value) => value !== id); if (activeId === id) setActiveId(next.at(-1)); return next }) }
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { const papers = await window.prism.listLibrary(); setSettings(next); setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId); if (!papers.length) setFinderOpen(true) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
-  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
+  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: !force && translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
   async function captureAnchor() {
@@ -592,7 +502,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   }
   function findSegmentNotes(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) void showBacklinks(anchor) }
   async function saveFigure(page: number, dataUrl: string, preview: string, rect: { x: number; y: number; width: number; height: number }, sourceFigure?: PaperFigureAsset) { if (!activePaper) return; const number = Date.now().toString(36); const figureId = sourceFigure ? `source-${sourceFigure.id}-${number}` : `figure-p${page}-${number}`; try { const imagePath = await window.prism.savePaperFigure(activePaper.arxivId, figureId, dataUrl, { page, rect, sourceFigureId: sourceFigure?.id, sourcePath: sourceFigure?.sourcePath, caption: sourceFigure?.caption }); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: figureId, type: 'figure', page, label: `피겨${page}-${sourceFigure ? sourceFigure.order + 1 : number.slice(-3)}`, source: `${sourceFigure ? `Matched LaTeX figure ${sourceFigure.order + 1}. Caption: ${sourceFigure.caption ?? 'unknown'}. Source asset: ${sourceFigure.sourcePath ?? 'unavailable'}. ` : ''}Saved figure image: ${imagePath}. Normalized bounds: ${JSON.stringify(rect)}`, preview }); if (!sourceFigure) setFigureSelect(false) } catch (reason) { setError(String(reason)) } }
-  function scrollAnchor(pane: HTMLDivElement | null) {
+  function scrollAnchor(pane: HTMLDivElement | null): ReadingPosition {
     if (!pane) return { page: pageNumber, progress: 0 }
     const pages = [...pane.querySelectorAll<HTMLElement>('.continuous-page')]
     const marker = pane.scrollTop + pane.clientHeight * .28
@@ -601,23 +511,86 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const page = Number(current?.dataset.page?.split('-').at(-1)) || pageNumber
     const next = pages[pages.indexOf(current) + 1]
     const span = Math.max(1, (next?.offsetTop ?? (current.offsetTop + current.offsetHeight + 18)) - current.offsetTop)
-    return { page, progress: Math.max(0, Math.min(1, (marker - current.offsetTop) / span)) }
+    const markerY = pane.getBoundingClientRect().top + pane.clientHeight * .28
+    const anchors = [...current.querySelectorAll<HTMLElement>('[data-anchor]')].filter(item => item.getBoundingClientRect().height > 0)
+    const closest = anchors.reduce<HTMLElement | undefined>((best, item) => !best || Math.abs(item.getBoundingClientRect().top - markerY) < Math.abs(best.getBoundingClientRect().top - markerY) ? item : best, undefined)
+    const matching = closest ? anchors.filter(item => item.dataset.anchor === closest.dataset.anchor).map(item => item.getBoundingClientRect()) : []
+    const top = Math.min(...matching.map(rect => rect.top)); const bottom = Math.max(...matching.map(rect => rect.bottom))
+    return { page, progress: Math.max(0, Math.min(1, (marker - current.offsetTop) / span)), anchorId: closest?.dataset.anchor, anchorProgress: closest ? Math.max(0, Math.min(1, (markerY - top) / Math.max(1, bottom - top))) : undefined }
   }
-  function restoreScrollAnchor(pane: HTMLDivElement | null, anchor: { page: number; progress: number }) {
-    if (!pane) return
+  const lastReadingPane = useRef<HTMLDivElement | null>(null)
+  const syncedScrollPositions = useRef(new WeakMap<HTMLDivElement, number>())
+  function readingScroll(pane: HTMLDivElement, other: HTMLDivElement | null) {
+    const expected = syncedScrollPositions.current.get(pane)
+    if (expected !== undefined) { syncedScrollPositions.current.delete(pane); if (Math.abs(pane.scrollTop - expected) < 2) return }
+    if (!pane.clientWidth || syncLock.current || navigationTarget.current) return
+    lastReadingPane.current = pane
+    lastReadingPosition.current = scrollAnchor(pane)
+    setPageNumber(lastReadingPosition.current.page)
+    if (bothDocumentsOpen && syncScrollEnabled) syncScroll(pane, other)
+  }
+  useEffect(() => { setPageNumber(1); lastReadingPane.current = null; lastReadingPosition.current = undefined; navigationTarget.current = undefined; window.clearTimeout(navigationTimer.current) }, [activePaper?.arxivId])
+  useEffect(() => {
+    const panes = [sourceScrollRef.current, translatedScrollRef.current].filter((pane): pane is HTMLDivElement => Boolean(pane))
+    const measure = () => {
+      const resized = panes.some(pane => { const previous = paneWidths.current.get(pane); paneWidths.current.set(pane, pane.clientWidth); return previous !== undefined && previous !== pane.clientWidth })
+      if (resized && !navigationTarget.current && lastReadingPosition.current) navigationTarget.current = lastReadingPosition.current
+      if (navigationTarget.current) { restoreNavigation(); return }
+      const pane = lastReadingPane.current?.clientWidth ? lastReadingPane.current : panes.find(item => item.clientWidth > 0)
+      if (pane) { lastReadingPosition.current = scrollAnchor(pane); setPageNumber(lastReadingPosition.current.page) }
+    }
+    const observer = new ResizeObserver(measure)
+    for (const pane of panes) { observer.observe(pane); pane.querySelectorAll('.continuous-page').forEach(page => observer.observe(page)) }
+    measure()
+    const interrupt = () => { navigationTarget.current = undefined; window.clearTimeout(navigationTimer.current) }
+    for (const pane of panes) { pane.addEventListener('wheel', interrupt, { passive: true }); pane.addEventListener('pointerdown', interrupt) }
+    return () => { observer.disconnect(); for (const pane of panes) { pane.removeEventListener('wheel', interrupt); pane.removeEventListener('pointerdown', interrupt) } }
+  }, [pdf, layout])
+  function restoreScrollAnchor(pane: HTMLDivElement | null, anchor: ReadingPosition) {
+    if (!pane?.clientWidth) return
     const current = pane.querySelector<HTMLElement>(`.continuous-page[data-page$="-${anchor.page}"]`)
     if (!current) return
+    if (anchor.align === 'top') { pane.scrollTop = Math.max(0, current.offsetTop - 18); return }
+    if (anchor.anchorId) {
+      const matches = [...current.querySelectorAll<HTMLElement>('[data-anchor]')].filter(item => item.dataset.anchor === anchor.anchorId).map(item => item.getBoundingClientRect()).filter(rect => rect.height > 0)
+      if (matches.length) {
+        const top = Math.min(...matches.map(rect => rect.top)); const bottom = Math.max(...matches.map(rect => rect.bottom))
+        pane.scrollTop += top + (bottom - top) * (anchor.anchorProgress ?? 0) - pane.getBoundingClientRect().top - pane.clientHeight * .28
+        return
+      }
+    }
     const next = current.nextElementSibling as HTMLElement | null
     const span = Math.max(1, (next?.offsetTop ?? (current.offsetTop + current.offsetHeight + 18)) - current.offsetTop)
     pane.scrollTop = Math.max(0, current.offsetTop + span * anchor.progress - pane.clientHeight * .28)
   }
   function scrollToPage(targetPage: number) {
-    for (const pane of [sourceScrollRef.current, translatedScrollRef.current]) {
-      const target = pane?.querySelector<HTMLElement>(`.continuous-page[data-page$="-${targetPage}"]`)
-      if (pane && target) pane.scrollTo({ top: Math.max(0, target.offsetTop - 18), behavior: 'smooth' })
-    }
+    navigationTarget.current = { page: targetPage, progress: 0, align: 'top' }
+    restoreNavigation()
   }
+  function restoreNavigation() {
+    const target = navigationTarget.current
+    if (!target) return
+    syncLock.current = true
+    for (const pane of [sourceScrollRef.current, translatedScrollRef.current]) if (pane) { restoreScrollAnchor(pane, target); syncedScrollPositions.current.set(pane, pane.scrollTop) }
+    setPageNumber(target.page)
+    window.clearTimeout(navigationTimer.current)
+    navigationTimer.current = window.setTimeout(() => { lastReadingPosition.current = target; if (navigationTarget.current === target) navigationTarget.current = undefined }, 750)
+    requestAnimationFrame(() => { syncLock.current = false })
+  }
+  function queueReadingPosition() {
+    navigationTarget.current = lastReadingPosition.current ?? { page: pageNumber, progress: 0, align: 'top' }
+    setPendingTranslationPage(navigationTarget.current.page)
+  }
+  useEffect(() => {
+    if (!pendingTranslationPage) return
+    const frame = requestAnimationFrame(() => {
+      if (!navigationTarget.current) navigationTarget.current = { page: pendingTranslationPage, progress: 0, align: 'top' }
+      restoreNavigation(); setPendingTranslationPage(undefined)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [layout, pendingTranslationPage])
   function setPaneZoom(mode: 'original' | 'translated', value: number) {
+    if (mode === 'original' || syncZoomEnabled) setSourceFit(false)
     const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
     zoomAnchorRef.current = scrollAnchor(activePane)
     if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value)
@@ -639,45 +612,103 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   function syncScroll(from: HTMLDivElement, to: HTMLDivElement | null) {
     if (!to || syncLock.current) return
     syncLock.current = true; restoreScrollAnchor(to, scrollAnchor(from))
+    syncedScrollPositions.current.set(to, to.scrollTop)
     requestAnimationFrame(() => { syncLock.current = false })
   }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
-  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onVisible={setPageNumber} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
-  /**
-   * The arrangements the toolbar names. Dragging a tab can reach shapes no button offers; these are the four
-   * worth one click, and the first three are exactly the modes the reader used to have.
-   */
-  const layoutChoices = [
-    { id: 'original', label: '원문', title: '원문 PDF만', make: panePresets.original, shape: describeLayout(panePresets.original()), icon: undefined },
-    { id: 'translated', label: '한국어', title: '한국어 문서만', make: panePresets.translated, shape: describeLayout(panePresets.translated()), icon: undefined },
-    { id: 'dual', label: ' 병기', title: '원문과 한국어를 좌우로', make: panePresets.dual, shape: describeLayout(panePresets.dual()), icon: <Columns2 size={13} /> },
-    { id: 'stacked', label: ' 상하', title: '원문과 한국어를 위아래로', make: panePresets.stacked, shape: describeLayout(panePresets.stacked()), icon: <Rows2 size={13} /> },
-  ]
-  const paneZoom = (mode: 'original' | 'translated') => { const value = mode === 'original' ? sourceScale : translatedScale; return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select value={value} onChange={(event) => setPaneZoom(mode, Number(event.target.value))}>{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div> }
+  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' && sourceFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  const comparisonPreference = useRef<'dual' | 'stacked' | undefined>(undefined)
+  useEffect(() => {
+    const dismissMenus = (event: PointerEvent) => {
+      for (const menu of document.querySelectorAll<HTMLDetailsElement>('.reader-toolbar-menu[open]')) {
+        if (!menu.contains(event.target as Node)) menu.open = false
+      }
+    }
+    document.addEventListener('pointerdown', dismissMenus)
+    return () => document.removeEventListener('pointerdown', dismissMenus)
+  }, [])
+  function closeToolbarMenu(element: HTMLElement) {
+    const details = element.closest('details')
+    if (details) { details.open = false; details.querySelector('summary')?.focus() }
+  }
+  function chooseComparison(element: HTMLElement, explicit?: 'dual' | 'stacked') {
+    if (explicit) comparisonPreference.current = explicit
+    const choice = explicit ?? comparisonPreference.current ?? ((element.closest('.paper-workspace')?.clientWidth ?? window.innerWidth) < 960 ? 'stacked' : 'dual')
+    queueReadingPosition(); applyLayout(choice === 'stacked' ? panePresets.stacked() : panePresets.dual())
+    closeToolbarMenu(element)
+  }
+  function toolbarMenuKey(event: React.KeyboardEvent<HTMLDetailsElement>) {
+    if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
+  }
+  const paneZoom = (mode: 'original' | 'translated') => { const value = mode === 'original' ? sourceScale : translatedScale; return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : '번역 글자 크기'} value={mode === 'original' && sourceFit ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? setSourceFit(true) : setPaneZoom(mode, Number(event.target.value))}>{mode === 'original' && <option value="fit">너비 맞춤</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div> }
 
   return <section className="reader-pane paper-workspace">
     <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>
-      {id === activeId && <span className="tab-views">{readerKinds.map((kind) => <button key={kind} className={openPanes.includes(kind) ? 'open' : ''} title={`${paneShortTitles[kind]} ${openPanes.includes(kind) ? '닫기' : '열기'}`} onClick={() => openPanes.includes(kind) ? applyLayout(closeKind(layout, kind)) : openPane(kind)}>{paneShortTitles[kind]}</button>)}</span>}
+
       <i title="논문 닫기" onClick={(event) => { event.stopPropagation(); closeTab(id) }}><X size={12} /></i>
     </div> : null })}<button className="add-tab" onClick={() => setFinderOpen(true)}><Plus size={15} /></button></div></div>
-    {activePaper && pdf ? <><div className="paper-toolbar"><div className="page-nav"><button disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div><div className="paper-title-mini"><strong>{activePaper.title}</strong><small>{activePaper.authors.slice(0, 2).join(', ') || '내 논문'}{activePaper.published ? ` · ${activePaper.published.slice(0, 4)}` : ''}</small></div><div className="reader-actions"><div className="document-mode">{layoutChoices.map((choice) => <button key={choice.id} className={describeLayout(layout) === choice.shape ? 'active' : ''} title={choice.title} onClick={() => applyLayout(choice.make())}>{choice.icon}{choice.label}</button>)}</div>{bothDocumentsOpen && <><button className={syncScrollEnabled ? 'active' : ''} onClick={() => setSyncScrollEnabled((value) => !value)} title="두 문서 스크롤 동기화">{syncScrollEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 스크롤</button><button className={syncZoomEnabled ? 'active' : ''} onClick={() => { setSyncZoomEnabled((value) => !value); if (!syncZoomEnabled) setTranslatedScale(sourceScale) }} title="두 문서 확대 배율 동기화">{syncZoomEnabled ? <Link2 size={13} /> : <Unlink2 size={13} />} 확대</button></>}<button className={figureSelect ? 'active' : ''} onClick={() => setFigureSelect((value) => !value)} title="자동 인식되지 않은 피겨 영역을 클릭하거나 드래그해 캡처"><Image size={14} /> 피겨 캡처</button><button onClick={() => onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><Tag size={14} /> 페이지</button><button title="현재 PDF 페이지를 참조하는 지식 노트" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 메모 남기기</button></div></div>
+    {activePaper && pdf ? <><div className="paper-toolbar reader-toolbar-compact">
+      <div className="page-nav"><button aria-label="이전 페이지" disabled={pageNumber <= 1} onClick={() => scrollToPage(pageNumber - 1)}><ArrowLeft size={14} /></button><span>{pageNumber} / {pdf.numPages}</span><button aria-label="다음 페이지" disabled={pageNumber >= pdf.numPages} onClick={() => scrollToPage(pageNumber + 1)}><ArrowRight size={14} /></button></div>
+      <div className="reader-actions">
+        <div className="document-mode" aria-label="읽기 보기">
+          <button className={describeLayout(layout) === describeLayout(panePresets.original()) ? 'active' : ''} onClick={() => { queueReadingPosition(); applyLayout(panePresets.original()) }}>원문</button>
+          <button className={describeLayout(layout) === describeLayout(panePresets.translated()) ? 'active' : ''} onClick={() => { queueReadingPosition(); applyLayout(panePresets.translated()) }}>한국어</button>
+          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>비교</button>
+          <details className="reader-toolbar-menu comparison-options" onKeyDown={toolbarMenuKey}>
+            <summary aria-label="비교 배치 선택" title="비교 배치 선택">⌄</summary>
+            <div className="reader-toolbar-popover">
+              <button onClick={event => chooseComparison(event.currentTarget, 'dual')}><Columns2 size={14} /> 좌우 비교</button>
+              <button onClick={event => chooseComparison(event.currentTarget, 'stacked')}><Rows2 size={14} /> 상하 비교</button>
+              {bothDocumentsOpen && <><label><input type="checkbox" checked={syncScrollEnabled} onChange={event => setSyncScrollEnabled(event.target.checked)} /> 같은 위치로 스크롤</label><label><input type="checkbox" checked={syncZoomEnabled} onChange={event => { setSyncZoomEnabled(event.target.checked); if (event.target.checked) setTranslatedScale(sourceScale) }} /> 확대 배율 함께 변경</label></>}
+            </div>
+          </details>
+        </div>
+        <button className="reader-memo-action" title="현재 페이지를 출처로 메모를 남깁니다" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 메모</button>
+        <div className="translation-control translation-compact">
+          <button className={translating ? 'cancel-translation' : 'translate-action'} aria-label={translating ? '번역 중지' : `${translationScope === 'page' ? `현재 ${pageNumber}페이지` : '본문 전체'} AI 번역`} title={`${translationScope === 'page' ? `현재 ${translating ? translationTargetPage : pageNumber}페이지` : '본문 전체 · 참고문헌 제외'} · ${settings.translationModel ?? '번역 모델 설정 필요'}`} onClick={() => translating ? void cancelTranslation() : void startTranslation()} disabled={!translating && (!translationProvider?.available || !allSegments.length || scopedMissing === 0)}>
+            {translating ? <><Square size={11} fill="currentColor" /> {translationProgress.completed}/{translationProgress.total} · 중지</> : !scopedSegments.length ? '원문 유지' : scopedMissing === 0 ? `${translationScope === 'page' ? `${pageNumber}쪽` : '본문'} 번역됨` : `${translationScope === 'page' ? `${pageNumber}쪽` : '본문'} AI 번역 · ${scopedMissing}문장`}
+          </button>
+          <details className="reader-toolbar-menu translation-options" onKeyDown={toolbarMenuKey}>
+            <summary aria-label="번역 범위 및 모델 설정" title="번역 범위 및 모델 설정">⌄</summary>
+            <div className="reader-toolbar-popover">
+              <label><span>번역 범위</span><select className="translation-scope" aria-label="번역 범위" disabled={translating} value={translationScope} onChange={event => setTranslationScope(event.target.value as 'page' | 'all')}><option value="page">현재 {translating ? translationTargetPage : pageNumber}페이지</option><option value="all">본문 전체 · 참고문헌 제외</option></select></label>
+              <label><span>번역 CLI</span><select aria-label="번역 CLI" value={settings.translationProvider} disabled={translating} onChange={event => { const provider = event.target.value as ProviderId; void updateSettings({ translationProvider: provider, translationModel: providers.find(item => item.id === provider)?.models[0]?.id }) }}>{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label>
+              <label><span>모델</span><select aria-label="번역 모델" value={settings.translationModel} disabled={translating} onChange={event => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
+              <label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={event => void updateSettings({ autoTranslate: event.target.checked })} /> 새 논문 자동 번역 · AI 사용</label>
+              {hasCachedTranslation && <small>{translatedCount}문장 저장됨</small>}
+              {hasCachedTranslation && <button disabled={translating} onClick={event => { closeToolbarMenu(event.currentTarget); void startTranslation(true) }}>본문 처음부터 다시 번역 · AI 사용</button>}
+            </div>
+          </details>
+        </div>
+        <details className="reader-toolbar-menu reader-more" onKeyDown={toolbarMenuKey}>
+          <summary>더보기</summary>
+          <div className="reader-toolbar-popover">
+            <button onClick={event => { closeToolbarMenu(event.currentTarget); queueReadingPosition(); openPane('map') }}><Sigma size={14} /> 구조 맵</button>
+            <button onClick={event => { closeToolbarMenu(event.currentTarget); setFigureSelect(value => !value) }}><Image size={14} /> {figureSelect ? '피겨 캡처 끝내기' : '피겨 캡처'}</button>
+            <button onClick={event => { closeToolbarMenu(event.currentTarget); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` }) }}><Tag size={14} /> 현재 페이지 근거로 담기</button>
+          </div>
+        </details>
+      </div>
+    </div>
+    {figureSelect && <div className="reader-capture-status" role="status"><span>피겨를 클릭하거나 영역을 드래그하세요.</span><button onClick={() => setFigureSelect(false)}>캡처 끝내기</button></div>}
+
       {backlinkPanel && <section className="reader-evidence-backlinks" aria-label="PDF 근거 관련 노트"><header><div><BookOpen size={14} /><span><strong>{backlinkPanel.anchor.label} 관련 노트</strong><small>{backlinkPanel.anchor.paperTitle} · p.{backlinkPanel.anchor.page}</small></span></div><button aria-label="관련 노트 닫기" onClick={() => setBacklinkPanel(undefined)}><X size={13} /></button></header>{backlinkPanel.anchor.type !== 'page' && backlinkPanel.anchor.source && <blockquote className="reader-capture-source">{backlinkPanel.anchor.source}</blockquote>}<form className="reader-capture" onSubmit={(event) => { event.preventDefault(); void captureAnchor() }}><input autoFocus aria-label="노트 메모" value={captureMemo} onChange={(event) => setCaptureMemo(event.target.value)} placeholder="한 줄 메모 (선택) · Enter로 논문 노트에 담기" /><div className="reader-capture-row"><input list="prism-concept-options" aria-label="정의하는 개념" value={captureConcept} onChange={(event) => setCaptureConcept(event.target.value)} placeholder="이 문장이 정의하는 개념 (선택)" /><datalist id="prism-concept-options">{conceptOptions.map((title) => <option key={title} value={title} />)}</datalist><button type="submit" aria-label="논문 노트에 담기"><Plus size={12} /> 노트에 담기</button></div></form>{captureStatus && <p className="reader-capture-status" role="status">{captureStatus}</p>}<div>{backlinkPanel.loading ? <p>관련 노트를 찾는 중…</p> : backlinkPanel.error ? <p>{backlinkPanel.error}</p> : backlinkPanel.items.length ? backlinkPanel.items.map((item) => <button key={item.nodeId} onClick={() => void window.prism.openKnowledgeNodeInNotes(item.nodeId)}><span><small>{item.nodeType} · {item.relativePath}</small><strong>{item.title}</strong><p>{item.excerpt}</p></span><ExternalLink size={13} /></button>) : <p>이 PDF 위치를 참조하는 지식 노트가 없습니다.</p>}</div></section>}
 
       {!loadStatus && allSegments.length === 0 && <p className="reader-notice" role="status">이 PDF에서 텍스트를 찾지 못했습니다. 원문 읽기와 피겨 캡처는 사용할 수 있습니다. 번역하려면 텍스트 인식(OCR)이 된 PDF를 가져와 주세요.</p>}
-      <div className="translation-control"><Languages size={14} /><details className="translation-options"><summary>번역 설정</summary><div><label><span>번역 CLI</span><select value={settings.translationProvider} disabled={translating} onChange={(event) => { const provider = event.target.value as ProviderId; void updateSettings({ translationProvider: provider, translationModel: providers.find((item) => item.id === provider)?.models[0]?.id }) }}>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}{provider.available ? '' : ' · 설치 필요'}</option>)}</select></label><label><span>모델</span><select value={settings.translationModel} disabled={translating} onChange={(event) => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label><label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => void updateSettings({ autoTranslate: event.target.checked })} /> 자동 번역</label>{hasCachedTranslation && <button disabled={translating} onClick={() => void startTranslation(true)}>처음부터 다시 번역 · AI 사용</button>}</div></details>{(translating || hasCachedTranslation) && <div className="translation-meter" title={`${translationProgress.completed || translatedCount} / ${translationProgress.total || translatableSegments.length}문장`}><span><i style={{ width: `${translationPercent}%` }} /></span><strong>{translating ? `${translationProgress.completed}/${translationProgress.total}문장 · ${translationPercent}%` : `${translatedCount}문장 번역됨`}</strong></div>}<button className={translating ? 'cancel-translation' : ''} onClick={() => translating ? void cancelTranslation() : void startTranslation()} disabled={!translating && (!translationProvider?.available || !allSegments.length || translatedCount >= translatableSegments.length)}>{translating ? <><Square size={11} fill="currentColor" /> 번역 중지</> : translatedCount >= translatableSegments.length ? '번역 완료' : hasCachedTranslation ? '이어서 번역' : '번역 시작'}</button>{figureSelect && <strong className="capture-hint">피겨를 클릭하거나 영역을 드래그하세요</strong>}</div>
+
       {loadStatus?.phase === 'analyzing' && <div className="paper-analysis-status" role="status"><LoaderCircle className="spin" size={13} /><span>논문 구조와 참조 위치를 분석하고 있어요</span><div><i style={{ width: `${loadStatus.total ? loadStatus.completed / loadStatus.total * 100 : 0}%` }} /></div><strong>{loadStatus.completed} / {loadStatus.total}페이지</strong></div>}
       {error && <div className="paper-error">{error}<button onClick={() => setError('')}><X size={13} /></button></div>}
       <PaperPanes
         layout={layout} onLayout={applyLayout}
         views={{
-          original: <div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div>,
+          original: <div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => readingScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div>,
           map: <PaperMap paperId={activePaper?.arxivId} revision={allSegments.length} onOpenAnchor={openAnchorFromMap} />,
-          translated: <div className="document-scroll translated-document" ref={translatedScrollRef} onScroll={(event) => bothDocumentsOpen && syncScrollEnabled && syncScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div>,
+          translated: <div className="document-scroll translated-document" ref={translatedScrollRef} onScroll={(event) => readingScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div>,
         }}
         headers={{
           original: paneZoom('original'),
-          translated: <><span className="pane-note">{translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</span>{paneZoom('translated')}</>,
+          translated: <><select aria-label="번역 보기 방식" className="translation-format" value={translationFormat} onChange={event => { const format = event.target.value as 'paper' | 'flow'; setTranslationFormat(format); localStorage.setItem('prism.translation-format', format) }}><option value="paper">원문 형식</option><option value="flow">읽기 형식</option></select><span className="pane-note" title={preservedParagraphCount ? `PDF 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존하며 AI 번역에서 제외합니다.` : undefined}>{preservedParagraphCount ? `${preservedParagraphCount}문단 원문 유지` : translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</span>{paneZoom('translated')}</>,
         }}
       />
     </> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}

@@ -55,7 +55,11 @@ const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_
 const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
 
-function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
+function safeName(value: string) {
+  let name = value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140).replace(/[. ]+$/, '') || 'Untitled'
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `_${name}`
+  return name
+}
 function field(source: string, key: string) {
   const raw = source.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim()
   if (!raw) return undefined
@@ -357,7 +361,8 @@ export async function listKnowledgeBacklinks(libraryPath: string, targetId: stri
 
 export async function createKnowledgeNode(libraryPath: string, request: KnowledgeCreateRequest) {
   if (!nodeTypes.has(request.nodeType)) throw new Error('지식 노트 유형이 올바르지 않습니다.')
-  const title = safeName(request.title)
+  const title = request.title.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) || 'Untitled'
+  const fileName = safeName(title)
   const templates = await listTemplates(libraryPath)
   const template = request.body ? undefined
     : templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
@@ -365,8 +370,8 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     ?? templates.find((item) => item.nodeType === request.nodeType)
   const id = `${request.nodeType}-${randomUUID().slice(0, 12)}`
   const directory = path.join(libraryPath, folderByType[request.nodeType])
-  let filePath = path.join(directory, `${title}.md`); let suffix = 2
-  while (true) { try { await fs.access(filePath); filePath = path.join(directory, `${title} ${suffix}.md`); suffix += 1 } catch { break } }
+  let filePath = path.join(directory, `${fileName}.md`); let suffix = 2
+  while (true) { try { await fs.access(filePath); filePath = path.join(directory, `${fileName} ${suffix}.md`); suffix += 1 } catch { break } }
   const values: Record<string, string> = { title, date: new Date().toISOString().slice(0, 10) }
   for (const [key, value] of Object.entries(request.variables ?? {})) {
     if (!templateVariables.has(key) || typeof value !== 'string' || value.length > 2_000) throw new Error('지원하지 않는 템플릿 변수이거나 값이 너무 깁니다.')

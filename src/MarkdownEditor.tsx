@@ -201,15 +201,23 @@ class SectionFoldToggle extends WidgetType {
 }
 
 class SectionFoldSummary extends WidgetType {
-  constructor(readonly lineCount: number) { super() }
-  eq(other: SectionFoldSummary) { return this.lineCount === other.lineCount }
-  toDOM() {
-    const summary = document.createElement('span')
+  constructor(readonly lineCount: number, readonly position: number, readonly label: string) { super() }
+  eq(other: SectionFoldSummary) { return this.lineCount === other.lineCount && this.position === other.position && this.label === other.label }
+  toDOM(view: EditorView) {
+    const summary = document.createElement('button')
+    summary.type = 'button'
     summary.className = 'cm-section-fold-summary'
-    summary.textContent = `… ${this.lineCount}줄 접힘`
-    summary.setAttribute('aria-hidden', 'true')
+    summary.textContent = `… ${this.lineCount}줄 펼치기`
+    summary.setAttribute('aria-label', `${this.label} ${this.lineCount}줄 펼치기`)
+    summary.setAttribute('aria-expanded', 'false')
+    summary.addEventListener('mousedown', event => event.preventDefault())
+    summary.addEventListener('click', event => {
+      event.preventDefault(); event.stopPropagation()
+      view.dispatch({ effects: toggleSectionFold.of(this.position) })
+    })
     return summary
   }
+  ignoreEvent() { return true }
 }
 
 type SectionHeading = { from: number; contentFrom: number; end: number; level: number; label: string; lineCount: number }
@@ -241,7 +249,7 @@ function sectionFoldDecorations(state: EditorState, folded: ReadonlySet<number>)
     ranges.push({ from: heading.from, to: heading.from, decoration: Decoration.widget({ widget: new SectionFoldToggle(heading.from, heading.label, isFolded), side: -1 }) })
     if (isFolded) {
       hidden.push({ from: heading.contentFrom, to: heading.end })
-      ranges.push({ from: heading.contentFrom, to: heading.end, decoration: Decoration.replace({ widget: new SectionFoldSummary(heading.lineCount), block: true }) })
+      ranges.push({ from: heading.contentFrom, to: heading.end, decoration: Decoration.replace({ widget: new SectionFoldSummary(heading.lineCount, heading.from, heading.label), block: true }) })
     }
   }
   ranges.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide || a.to - b.to)
@@ -300,7 +308,7 @@ function calloutFoldDecorations(state: EditorState, overrides: ReadonlyMap<numbe
     ranges.push({ from: block.from, to: block.from, decoration: Decoration.widget({ widget: new SectionFoldToggle(block.from, block.label, folded), side: -1 }) })
     // Never fold away the line somebody is standing on.
     if (folded && !(active.from >= block.bodyFrom && active.from <= block.to)) {
-      ranges.push({ from: block.bodyFrom, to: block.to, decoration: Decoration.replace({ widget: new SectionFoldSummary(block.lineCount), block: true }) })
+      ranges.push({ from: block.bodyFrom, to: block.to, decoration: Decoration.replace({ widget: new SectionFoldSummary(block.lineCount, block.from, block.label), block: true }) })
     }
   }
   ranges.sort((a, b) => a.from - b.from || a.decoration.startSide - b.decoration.startSide || a.to - b.to)
@@ -790,7 +798,9 @@ function focusSection(view: EditorView, heading: string) {
       anchor = next.to
       if (next.text.trim()) break
     }
-    view.dispatch({ selection: { anchor }, scrollIntoView: true })
+    const folded = view.state.field(sectionFoldState, false)?.folded
+    const effects = sectionHeadings(view.state).filter(section => folded?.has(section.from) && anchor >= section.from && anchor < section.end).map(section => toggleSectionFold.of(section.from))
+    view.dispatch({ effects, selection: { anchor }, scrollIntoView: true })
     view.focus()
     return true
   }
@@ -1102,7 +1112,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     const current = view.state.doc.toString()
     if (current === value) return
     const frontmatter = value.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
-    const anchor = current.length === 0 ? (frontmatter?.[0].length ?? 0) : Math.min(view.state.selection.main.head, value.length)
+    const previousFrontmatterEnd = current.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0].length ?? 0
+    const nextFrontmatterEnd = frontmatter?.[0].length ?? 0
+    // Property updates can grow YAML before the body. Preserve the body-relative cursor,
+    // otherwise the old absolute position lands inside metadata and exposes it as editable prose.
+    const bodyOffset = Math.max(0, view.state.selection.main.head - previousFrontmatterEnd)
+    const anchor = Math.min(nextFrontmatterEnd + bodyOffset, value.length)
     syncingRef.current = true; view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, selection: { anchor } }); syncingRef.current = false
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])

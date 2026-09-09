@@ -205,7 +205,6 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       revisionRef.current = result.snapshot.revision; contentRef.current = result.snapshot.content
       setSnapshot(result.snapshot); setContent(result.snapshot.content); setSaved(true)
       await onReloadNodes()
-      if (patch.readingStatus === 'read') void runModelSuggestions()
     } catch (reason) { onNotify(String(reason), 'error') }
   }
 
@@ -214,7 +213,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
    * note opens; the model pass is explicit because it spends the researcher's own CLI quota.
    */
   async function refreshDigest(useModel: boolean) {
-    if (digesting) return
+    if (digesting || suggesting) return
+    if (useModel && dirtyRef.current && !(await save())) return
     // Asking for a model rewrite without a model configured used to run the free pass and report "nothing to
     // update", which is true and useless. The choice is one click away in the status bar; say so.
     if (useModel) {
@@ -246,9 +246,10 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }, [digestKey, snapshot])
 
   async function runModelSuggestions() {
-    if (node.nodeType !== 'paper' || suggesting) return
+    if (node.nodeType !== 'paper' || suggesting || digesting) return
+    if (dirtyRef.current && !(await save())) return
     const settings = await window.prism.getSettings().catch(() => undefined)
-    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI를 고르면 읽음 표시할 때 관계를 제안합니다.'); return }
+    if (!settings?.knowledgeProvider || !settings.knowledgeModel) { onNotify('아래 상태 표시줄에서 AI 정리 CLI와 모델을 고른 뒤 이 버튼을 누르세요. 이 논문의 연결 후보만 제안합니다.'); return }
     setSuggesting(true); onNotify(`${settings.knowledgeModel}이(가) 이 노트를 읽고 관계와 승격 후보를 제안하는 중입니다.`)
     try {
       const summary = await window.prism.runModelSuggestions(node.id)
@@ -458,7 +459,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
    * keep working in Obsidian; they are simply no longer homework.
    *
    * What is left: status decides what the curation queue, the open-question list and the archive still want
-   * from a note, reading status starts the model's relation suggestions, and a claim's origin and scope are
+   * from a note, reading status tracks progress without an AI call, and a claim's origin and scope are
    * what the contradiction guard and the model read before saying two claims disagree.
    */
   const properties: Array<{ key: string; label: string; value: React.ReactNode }> = [
@@ -481,15 +482,19 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <span className={`note-save ${saved ? 'is-saved' : ''}`} role="status">{saved ? '저장됨' : '저장 중…'}</span>
         {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
+        {/^## 메모\s*$/m.test(content) && <button className="ghost" title="저장한 메모와 AI 답변이 있는 구간으로 이동합니다" onClick={() => editorRef.current?.focusSection('메모')}><PenLine size={13} /> 메모 보기</button>}
         <button className="ghost" title="본문에 다른 노트 링크를 넣습니다" onClick={() => setPicker({ kind: 'link', query: '' })}><Link2 size={13} /> 링크</button>
+        {node.nodeType === 'question'
+          ? <button className="ghost" title="이 질문에 답하는 논문이나 주장을 연결합니다" onClick={() => setPicker({ kind: 'answer', query: '' })}><Link2 size={13} /> 답 연결</button>
+          : availableRelationTypes.length > 0 && <button className="ghost" title="정의·지지·반박처럼 연결의 의미를 지정합니다" onClick={() => openRelationPicker()}><Link2 size={13} /> 관계</button>}
         <button className="ghost" title="PDF 문장·수식·표·피겨를 근거 카드로 넣습니다" onClick={() => setPicker({ kind: 'evidence', query: '' })}><Plus size={13} /> 근거</button>
         <div className="note-doc-menu">
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
             <button role="menuitem" onClick={() => { setMenuOpen(false); void window.prism.openKnowledgeNodeInObsidian({ nodeId: node.id }).catch((reason) => onNotify(String(reason), 'error')) }}><ExternalLink size={12} /> Obsidian에서 열기</button>
-            <button role="menuitem" disabled={digesting} onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>
+            <button role="menuitem" disabled={digesting || suggesting} title="선택한 AI 모델로 이 노트의 자동 구간만 갱신합니다. CLI 사용량이 소모됩니다." onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>
             <button role="menuitem" title="내용이 하나도 없는 제목만 지웁니다" onClick={() => { setMenuOpen(false); void pruneSections() }}><Trash2 size={12} /> 빈 양식 섹션 정리</button>
-            {node.nodeType === 'paper' && <button role="menuitem" disabled={suggesting} onClick={() => { setMenuOpen(false); void runModelSuggestions() }}><Sparkles size={12} /> {suggesting ? '제안 중…' : '모델에게 관계 제안 받기'}</button>}
+            {node.nodeType === 'paper' && <button role="menuitem" disabled={suggesting || digesting} title="선택한 AI 모델로 이 논문의 관계 후보를 제안합니다. CLI 사용량이 소모됩니다." onClick={() => { setMenuOpen(false); void runModelSuggestions() }}><Sparkles size={12} /> {suggesting ? '제안 중…' : 'AI로 이 논문 연결 제안'}</button>}
             {nodeTemplates.map((template) => <button key={template.id} role="menuitem" onClick={() => void applyTemplateSections(template.id)}>양식 적용 · {template.name}</button>)}
             <button role="menuitem" className={deleteReady ? 'danger' : ''} onClick={() => void removeNode()}><Trash2 size={12} /> {deleteReady ? '삭제 확인' : '휴지통으로 보내기'}</button>
           </div>}
@@ -519,7 +524,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
               {pending.length > 0 && <tr className="prop-pending"><td>검토 대기</td><td>
                 {pending.map((item) => <span key={item.id} className="rel-chip is-pending"><button onClick={() => onOpenNode(item.other.id)}>{relationLabels[item.type]} · {item.other.title}</button>{item.direction === 'outgoing' && <><button className="rel-approve" aria-label={`${item.other.title} 관계 승인`} onClick={() => void reviewRelation(item, 'approved')}><Check size={10} /></button><button className="rel-remove" aria-label={`${item.other.title} 관계 거절`} onClick={() => void reviewRelation(item, 'rejected')}><X size={10} /></button></>}</span>)}
               </td></tr>}
-              <tr className="prop-add"><td /><td><button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button>{node.nodeType === 'question' && <button onClick={() => setPicker({ kind: 'answer', query: '' })}><Plus size={11} /> 답 연결</button>}</td></tr>
+              <tr className="prop-add"><td /><td>{availableRelationTypes.length > 0 && <button onClick={() => openRelationPicker()}><Plus size={11} /> 관계 추가</button>}{node.nodeType === 'question' && <button onClick={() => setPicker({ kind: 'answer', query: '' })}><Plus size={11} /> 답 연결</button>}</td></tr>
             </tbody>
           </table>
         </details>
@@ -530,7 +535,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             liveEdit label={`${node.title} 본문`} wikiLinks={wikiLinks} evidenceLinks={evidenceLinks}
             onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
-          <p className="note-hint">{mineSections.map((section) => <button key={section} className="note-write-mine" title={`${minePrompts[section]} — 자동 기록이 절대 건드리지 않는 칸입니다`} onClick={() => void openMineSection(section)}><PenLine size={11} /> {mineHeadings[section]}</button>)}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting} title={node.nodeType === 'paper' ? '초록과 이 논문에 대한 대화를 다시 읽어 자동 구간을 갱신합니다' : '이 노트를 가리키는 노트와 대화를 다시 읽어 자동 구간을 갱신합니다'} onClick={() => void refreshDigest(true)}><Sparkles size={11} /> 자동 정리 갱신</button></p>
+          <p className="note-hint">{mineSections.map((section) => <button key={section} className="note-write-mine" title={`${minePrompts[section]} — 자동 기록이 절대 건드리지 않는 칸입니다`} onClick={() => void openMineSection(section)}><PenLine size={11} /> {mineHeadings[section]}</button>)}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting || suggesting} title="선택한 AI 모델로 이 노트의 자동 구간만 갱신합니다. CLI 사용량이 소모됩니다." onClick={() => void refreshDigest(true)}><Sparkles size={11} /> {digesting ? '정리 중…' : 'AI로 이 노트 정리'}</button></p>
         </div> : <p className="note-loading">노트를 불러오는 중…</p>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>
@@ -567,6 +572,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <button aria-label="선택 닫기" onClick={() => setPicker(undefined)}><X size={13} /></button>
       </header>
       {picker.kind === 'relation' && <nav className="picker-types" aria-label="관계 유형">{availableRelationTypes.map((type) => <button key={type} className={picker.type === type ? 'active' : ''} aria-pressed={picker.type === type} onClick={() => setPicker({ ...picker, type })}>{relationLabels[type]}</button>)}</nav>}
+      {picker.kind === 'relation' && <p className="picker-direction">이 노트 → {relationLabels[picker.type]} → 아래에서 선택할 노트</p>}
+      {picker.kind === 'link' && <p className="picker-direction">본문에 노트 링크를 넣습니다. 지지·반박 같은 의미를 정하려면 ‘관계’를 사용하세요.</p>}
       {picker.kind === 'evidence-claim' && <nav className="picker-types" aria-label="근거 관계 유형">{(['supports', 'contradicts', 'extends'] as const).map((type) => <button key={type} className={picker.type === type ? 'active' : ''} aria-pressed={picker.type === type} onClick={() => setPicker({ ...picker, type })}>{relationLabels[type]}</button>)}</nav>}
       <div className="picker-list">
         {picker.kind === 'evidence'

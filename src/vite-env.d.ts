@@ -4,7 +4,7 @@ type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; installed: boolean; available: boolean; status: string; models: ProviderModel[] }
 type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
-type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[] }
+type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[]; primaryPaperId?: string; provider?: ProviderId; model?: string }
 type PaperDigestResult = { updated: boolean; chatMessages: number; sections: Array<'overview' | 'confusion' | 'focus'>; usedModel: boolean }
 // 컨텍스트 점유량은 "직전 요청이 실제로 보낸 대화 전체" 다. 턴마다 쌓이는 누적 토큰과는 다른 값이라
 // 누적치로 계산하면 대화가 길어질수록 잔량을 과대하게 깎아 보여준다.
@@ -46,7 +46,7 @@ type PromoteApplyRequest = { nodeId: string; line: string; title: string }
 type CurationConflict = { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord; claim?: KnowledgeNodeRecord }
 type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; applyNotes: CurationApplyNote[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; conflicts: CurationConflict[]; conceptSuggestions: CurationConceptSuggestion[]; claimSuggestions: CurationClaimSuggestion[]; modelRuns: ModelSuggestionSummary[]; total: number }
 type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; nodeType: 'claim' | 'question'; title: string }
-type CitationEntry = { arxivId?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
+type CitationEntry = { arxivId?: string; doi?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
 type CitationLinks = { arxivId: string; fetchedAt: string; references: CitationEntry[]; citations: CitationEntry[]; stale: boolean; error?: string }
 type MergeConceptsRequest = { sourceId: string; targetId: string }
 type StructureRole = 'problem' | 'background' | 'method' | 'component' | 'rationale' | 'experiment' | 'result' | 'limit'
@@ -122,6 +122,7 @@ interface Window {
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
     readPaperFigures: (arxivId: string) => Promise<PaperFigureAsset[]>
     openNotes: () => Promise<boolean>
+    setAppearance: (theme: 'light' | 'dark') => Promise<void>
     openPaperInReader: (arxivId?: string) => Promise<boolean>
     onOpenPaperInReader: (callback: (arxivId: string) => void) => () => void
     capturePaperNote: (request: PaperCaptureRequest) => Promise<PaperCaptureResult>
@@ -174,7 +175,7 @@ interface Window {
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
-    startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => Promise<{ started: boolean }>
+    startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean; pages?: number[] }) => Promise<{ started: boolean }>
     cancelTranslation: (arxivId: string) => Promise<boolean>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>

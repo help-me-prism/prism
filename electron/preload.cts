@@ -7,6 +7,7 @@ function subscribe(channel: string, callback: (payload: unknown) => void) {
 }
 
 contextBridge.exposeInMainWorld('prism', {
+  setAppearance: (theme: unknown) => ipcRenderer.invoke('appearance:set', theme),
   listProviders: () => ipcRenderer.invoke('providers:list'),
   loginProvider: (provider: unknown) => ipcRenderer.invoke('provider:login', provider),
   logoutProvider: (provider: unknown) => ipcRenderer.invoke('provider:logout', provider),
