@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { placePaperBlocks, type PaperRect } from './paperLayout'
 
 export default function PaperTranslationLayout({ items, sourceWidth, sourceHeight, fontScale = 1 }: {
-  items: Array<{ id: string; rect: PaperRect; kind: string; fontSize?: number; firstLineIndent?: number; content: ReactNode }>;
+  items: Array<{ id: string; rect: PaperRect; kind: string; fontSize?: number; lineHeight?: number; firstLineIndent?: number; content: ReactNode }>;
   sourceWidth: number; sourceHeight: number; fontScale?: number;
 }) {
   const root = useRef<HTMLDivElement>(null)
@@ -29,7 +29,7 @@ export default function PaperTranslationLayout({ items, sourceWidth, sourceHeigh
   }, [items, sourceWidth, sourceHeight, fontScale])
   return <div ref={root} className="paper-translation-layout" style={{ height: layout.height, fontSize: 10 * layout.ratio * fontScale }}>
     {items.map((item, index) => <section key={item.id} className={`paper-layout-block reading-block ${item.kind}`} style={{
-      fontSize: (item.fontSize ?? 10) * layout.ratio * fontScale, textIndent: (item.firstLineIndent ?? 0) * layout.ratio, left: `${item.rect.left / sourceWidth * 100}%`, width: `${item.rect.width / sourceWidth * 100}%`, top: layout.tops[index] ?? item.rect.top,
+      fontSize: (item.fontSize ?? 10) * layout.ratio * fontScale, lineHeight: item.lineHeight, textIndent: (item.firstLineIndent ?? 0) * layout.ratio, left: `${item.rect.left / sourceWidth * 100}%`, width: `${item.rect.width / sourceWidth * 100}%`, top: layout.tops[index] ?? item.rect.top,
     }}>{item.content}</section>)}
   </div>
 }

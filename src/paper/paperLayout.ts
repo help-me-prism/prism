@@ -1,5 +1,38 @@
 export type PaperRect = { left: number; top: number; width: number; height: number }
 
+/** Recover regular prose leading from ink bands, excluding raised/small glyphs.
+ * Ambiguous columns, mixed sizes or paragraph gaps retain the CSS fallback. */
+export function sourceParagraphLineHeight(rects: Array<PaperRect & { fontSize?: number }>, renderedFontSize: number): number | undefined {
+  if (!(renderedFontSize > 0) || !Number.isFinite(renderedFontSize) || rects.some(rect => ![rect.left, rect.top, rect.width, rect.height, rect.fontSize].every(value => typeof value === 'number' && Number.isFinite(value)) || rect.width <= 0 || rect.height <= 0)) return undefined
+  const sizes = rects.map(rect => rect.fontSize!).sort((a, b) => a - b)
+  const em = sizes[Math.floor(sizes.length / 2)]
+  if (!(em > 0)) return undefined
+  const body = rects.filter(rect => Math.abs(rect.fontSize! - em) <= em * .1 && rect.height >= em * .65)
+  if (body.length < rects.length * .75) return undefined
+  const lines: Array<{ top: number; representativeTop: number; representativeWidth: number; left: number; right: number }> = []
+  for (const rect of [...body].sort((a, b) => a.top - b.top || a.left - b.left)) {
+    const line = lines.find(line => Math.abs(line.top - rect.top) < em * .35)
+    if (line) {
+      line.left = Math.min(line.left, rect.left); line.right = Math.max(line.right, rect.left + rect.width)
+      if (rect.width > line.representativeWidth) { line.representativeTop = rect.top; line.representativeWidth = rect.width }
+    } else lines.push({ top: rect.top, representativeTop: rect.top, representativeWidth: rect.width, left: rect.left, right: rect.left + rect.width })
+  }
+  if (lines.length < 3) return undefined
+  // Subsequent lines must establish one column, not alternate between columns.
+  const continuationLeft = lines[1].left
+  if (lines.slice(1).some(line => Math.abs(line.left - continuationLeft) > em * .25)
+    || Math.abs(lines[0].left - continuationLeft) > em * 3) return undefined
+  // A short rho/subscript run can have a lower ink top with the same nominal
+  // font size. The widest prose run establishes each line's representative top.
+  const tops = lines.map(line => line.representativeTop)
+  const pitches = tops.slice(1).map((top, index) => top - tops[index])
+  const pitch = [...pitches].sort((a, b) => a - b)[Math.floor(pitches.length / 2)]
+  if (pitch < em * 1.05 || pitch > em * 1.8 || pitches.some(value => Math.abs(value - pitch) > em * .12)) return undefined
+  // Korean needs breathing room even when the Latin source has tight leading.
+  // Preserve unusually tall actual ink as well; never squeeze symbols to fit.
+  return Math.max(1.35, pitch / renderedFontSize, Math.max(...body.map(rect => rect.height)) / renderedFontSize + .15)
+}
+
 /** Infer only a conventional paragraph indent, never a partial sentence's offset. */
 export function sourceParagraphIndent(rects: Array<PaperRect & { fontSize?: number }>) {
   const valid = rects.filter(rect => rect.width > 0 && rect.height > 0)

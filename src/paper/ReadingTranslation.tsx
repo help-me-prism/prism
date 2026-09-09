@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
 import PaperTranslationLayout from './PaperTranslationLayout'
 import FlowProseExcerpt from './FlowProseExcerpt'
-import { clearCropBoundary, sourceParagraphIndent } from './paperLayout'
+import { clearCropBoundary, sourceParagraphIndent, sourceParagraphLineHeight } from './paperLayout'
 import { groupReadingSegments } from './readingBlocks'
 import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices, mayMaskExcerpt } from './excerptGeometry'
 import { unsafeParagraphIds } from '../../electron/translationScope'
@@ -93,7 +93,9 @@ export default function ReadingTranslation({ segments, translation, source, read
         ? sourceParagraphIndent(block.items.flatMap(rectangles)) : 0
       const glyphHeights = block.items.flatMap(rectangles).map(box => box.fontSize ?? box.height).filter(height => height > 0).sort((a, b) => a - b)
       const fontSize = (glyphHeights[Math.floor(glyphHeights.length / 2)] ?? 10) * 1.08
-      return [{ id: block.id, rect, kind, fontSize, firstLineIndent, content: preserved
+      const lineHeight = !preserved && kind === 'text' && startsParagraph && block.items.every(segment => segment.preciseRects?.length)
+        ? sourceParagraphLineHeight(block.items.flatMap(rectangles), fontSize) : undefined
+      return [{ id: block.id, rect, kind, fontSize, lineHeight, firstLineIndent, content: preserved
         ? <button data-anchor={block.items[0].id} className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button>
         : text(block.items) }]
     })

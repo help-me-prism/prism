@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { transformWithOxc } from 'vite'
 const { code } = await transformWithOxc(await fs.readFile('src/paper/paperLayout.ts', 'utf8'), 'src/paper/paperLayout.ts')
-const { placePaperBlocks, clearCropBoundary, sourceParagraphIndent } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+const { placePaperBlocks, clearCropBoundary, sourceParagraphIndent, sourceParagraphLineHeight } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 const rect = (left,top,width,height) => ({left,top,width,height})
 const blocks = [rect(40,40,240,80), rect(320,40,240,80), rect(40,140,240,50), rect(40,220,520,100), rect(40,340,240,40),rect(320,340,240,40)]
 const positions = placePaperBlocks(blocks,[160,80,70,100,40,40],1)
@@ -44,3 +44,20 @@ const scientific = JSON.parse(await fs.readFile('scripts/fixtures/engineering-te
 const densityRects = scientific.density.filter(item => item.height > 0).map(item => rect(item.transform[4], 800 - item.transform[5], item.width, item.height))
 assert.equal(sourceParagraphIndent(densityRects), 0, 'Actual p4 continuation paragraph stays flush left')
 console.log('Source paragraph indentation passed: scaled geometry, stable edges, scientific glyphs and actual engineering continuations.')
+
+const sourceLines = scientific.density.slice(0, 4).map(item => ({ ...rect(item.transform[4], 800 - item.transform[5], item.width, item.height), fontSize: item.height }))
+const leading = sourceParagraphLineHeight(sourceLines, 10.8)
+const actualProse = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p4-prose-leading.json', 'utf8'))
+assert.equal(sourceParagraphLineHeight(actualProse.rects, 10.8), 1.35, 'Actual precise glyph rectangles including rho/subscript must retain the body line pitch')
+assert.equal(leading, 1.35, 'Actual p4 ~13pt source leading uses the Korean safety floor instead of fixed 15.984pt leading')
+assert(leading * 10.8 < 1.48 * 10.8 && leading * 10.8 >= 13.039)
+const scaledLines = sourceLines.map(line => Object.fromEntries(Object.entries(line).map(([key, value]) => [key, value * .5])))
+assert.equal(sourceParagraphLineHeight(scaledLines, 5.4), leading, 'PDF fit/zoom must not change relative leading')
+assert.equal(sourceParagraphLineHeight([...sourceLines, { ...rect(380, sourceLines[1].top + 1, 4, 5), fontSize: 5.33 }], 10.8), leading, 'A raised/subscript glyph cannot become its own line')
+assert.equal(sourceParagraphLineHeight(sourceLines.slice(0, 2), 10.8), undefined)
+assert.equal(sourceParagraphLineHeight(sourceLines.map((line, index) => index === 2 ? { ...line, top: line.top + 5 } : line), 10.8), undefined, 'Irregular paragraph/equation gaps do not establish leading')
+assert.equal(sourceParagraphLineHeight(sourceLines.map((line, index) => index === 2 ? { ...line, left: line.left + 220 } : line), 10.8), undefined, 'Alternating columns cannot establish leading')
+assert.equal(sourceParagraphLineHeight(sourceLines.map((line, index) => index > 1 ? { ...line, fontSize: 16 } : line), 10.8), undefined, 'Mixed heading/body sizes retain fallback')
+assert.equal(sourceParagraphLineHeight(preciseExcerpt.rects, 10.8), undefined, 'Actual p11 sentence begins halfway across a line; do not infer paragraph leading')
+assert.equal(sourceParagraphLineHeight([{ ...sourceLines[0], top: NaN }, ...sourceLines.slice(1)], 10.8), undefined)
+console.log('Source leading passed: actual engineering pitch, Korean safety floor, scaling, raised symbols and ambiguous-layout fallback.')

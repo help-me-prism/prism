@@ -1,0 +1,66 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 4,
+    "license": "CC BY",
+    "description": "Actual validated PDF glyph rectangles, density paragraph including rho and subscript"
+  },
+  "rects": [
+    {
+      "left": 199.38699340820312,
+      "top": 168.4749755859375,
+      "width": 363.68398345947264,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 199.38699340820312,
+      "top": 181.45697569847107,
+      "width": 247.65000595092772,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 447.81299209594727,
+      "top": 181.45697569847107,
+      "width": 129.0770173645019,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 199.38699340820307,
+      "top": 194.49597454071045,
+      "width": 134.73099960327153,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 334.8819980621338,
+      "top": 194.49597454071045,
+      "width": 240.7270140838623,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 199.38699340820307,
+      "top": 207.47897481918335,
+      "width": 164.2650038909913,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 362.94299697875977,
+      "top": 209.97897481918335,
+      "width": 6.875,
+      "height": 7.5,
+      "fontSize": 10
+    },
+    {
+      "left": 368.4882569909096,
+      "top": 207.47998046875,
+      "width": 137.89975402593615,
+      "height": 9.560661733150482,
+      "fontSize": 6.6659
+    }
+  ]
+}
