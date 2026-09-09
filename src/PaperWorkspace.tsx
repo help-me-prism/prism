@@ -394,6 +394,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
   const navigationTarget = useRef<ReadingPosition | undefined>(undefined)
+  const explicitAnchorTarget = useRef<ContextAnchor | undefined>(undefined)
   const navigationTimer = useRef<number | undefined>(undefined)
   const lastReadingPosition = useRef<ReadingPosition | undefined>(undefined)
   const positionSaveTimer = useRef<number | undefined>(undefined)
@@ -465,6 +466,13 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   }, [command?.id])
   useEffect(() => {
     if (!pendingAnchor || pendingAnchor.paperId !== activeId || !pdf) return
+    // Explicit source navigation owns layout/resize scrolls until the reader takes over.
+    // An old page restoration timer must not replay after the source pane is opened.
+    explicitAnchorTarget.current = pendingAnchor
+    navigationTarget.current = undefined
+    window.clearTimeout(navigationTimer.current)
+    window.clearTimeout(positionSaveTimer.current)
+    setPendingTranslationPage(undefined)
     const sourceGroup = groupHolding(layout, 'original')
     if (!sourceGroup) { openPane('original'); return }
     if (sourceGroup.active !== 'original') { applyLayout(activateKind(layout, 'original')); return }
@@ -475,10 +483,11 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
       let waitForTarget = allSegments.some(segment => segment.id === anchor.anchorId)
       if (/^(figure-p|source-)/.test(anchor.anchorId)) {
         const saved = await window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).catch(() => undefined)
-        if (cancelled) return
+        if (cancelled || explicitAnchorTarget.current !== anchor) return
         if (saved?.rect && saved.page === anchor.page) { waitForTarget = true; setFocusedFigure({ paperId: anchor.paperId, page: anchor.page, anchorId: anchor.anchorId, rect: saved.rect }) }
       }
       const pageSelector = `[data-page="original-${anchor.page}"]`
+      if (explicitAnchorTarget.current !== anchor) return
       window.document.querySelector(pageSelector)?.scrollIntoView({ block: 'center' })
       const deadline = performance.now() + 3000
       function center() {
@@ -486,7 +495,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
         const page = window.document.querySelector(pageSelector)
         const target = page?.querySelector(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`)
         if ((!page?.classList.contains('rendered') || (waitForTarget && !target)) && performance.now() < deadline) { timer = window.setTimeout(center, 50); return }
-        ;(target ?? page)?.scrollIntoView({ block: 'center' })
+        centerExplicitAnchor()
         setPendingAnchor(undefined)
       }
       timer = window.setTimeout(center, 50)
@@ -504,6 +513,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
 
   useEffect(() => {
     if (!activePaper) { setPdf(undefined); return }
+    if (explicitAnchorTarget.current?.paperId !== activePaper.arxivId) explicitAnchorTarget.current = undefined
     const remembered = readReadingPosition(activePaper.pdfPath)
     lastReadingPane.current = null; lastReadingPosition.current = remembered; navigationTarget.current = remembered
     window.clearTimeout(navigationTimer.current)
@@ -607,7 +617,25 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   }
   const lastReadingPane = useRef<HTMLDivElement | null>(null)
   const syncedScrollPositions = useRef(new WeakMap<HTMLDivElement, number>())
+  function centerExplicitAnchor() {
+    const anchor = explicitAnchorTarget.current
+    const pane = sourceScrollRef.current
+    if (!anchor || anchor.paperId !== activeIdRef.current || !pane?.clientWidth) return
+    const page = pane.querySelector<HTMLElement>(`[data-page="original-${anchor.page}"]`)
+    if (!page?.classList.contains('rendered')) return
+    const target = page.querySelector<HTMLElement>(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`) ?? page
+    const bounds = target.getBoundingClientRect(); const viewport = pane.getBoundingClientRect()
+    pane.scrollTop += (bounds.top + bounds.bottom) / 2 - (viewport.top + pane.clientTop + pane.clientHeight / 2)
+    syncedScrollPositions.current.set(pane, pane.scrollTop)
+    paneWidths.current.set(pane, pane.clientWidth)
+    lastReadingPane.current = pane
+    lastReadingPosition.current = { ...scrollAnchor(pane), page: anchor.page }
+    setPageNumber(anchor.page)
+    if (bothDocumentsOpen && syncScrollEnabled) syncScroll(pane, translatedScrollRef.current)
+    if (activePaper) saveReadingPosition(activePaper.pdfPath, lastReadingPosition.current)
+  }
   function readingScroll(pane: HTMLDivElement, other: HTMLDivElement | null) {
+    if (explicitAnchorTarget.current?.paperId === activeIdRef.current) return
     // Layout can dispatch scroll before ResizeObserver sees the changed width.
     // Do not replace the last reading anchor with a position from that interim layout.
     const previousWidth = paneWidths.current.get(pane)
@@ -631,6 +659,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const panes = [sourceScrollRef.current, translatedScrollRef.current].filter((pane): pane is HTMLDivElement => Boolean(pane))
     const measure = () => {
       const resized = panes.some(pane => { const previous = paneWidths.current.get(pane); paneWidths.current.set(pane, pane.clientWidth); return previous !== undefined && previous !== pane.clientWidth })
+      if (explicitAnchorTarget.current?.paperId === activeIdRef.current) { centerExplicitAnchor(); return }
       if (resized && !navigationTarget.current && lastReadingPosition.current) navigationTarget.current = lastReadingPosition.current
       if (navigationTarget.current) { restoreNavigation(); return }
       const pane = lastReadingPane.current?.clientWidth ? lastReadingPane.current : panes.find(item => item.clientWidth > 0)
@@ -639,9 +668,10 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const observer = new ResizeObserver(measure)
     for (const pane of panes) { observer.observe(pane); pane.querySelectorAll('.continuous-page').forEach(page => observer.observe(page)) }
     measure()
-    const interrupt = () => { navigationTarget.current = undefined; window.clearTimeout(navigationTimer.current) }
-    for (const pane of panes) { pane.addEventListener('wheel', interrupt, { passive: true }); pane.addEventListener('pointerdown', interrupt) }
-    return () => { observer.disconnect(); for (const pane of panes) { pane.removeEventListener('wheel', interrupt); pane.removeEventListener('pointerdown', interrupt) } }
+    const interrupt = () => { explicitAnchorTarget.current = undefined; navigationTarget.current = undefined; window.clearTimeout(navigationTimer.current) }
+    const keyInterrupt = (event: KeyboardEvent) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) interrupt() }
+    for (const pane of panes) { pane.addEventListener('wheel', interrupt, { passive: true }); pane.addEventListener('pointerdown', interrupt); pane.addEventListener('keydown', keyInterrupt) }
+    return () => { observer.disconnect(); for (const pane of panes) { pane.removeEventListener('wheel', interrupt); pane.removeEventListener('pointerdown', interrupt); pane.removeEventListener('keydown', keyInterrupt) } }
   }, [pdf, layout])
   function restoreScrollAnchor(pane: HTMLDivElement | null, anchor: ReadingPosition) {
     if (!pane?.clientWidth) return
@@ -661,22 +691,31 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     pane.scrollTop = Math.max(0, current.offsetTop + span * anchor.progress - pane.clientHeight * .28)
   }
   function scrollToPage(targetPage: number) {
+    explicitAnchorTarget.current = undefined
     navigationTarget.current = { page: Math.max(1, Math.min(pdf?.numPages ?? targetPage, targetPage)), progress: 0, align: 'top' }
     if (activePaper) saveReadingPosition(activePaper.pdfPath, navigationTarget.current)
     restoreNavigation()
   }
   function restoreNavigation() {
+    if (explicitAnchorTarget.current?.paperId === activeIdRef.current) { centerExplicitAnchor(); return }
     const target = navigationTarget.current
     if (!target) return
     syncLock.current = true
     for (const pane of [sourceScrollRef.current, translatedScrollRef.current]) if (pane) { restoreScrollAnchor(pane, target); syncedScrollPositions.current.set(pane, pane.scrollTop) }
     setPageNumber(target.page)
     window.clearTimeout(navigationTimer.current)
-    navigationTimer.current = window.setTimeout(() => { lastReadingPosition.current = target; if (navigationTarget.current === target) navigationTarget.current = undefined }, 750)
+    navigationTimer.current = window.setTimeout(() => {
+      if (navigationTarget.current !== target) return
+      lastReadingPosition.current = target; navigationTarget.current = undefined
+    }, 750)
     requestAnimationFrame(() => { syncLock.current = false })
   }
   function queueReadingPosition() {
-    navigationTarget.current = lastReadingPosition.current ?? { page: pageNumber, progress: 0, align: 'top' }
+    explicitAnchorTarget.current = undefined
+    // A just-submitted page jump is already authoritative even while its reflow settles.
+    // Format/layout changes must carry that target forward, not revive the previous page.
+    navigationTarget.current = navigationTarget.current ?? lastReadingPosition.current ?? { page: pageNumber, progress: 0, align: 'top' }
+    window.clearTimeout(navigationTimer.current)
     setPendingTranslationPage(navigationTarget.current.page)
   }
   useEffect(() => {
@@ -690,7 +729,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   function setPaneZoom(mode: 'original' | 'translated', value: number) {
     if (mode === 'original' || syncZoomEnabled) setSourceFit(false)
     const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
-    zoomAnchorRef.current = scrollAnchor(activePane)
+    zoomAnchorRef.current = navigationTarget.current ?? scrollAnchor(activePane)
     if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value)
   }
   function changeZoom(mode: 'original' | 'translated', direction: -1 | 1) { const current = mode === 'original' ? sourceScale : translatedScale; const target = direction > 0 ? zoomLevels.find((value) => value > current + .001) : [...zoomLevels].reverse().find((value) => value < current - .001); if (target) setPaneZoom(mode, target) }
