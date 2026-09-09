@@ -15,3 +15,6 @@ const changedParagraph=groupReadingSegments([{id:'a',kind:'text',blockId:'first'
 assert.equal(changedParagraph.length,2)
 assert.deepEqual(groupReadingSegments([]),[])
 console.log('Reading blocks passed: actual engineering p11 protected sentence stays between surrounding prose, without missing/duplicate content.')
+
+const partial=groupReadingSegments([{id:'ok1',kind:'text',blockId:'p'},{id:'bad',kind:'text',blockId:'p'},{id:'ok2',kind:'text',blockId:'p'}],new Set(),item=>item.id==='bad'?'source':'translated')
+assert.deepEqual(partial.map(group=>group.items.map(item=>item.id)),[['ok1'],['bad'],['ok2']], 'A single failed sentence must not hide accepted neighboring translations')

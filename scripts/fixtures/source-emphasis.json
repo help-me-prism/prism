@@ -1,0 +1,65 @@
+{
+  "provenance": "Actual PDF.js 6.3.289 commonObjs font names after getOperatorList; engineering PLOS ONE doi:10.1371/journal.pone.0287690 p3 and biology corpus p3. Text styles contained generic fallback families only.",
+  "samples": [
+    {
+      "label": "local-6f1c8cd4d2e4ef2b696770a8 p3: 2. Preparation and performance test of FC reinforced fiber",
+      "fonts": {
+        "g_d0_f1": {
+          "name": "Helvetica-Bold"
+        }
+      },
+      "items": [
+        {
+          "str": "2. Preparation and performance test of FC reinforced fiber",
+          "fontName": "g_d0_f1"
+        }
+      ],
+      "expected": 700
+    },
+    {
+      "label": "local-6f1c8cd4d2e4ef2b696770a8 p3: 2.1 Preparation of FC reinforced fiber specimens",
+      "fonts": {
+        "g_d0_f2": {
+          "name": "MinionPro-Bold"
+        }
+      },
+      "items": [
+        {
+          "str": "2.1 Preparation of FC reinforced fiber specimens",
+          "fontName": "g_d0_f2"
+        }
+      ],
+      "expected": 700
+    },
+    {
+      "label": "local-6f1c8cd4d2e4ef2b696770a8 p3: In this article, the effect of fibers on the pore structure and thermal conductivity of foam con-",
+      "fonts": {
+        "g_d0_f3": {
+          "name": "MinionPro-Regular"
+        }
+      },
+      "items": [
+        {
+          "str": "In this article, the effect of fibers on the pore structure and thermal conductivity of foam con-",
+          "fontName": "g_d0_f3"
+        }
+      ],
+      "expected": 400
+    },
+    {
+      "label": "local-d7fd44f67735b98bf97f67f3 p3: impressive, the genomic resources for the",
+      "fonts": {
+        "g_d1_f1": {
+          "name": "MinionPro-Regular"
+        }
+      },
+      "items": [
+        {
+          "str": "impressive, the genomic resources for the",
+          "fontName": "g_d1_f1"
+        }
+      ],
+      "expected": 400
+    }
+  ]
+}

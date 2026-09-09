@@ -1,4 +1,23 @@
 type InputSegment = { id: string; source: string; blockId?: string; paragraphContext?: string; sectionTitle?: string }
+/** Keep long cache anchors out of the model's copy task; identity stays exact. */
+export function prepareTranslationRequest(segments: InputSegment[], adjacentContext = '') {
+  if (new Set(segments.map(segment => segment.id)).size !== segments.length) throw new Error('번역 요청에 중복된 문장 ID가 있습니다.')
+  const originalIds = new Map<string,string>()
+  const items = segments.map((segment, index) => {
+    const id = `t${index}`
+    originalIds.set(id, segment.id)
+    return { ...segment, id }
+  })
+  return { items, originalIds, prompt: buildTranslationPrompt(items, adjacentContext) + '\nCopy each short item id exactly (for example {"id":"t0","translation":"한국어 번역"}). Never change, renumber, or derive an id from context.' }
+}
+
+export function inspectTranslationRequest(output: string, request: ReturnType<typeof prepareTranslationRequest>) {
+  const inspected = inspectTranslationBatch(output, request.items)
+  return {
+    accepted: new Map([...inspected.accepted].map(([id, text]) => [request.originalIds.get(id)!, text])),
+    rejected: inspected.rejected.map(item => ({ ...item, id: request.originalIds.get(item.id)! })),
+  }
+}
 export function buildTranslationPrompt(segments: InputSegment[], adjacentContext = '') {
   const contexts: Record<string, string> = {}; let remaining = 8000
   if (adjacentContext) { contexts.adjacent = adjacentContext.slice(0, 2000); remaining -= contexts.adjacent.length }

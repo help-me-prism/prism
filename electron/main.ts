@@ -25,7 +25,7 @@ import { readPaperStructure, refinePaperStructure } from './paperStructure.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 import { decideCodexServerRequest } from './codexApproval.js'
-import { buildTranslationPrompt, inspectTranslationBatch, reuseTranslations } from './translationHarness.js'
+import { prepareTranslationRequest, inspectTranslationRequest, reuseTranslations } from './translationHarness.js'
 import { withoutBibliography, unsafeParagraphIds } from './translationScope.js'
 import { downloadBytes } from './downloadBytes.js'
 import { searchCrossref } from './scholarlySearch.js'
@@ -44,7 +44,7 @@ type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { me
 type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
-type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type TranslationSegment = { sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 function normalizePdfControls(value: string) {
   return value.replace(/\u000f/g, 'ε').replace(/[\u0000-\u0008\u000b\u000c\u000e\u0010-\u001f\u007f]/g, '')
@@ -928,10 +928,10 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     const first = merged.findIndex(segment => segment.id === input[0].id)
     const last = merged.findIndex(segment => segment.id === input.at(-1)!.id)
     const adjacentContext = 'Before target:\n' + merged.slice(Math.max(0, first - 3), first).map(segment => segment.source).join(' ').slice(-1000) + '\nAfter target:\n' + merged.slice(last + 1, last + 4).map(segment => segment.source).join(' ').slice(0, 900)
-    const prompt = buildTranslationPrompt(input, adjacentContext)
-    const output = await runTranslationCli(settings.translationProvider, settings.translationModel, prompt, jobKey)
+    const request = prepareTranslationRequest(input, adjacentContext)
+    const output = await runTranslationCli(settings.translationProvider, settings.translationModel, request.prompt, jobKey)
     if (run.cancelled) return
-    const checked = inspectTranslationBatch(output, input)
+    const checked = inspectTranslationRequest(output, request)
     const translated = checked.accepted
     checked.rejected.forEach(item => rejectedIds.add(item.id))
     for (const segment of merged) if (translated.has(segment.id)) segment.translation = translated.get(segment.id)

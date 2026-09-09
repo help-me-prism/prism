@@ -73,7 +73,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .flow-page-heading small { color: #747c76; font-size: 10px; }
 .flow-original { margin: 14px 0; color: #65736b; font-size: 11px; }
 .flow-original > canvas { width: 100% !important; height: auto !important; margin-top: 12px; }
-.reading-translation { color: #28332e; font: 1em/1.95 "Noto Serif KR Variable", Georgia, serif; }
+.reading-translation { color: #171717; font: 450 1em/1.95 "Noto Serif KR Variable", Georgia, serif; }
 .reading-block { margin: 0 0 16px; }
 .reading-block.heading { font-family: "Segoe UI", sans-serif; font-size: 1.2em; font-weight: 650; margin-top: 26px; }
 .reading-block.caption { font-size: .8em; line-height: 1.8; color: #566259; }
@@ -89,7 +89,7 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-translation-layout { position: relative; width: 100%; }
 .paper-layout-block { position: absolute; margin: 0 !important; line-height: 1.48; overflow-wrap: anywhere; }
 .paper-layout-block.heading { font-family: inherit; }
-.paper-layout-block.caption { line-height: 1.48; color: #30332f; }
+.paper-layout-block.caption { line-height: 1.48; color: inherit; }
 .paper-layout-block .original-excerpt, .paper-layout-block figure { width: 100%; margin: 0; }
 .paper-layout-block canvas { width: 100% !important; height: auto; }
 .translation-format { min-width: 76px; max-width: 105px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 11px; }

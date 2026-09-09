@@ -1,0 +1,11 @@
+# Source emphasis extraction
+
+2026-09-09. Independent extraction helper; parent owns rendering integration.
+
+Actual engineering PDF page 3 returned `sans-serif` for every `getTextContent().styles` entry. Those generic families cannot preserve weight. After `getOperatorList()`, PDF.js `page.commonObjs.get(item.fontName).name` returned `Helvetica-Bold`, `MinionPro-Bold`, and `MinionPro-Regular` matching the section/body distinction. The `bold` property itself was undefined. Biology page 3 returned `MinionPro-Regular` for body prose. These real metadata/text samples are committed in `scripts/fixtures/source-emphasis.json`; opaque font IDs are only lookup keys, never weight evidence.
+
+`src/paper/sourceEmphasis.ts` resolves this metadata defensively and returns 400/700 only for explicit known evidence. Unknown font names remain unset. It computes dominance by non-whitespace source characters within each segment's existing fractional item slices, rather than counting PDF items. At least 60% of all source characters must have known bold metadata before the whole translated segment becomes bold. Minority inline emphasis is not expanded to the entire sentence; this implementation does not attempt semantic word alignment between English and Korean. Italics, intermediate weights, arbitrary compressed font names, synthetic stroke-based bold and scanned PDFs are outside its coverage.
+
+Integration: collect weights once per page after text extraction, attach `sourceFontWeight: dominantSourceWeight(segment, items, weights)` to each extracted segment, add optional `sourceFontWeight?: 400 | 700` to both renderer/main segment types, and apply it to each translated span. Keep freshly extracted source metadata when restoring cached translations. The existing glyph geometry pipeline also loads operators; PDF.js caches that work. Do not replace unknown weights with 700 merely because the segment was called a heading.
+
+Validation: `node scripts/test-source-emphasis.mjs` passed (real font samples, mixed emphasis, unknown evidence, fractional segments, failed operator/font loading). `npx tsc --noEmit` passed before parent integration. Source metadata inspection is real fixture validation; translated visual rendering still requires the parent's integrated screen pass.

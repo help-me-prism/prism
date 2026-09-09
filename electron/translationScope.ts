@@ -9,7 +9,7 @@ export function withoutBibliography<T extends { source: string; kind: string }>(
   })
 }
 /** Proportional PDF text slices cannot safely locate individual glyph boundaries. */
-export function unsafeParagraphIds<T extends { kind: string; blockId?: string; itemSlices?: Array<{ start: number; end: number }> }>(segments: T[]): Set<string> {
+export function unsafeParagraphIds<T extends { kind: string; blockId?: string; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; itemSlices?: Array<{ start: number; end: number }> }>(segments: T[]): Set<string> {
   const paragraphs = new Map<string, T[]>()
   for (const segment of segments) {
     if (!segment.blockId) continue
@@ -19,6 +19,7 @@ export function unsafeParagraphIds<T extends { kind: string; blockId?: string; i
   return new Set([...paragraphs].filter(([, items]) =>
     items.some(item => item.kind === 'text') && items.some(item => item.kind === 'artifact') &&
     !items.some(item => item.kind === 'equation' || item.kind === 'table') &&
-    items.some(item => item.itemSlices?.some(slice => slice.start > 0 || slice.end < 1))
+    items.some(item => item.itemSlices?.some(slice => slice.start > 0 || slice.end < 1)) &&
+    !items.every(item => item.preciseRects?.length && item.preciseRects.every(rect => [rect.left, rect.top, rect.width, rect.height, rect.fontSize].every(Number.isFinite) && rect.width > 0 && rect.height > 0 && rect.fontSize > 0))
   ).map(([id]) => id))
 }

@@ -1,0 +1,77 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 11,
+    "sourceLicense": "CC BY",
+    "model": "gpt-5.6-luna",
+    "call": "one native page translation",
+    "issue": "s15 hash copied from s16; unknown ID must remain rejected"
+  },
+  "input": [
+    {
+      "id": "p11-s0-jrpa5u",
+      "source": "spherical."
+    },
+    {
+      "id": "p11-s1-942whw",
+      "source": "The closer the pore shape is to a regular sphere, the value of S is close to 1 [30]."
+    },
+    {
+      "id": "p11-s2-txsj6q",
+      "source": "The histograms of the pore shape factor distribution of FRFC are shown in Fig 12."
+    },
+    {
+      "id": "p11-s3-syk2f8",
+      "source": "For one type of FRFC in Fig 12, the proportion is between the number of pore shape factor with the same value and the total number of all pores with different shape factors."
+    },
+    {
+      "id": "p11-s4-1wf2ko4",
+      "source": "The mass fraction s of the fibers in one type of FRFC were 0%, 1%, 1.5%, 2%, respectively."
+    },
+    {
+      "id": "p11-s5-3zrtfj",
+      "source": "Since the FC was mixed with fly ash in this test, an appropriate amount of fly ash had a micro-aggregate effect, which optimized the particle gradation and improved the pore shape."
+    },
+    {
+      "id": "p11-s7-1ysmw7c",
+      "source": "When the mass fraction of GF was 1%, 1.5% and 2%, respectively, the proportions of S in the range of 1~1.2 increased by 29.8%, 32.5%, 20%."
+    },
+    {
+      "id": "p11-s8-1b8xvrm",
+      "source": "When the mass fractions of PVAF were 1%, 1.5% and 2%, respectively, the proportions of S in the range of 1~1.2 increased by 30%, 27.5%, 22.5%."
+    },
+    {
+      "id": "p11-s9-16yfzie",
+      "source": "When the mass fractions of PPF were 1%, 1.5% and 2%, respectively, the proportions of S in the range of 1~1.2 increased by and 57.5%, 45%, 15%."
+    },
+    {
+      "id": "p11-s10-5als29",
+      "source": "It indicated that these three types of fibers played a role in optimizing the roundness value and reducing the occurrence of connected pores."
+    },
+    {
+      "id": "p11-s11-63pck0",
+      "source": "Among them, PPF with 1% mass fraction had the most significant effect on improving the pore shape."
+    },
+    {
+      "id": "p11-s12-102pmot",
+      "source": "3.2.4 Porosity."
+    },
+    {
+      "id": "p11-s13-wp8yvr",
+      "source": "FC is a gas-solid two-phase mixture, the heat transfer between the gas and the solid is achieved by the collision of gas molecules and thermal vibration of atoms (molecules) respectively."
+    },
+    {
+      "id": "p11-s14-8oj483",
+      "source": "Therefore, its heat transfer is the result of the combined effect of the two aforementioned heat transfer methods, while the small amount of heat transfer through thermal radiation is negligible."
+    },
+    {
+      "id": "p11-s15-p3qndn",
+      "source": "In FRFC, the larger the proportion of cementitious base, the larger"
+    },
+    {
+      "id": "p11-s16-15ppxox",
+      "source": "Fig 11. Histograms of pore size distribution of FRFC. (a) GF, (b) PVAF, (c) PPF."
+    }
+  ],
+  "output": "[{\"id\":\"p11-s0-jrpa5u\",\"translation\":\"구형.\"},{\"id\":\"p11-s1-942whw\",\"translation\":\"기공 형상이 정구에 가까울수록 S 값은 1에 가까워진다 [30].\"},{\"id\":\"p11-s2-txsj6q\",\"translation\":\"FRFC의 기공 형상 계수 분포 히스토그램은 Fig 12에 제시되어 있다.\"},{\"id\":\"p11-s3-syk2f8\",\"translation\":\"Fig 12의 한 종류의 FRFC에서 비율은 동일한 값을 갖는 기공 형상 계수의 개수와 서로 다른 형상 계수를 갖는 모든 기공의 총 개수의 비이다.\"},{\"id\":\"p11-s4-1wf2ko4\",\"translation\":\"한 종류의 FRFC에서 섬유의 질량분율 s는 각각 0%, 1%, 1.5%, 2%였다.\"},{\"id\":\"p11-s5-3zrtfj\",\"translation\":\"이 시험에서는 FC를 플라이 애시와 혼합했으므로, 적정량의 플라이 애시는 미세 골재 효과를 나타내 입도 분포를 최적화하고 기공 형상을 개선했다.\"},{\"id\":\"p11-s7-1ysmw7c\",\"translation\":\"GF의 질량분율이 각각 1%, 1.5%, 2%일 때, 1~1.2 범위의 S 비율은 각각 29.8%, 32.5%, 20% 증가했다.\"},{\"id\":\"p11-s8-1b8xvrm\",\"translation\":\"PVAF의 질량분율이 각각 1%, 1.5%, 2%일 때, 1~1.2 범위의 S 비율은 각각 30%, 27.5%, 22.5% 증가했다.\"},{\"id\":\"p11-s9-16yfzie\",\"translation\":\"PPF의 질량분율이 각각 1%, 1.5%, 2%일 때, 1~1.2 범위의 S 비율은 각각 57.5%, 45%, 15% 증가했다.\"},{\"id\":\"p11-s10-5als29\",\"translation\":\"이는 이 세 종류의 섬유가 원형도 값을 최적화하고 연결 기공의 발생을 줄이는 역할을 했음을 나타낸다.\"},{\"id\":\"p11-s11-63pck0\",\"translation\":\"그중 질량분율이 1%인 PPF가 기공 형상 개선에 가장 큰 영향을 미쳤다.\"},{\"id\":\"p11-s12-102pmot\",\"translation\":\"3.2.4 공극률.\"},{\"id\":\"p11-s13-wp8yvr\",\"translation\":\"FC는 기체-고체 2상 혼합물이며, 기체와 고체 사이의 열전달은 각각 기체 분자의 충돌과 원자(분자)의 열진동에 의해 이루어진다.\"},{\"id\":\"p11-s14-8oj483\",\"translation\":\"따라서 열전달은 앞서 언급한 두 가지 열전달 방식의 복합적인 결과이며, 열복사를 통한 소량의 열전달은 무시할 수 있다.\"},{\"id\":\"p11-s15-15ppxox\",\"translation\":\"FRFC에서 결합재 기반의 비율이 클수록 더 크다\"},{\"id\":\"p11-s16-15ppxox\",\"translation\":\"Fig 11. FRFC의 기공 크기 분포 히스토그램. (a) GF, (b) PVAF, (c) PPF.\"}]"
+}

@@ -57,3 +57,15 @@ The parent checked the rebuilt renderer through CDP-driven existing controls (a 
 Fractional PDF slices in mixed prose/protected paragraphs now trigger a full original paragraph fallback. Both the backend translation candidates and renderer sentence counts exclude these unsafe paragraphs; the pane status explains the exclusion. Existing cached translations remain stored, but are not pretended to be displayed. This preserves scientific content at the cost of leaving those paragraphs untranslated. General extraction of exact character positions remains a future parser improvement.
 
 [Final original paragraph](images/original-paragraph-preserved.png) · [Final paper comparison](images/reader-comparison-dark.png). Source paper: Li et al., PLOS ONE, DOI 10.1371/journal.pone.0287690, open access under the article's Creative Commons attribution license.
+
+### Precise glyph native check and real Luna ID corruption
+
+Current precise build offered16 p11 sentences (previous whole-paragraph exclusion offered5). One current-page Luna call started0/16 and then failed with explicit unknown/duplicate sentence ID feedback; no retries. Source-vs-preserved paper view shows complete Compared C, When W and original≥comparator. Screenshot: tmp/ui/precise-p11-native-error.png. Korean prose layout remains unverified because the response was correctly rejected.
+
+Task-scoped CLI rollout proved a model copy error: expected p11-s15-p3qndn but returned p11-s15-15ppxox, copying the following caption's hash. All16 response entries were valid JSON; the caption's ownID was correct. The historical output remains rejected, without positional guessing. Translation requests now send request-local t0..t15 identities and reverse-map only exact validated IDs. Unknown/duplicate/mixed namespaces still fail globally; missing known IDs retain valid neighbors. Real failed-output fixture and short-ID transport regression added. No additional AI spending.
+
+### Short-ID fix: successful native recheck
+
+On the fresh build (PID23372), actual page field click4 → type11 → Return navigated both panes to p11. One specifically authorized16-sentence Luna run completed; cache confirms codex/gpt-5.6-luna,16/16 text/heading/caption translations,1 protected artifact. No retry. Native stacked comparison shows readable Korean prose surrounding the original comparison sentence, complete Compared C and original≥comparator, and no neighboring sentence glyph duplication/clipping. The following former When sentence is now Korean and starts cleanly. Evidence: tmp/ui/precise-p11-korean-comparator.png. The retained original first line starts midcolumn because its original sentence began midway across a source line; this is faithful geometry, although a short explanatory original indicator could make the language switch clearer.
+
+P4 current typography evidence: tmp/ui/precise-p4-fontweight.png (source weight, darker Noto450 Korean, whole equations/table and figure). No new p4 AI call. Exclusive native UI released to knowledge reviewer after capture.
