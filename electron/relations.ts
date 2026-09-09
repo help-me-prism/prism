@@ -128,14 +128,15 @@ export async function createKnowledgeRelation(libraryPath: string, request: Know
   const existing = await records(libraryPath)
   if (existing.some((item) => item.sourceId === request.sourceId && item.targetId === request.targetId && item.type === request.type && sameEvidence(item.evidenceAnchor, request.evidenceAnchor) && item.reviewStatus !== 'rejected')) throw new Error('이미 같은 관계가 있습니다.')
   const relation: KnowledgeRelationRecord = { id: `relation-${randomUUID()}`, sourceId: request.sourceId, targetId: request.targetId, type: request.type, creator: request.creator, reviewStatus: request.creator === 'user' ? 'approved' : 'pending', evidenceAnchor: request.evidenceAnchor, origin: 'manual', createdAt: new Date().toISOString() }
-  // A typed relation says more than the plain link that may already exist for this pair.
-  for (const previous of existing.filter((item) => item.origin === 'link' && item.sourceId === request.sourceId && item.targetId === request.targetId)) {
-    await fs.unlink(path.join(directory(libraryPath), `${previous.id}.json`)).catch(() => undefined)
-  }
   const snapshot = await readKnowledgeNode(libraryPath, source.id)
   if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
   await fs.mkdir(directory(libraryPath), { recursive: true })
   await fs.writeFile(path.join(directory(libraryPath), `${relation.id}.json`), JSON.stringify(relation, null, 2), { encoding: 'utf8', flag: 'wx' })
+  // Retire the derived edge only after validation and successful publication.
+  // A stale revision or failed write must leave the researcher's existing link visible.
+  for (const previous of existing.filter((item) => item.origin === 'link' && item.sourceId === request.sourceId && item.targetId === request.targetId)) {
+    await fs.unlink(path.join(directory(libraryPath), `${previous.id}.json`)).catch(() => undefined)
+  }
   return { saved: true as const, relation, snapshot, relations: await listKnowledgeRelations(libraryPath, source.id) }
 }
 

@@ -12,6 +12,7 @@ import GraphView from './GraphView'
 import TemplateManager from './TemplateManager'
 import { autoSectionLabels, creatableTypes, isStub, treeTypes, typeLabels } from './knowledgeModel'
 import { createContextRequestGate, noteContextSignature } from './contextRequestGate'
+import { linkCreatedNote } from './linkCreatedNote'
 
 type MainView = 'doc' | 'curation' | 'graph'
 const emptyRelations: KnowledgeRelationView[] = []
@@ -52,7 +53,9 @@ export default function NotesWindow() {
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ResearchSearchResult[]>()
   const [collapsed, setCollapsed] = useState<Set<KnowledgeNodeType>>(() => new Set())
-  const [creating, setCreating] = useState<{ nodeType: KnowledgeNodeType; title: string; templateId: string }>()
+  const creationOwner = useMemo(() => ({ libraryPath, activeId }), [libraryPath, activeId])
+  const creationOwnerRef = useRef(creationOwner); creationOwnerRef.current = creationOwner
+  const [creating, setCreating] = useState<{ nodeType: KnowledgeNodeType; title: string; templateId: string; linkPaper?: boolean; paper?: { id: string; title: string; owner: typeof creationOwner } }>()
   const [createBusy, setCreateBusy] = useState(false)
   const createLock = useRef(false)
   const searchRun = useRef(0)
@@ -215,11 +218,27 @@ export default function NotesWindow() {
     if (createLock.current) return
     if (!creating?.title.trim()) { notify('새 노트의 제목을 입력하세요.'); return }
     createLock.current = true; setCreateBusy(true)
+    const destinationVault = libraryPath
+    const paper = creating.paper
     try {
       const result = await window.prism.createKnowledgeNode({ title: creating.title.trim(), nodeType: creating.nodeType, templateId: creating.templateId || undefined })
-      setCreating(undefined); changeQuery(''); await reloadNodes(); openNode(result.id)
+      setCreating(undefined); changeQuery('')
+      let linkError: string | undefined
+      if (creating.linkPaper && paper && ['concept', 'claim', 'question'].includes(creating.nodeType)) {
+        try {
+          const outcome = await linkCreatedNote(result.id, paper.id, () => creationOwnerRef.current === paper.owner,
+            id => window.prism.readKnowledgeNode(id), request => window.prism.createKnowledgeRelation(request))
+          if (outcome === 'stale') linkError = '열린 논문이나 볼트가 바뀌어 연결하지 않았습니다.'
+        } catch (reason) { linkError = String(reason) }
+      }
+      if (creationOwnerRef.current.libraryPath === destinationVault) { await reloadNodes(); if (creationOwnerRef.current.libraryPath === destinationVault) openNode(result.id) }
+      if (linkError) notify(`노트는 만들었습니다. ${linkError} 노트에서 관계를 다시 지정해 주세요.`, 'error')
     } catch (reason) { notify(String(reason), 'error') }
     finally { createLock.current = false; setCreateBusy(false) }
+  }
+  function beginCreate(nodeType: KnowledgeNodeType, title: string) {
+    const paper = active?.nodeType === 'paper' && view === 'doc' && libraryPath ? { id: active.id, title: active.title, owner: creationOwner } : undefined
+    setCreating({ nodeType, title, templateId: '', paper, linkPaper: Boolean(paper) })
   }
   /** Deleting from the tree is one click, so it has to be one click back: the trash entry is kept for undo. */
   async function deleteNode(target: KnowledgeNodeRecord) {
@@ -329,11 +348,12 @@ export default function NotesWindow() {
       </div>
       {query && !searchBusy && !searchResults && <p className="tree-search-status">Enter를 누르면 본문까지 검색합니다.</p>}
       {searchBusy && <p className="tree-search-status" role="status">{searchInvalidated ? '이전 검색을 마무리하는 중… 완료 후 다시 검색해 주세요.' : '노트에서 찾는 중…'}</p>}
-      <button className="tree-new" disabled={!libraryPath || createBusy} onClick={() => setCreating({ nodeType: 'concept', title: query.trim(), templateId: '' })}><FilePlus2 size={12} /> 새 노트</button>
+      <button className="tree-new" disabled={!libraryPath || createBusy} onClick={() => beginCreate('concept', query.trim())}><FilePlus2 size={12} /> 새 노트</button>
 
       {creating && <div className="tree-create">
         <div className="create-types">{creatableTypes.map((type) => <button key={type} className={creating.nodeType === type ? 'active' : ''} aria-pressed={creating.nodeType === type} onClick={() => setCreating({ ...creating, nodeType: type, templateId: '' })}>{typeLabels[type]}</button>)}</div>
         <p className="create-guide" id="create-note-guide">{noteGuides[creating.nodeType].hint}</p>
+        {creating.paper && ['concept', 'claim', 'question'].includes(creating.nodeType) && <label className="create-paper-link"><input type="checkbox" checked={Boolean(creating.linkPaper)} disabled={createBusy || creationOwner !== creating.paper.owner} onChange={event => setCreating({ ...creating, linkPaper: event.target.checked })} /><span>이 논문과 연결 · {creating.paper.title}<small>{creationOwner === creating.paper.owner ? '새 노트에서 논문으로 ‘관련’ 관계를 만듭니다.' : '열린 논문이 바뀌어 연결하지 않습니다.'}</small></span></label>}
         <input autoFocus disabled={createBusy} aria-describedby="create-note-guide" aria-label="새 노트 제목" value={creating.title} placeholder={noteGuides[creating.nodeType].example} onChange={(event) => setCreating({ ...creating, title: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') void createNode(); if (event.key === 'Escape') setCreating(undefined) }} />
         <select aria-label="새 노트 양식" value={creating.templateId} onChange={(event) => setCreating({ ...creating, templateId: event.target.value })}>
           <option value="">기본 양식</option>
@@ -358,7 +378,7 @@ export default function NotesWindow() {
                 </button>
                 {creatableTypes.includes(group.type) && <button
                   className="tree-add" aria-label={`${typeLabels[group.type]} 노트 추가`} title={`${typeLabels[group.type]} 노트 추가`}
-                  onClick={() => { setCollapsed((current) => { const next = new Set(current); next.delete(group.type); return next }); setCreating({ nodeType: group.type, title: query.trim(), templateId: '' }) }}
+                  onClick={() => { setCollapsed((current) => { const next = new Set(current); next.delete(group.type); return next }); beginCreate(group.type, query.trim()) }}
                 ><Plus size={12} /></button>}
               </div>
               {!collapsed.has(group.type) && (group.items.length
@@ -413,7 +433,7 @@ export default function NotesWindow() {
               <div className="blank-actions">
                 {!libraryPath ? <button onClick={() => void chooseLibrary()}><FolderOpen size={15} /> 노트 폴더 선택</button>
                   : <button onClick={() => void window.prism.openPaperInReader()}><BookOpen size={15} /> 논문 읽으며 메모하기</button>}
-                <button disabled={!libraryPath} onClick={() => setCreating({ nodeType: 'concept', title: '', templateId: '' })}><FilePlus2 size={15} /> 개념 노트 만들기</button>
+                <button disabled={!libraryPath} onClick={() => beginCreate('concept', '')}><FilePlus2 size={15} /> 개념 노트 만들기</button>
               </div>
               <ol className="notes-start-steps">
                 <li><strong>읽고 남기기</strong><span>리더에서 문장이나 그림을 선택해 메모와 함께 저장합니다.</span></li>

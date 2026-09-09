@@ -123,6 +123,26 @@ try {
   ])
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
   await reload(); await wait('Boolean(document.querySelector(".document-mode"))')
+  await wait('!document.querySelector(".paper-analysis-status") && Boolean(document.querySelector(".paper-layout-page.rendered .paper-layout-block.text span"))')
+  await evaluate('document.fonts.ready')
+  const settledPane = async (kind, arrangement) => {
+    let previous; let stable = 0
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const snapshot = await evaluate(`(() => {
+        const pane=document.querySelector('[data-pane=${kind}]'), bench=document.querySelector('.pane-workbench');
+        if (!pane || !bench) return null;
+        const r=pane.getBoundingClientRect(), b=bench.getBoundingClientRect();
+        const mode=${JSON.stringify(arrangement)}, expectedWidth=b.width/(mode==='row'?2:1), expectedHeight=b.height/(mode==='col'?2:1)-30;
+        return {width:r.width,height:r.height,benchWidth:b.width,benchHeight:b.height,style:pane.getAttribute('style'),
+          ready:pane.dataset.shown==='true' && document.querySelectorAll('.pane-body[data-shown=true]').length===(mode==='single'?1:2)
+            && !document.querySelector('.paper-analysis-status') && Math.abs(r.width-expectedWidth)<2 && Math.abs(r.height-expectedHeight)<2};
+      })()`)
+      stable = snapshot?.ready && JSON.stringify(snapshot) === JSON.stringify(previous) ? stable + 1 : 0
+      if (stable >= 3) return snapshot
+      previous = snapshot; await sleep(50)
+    }
+    throw new Error(`Pane geometry did not finish ${arrangement}/${kind}: ${JSON.stringify(previous)}`)
+  }
 
   await evaluate('document.querySelector(".comparison-options > summary").click()')
   assert(await evaluate('(() => { const button = document.querySelector(".comparison-options .reader-toolbar-popover button"); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()'), 'Comparison choices must be visible and clickable, not clipped by their parent')
@@ -139,18 +159,17 @@ try {
     const priorPage = await evaluate('document.querySelector(".page-jump input").value')
     const zoomLabel = kind === 'original' ? '원문 배율' : '번역 배율'
     const priorZoom = await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`)
-    const before = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
+    const before = await settledPane(kind, choice === 1 ? 'row' : 'col')
     await evaluate(`document.querySelector('.document-mode > button:nth-child(${kind === 'original' ? 1 : 2})').click()`)
     await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
-    const enlarged = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
+    const enlarged = await settledPane(kind, 'single')
     assert(choice === 1 ? enlarged.width > before.width * 1.8 : enlarged.height > before.height * 1.8, `Large reading must provide actual space: ${JSON.stringify({ choice, kind, before, enlarged, storedLayout })}`)
     assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), storedLayout, 'Temporary reading must preserve the saved comparison layout')
     await evaluate(`(() => { const select=document.querySelector('select[aria-label="${zoomLabel}"]'); select.value='1.25'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
     await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
     await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 2')
-    await sleep(850)
-    const restored = await evaluate(`(() => { const r=document.querySelector('[data-pane=${kind}]').getBoundingClientRect(); return {width:r.width,height:r.height} })()`)
-    assert(Math.abs(restored.width - before.width) < 2 && Math.abs(restored.height - before.height) < 2, 'Return must restore the prior split instead of choosing a new layout')
+    const restored = await settledPane(kind, choice === 1 ? 'row' : 'col')
+    assert(Math.abs(restored.width - before.width) < 2 && Math.abs(restored.height - before.height) < 2, `Return must restore the prior split instead of choosing a new layout: ${JSON.stringify({choice,kind,before,restored})}`)
     assert.equal(await evaluate('document.querySelector(".page-jump input").value'), priorPage)
     assert.equal(await evaluate(`document.querySelector('select[aria-label="${zoomLabel}"]').value`), priorZoom, 'Return must restore comparison zoom after changing it in large reading')
   }

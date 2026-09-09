@@ -23,6 +23,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   const [showCitations, setShowCitations] = useState(false)
   // Link relations belong in the graph: they are what the researcher actually wrote in the note.
   const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
+  const connected = useMemo(() => [...new Map(approved.map(item => [item.other.id, item.other])).values()], [approved])
   // Identity includes the relation-list generation, not just edge IDs: endpoints and
   // review/type metadata can change while IDs remain the same.
   const hopScope = useMemo(() => ({ nodeId: node?.id, approved }), [node?.id, approved, hops])
@@ -87,6 +88,13 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   // something to show; with nothing open the panel is a single line instead of four hollow ones.
   return <aside className="notes-side" aria-label="연결">
     {!node && <p className="side-idle">노트를 열면 연결·백링크가 여기에 표시됩니다.</p>}
+    {node && connected.length > 0 && <section className="side-sec side-connected">
+      <header><span>연결된 노트</span><small>{connected.length}</small></header>
+      <div className="side-list">{connected.map(other => <button key={other.id} onClick={() => onOpenNode(other.id)}>
+        <span className="side-row-title"><i className={`kind-dot kind-${other.nodeType}`} />{other.title}</span>
+        <small>{[...new Set(approved.filter(item => item.other.id === other.id).map(item => `${item.direction === 'outgoing' ? '→' : '←'} ${item.origin === 'link' ? '링크' : relationLabels[item.type]}`))].join(' · ')}</small>
+      </button>)}</div>
+    </section>}
     {node && <section className="side-sec side-graph">
       <header>
         <span>연결 그래프{hops === 2 ? ' · 한 단계 더' : ''}</span>

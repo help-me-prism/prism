@@ -882,11 +882,19 @@ function insertText(view: EditorView, text: string) {
   view.focus()
 }
 
-function insertWikiLink(view: EditorView, option: WikiLinkOption, replace: { from: number; to: number } = view.state.selection.main) {
-  const frontmatterEnd = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0].length ?? 0
-  const from = replace.from < frontmatterEnd ? frontmatterEnd : replace.from
-  const to = replace.to < frontmatterEnd ? frontmatterEnd : replace.to
+function insertWikiLink(view: EditorView, option: WikiLinkOption, replace?: { from: number; to: number }) {
   const insert = `[[${option.target}|${option.label}]]`
+  const selection = replace ?? view.state.selection.main
+  // A toolbar action in a freshly opened note has no body caret yet. Give it
+  // the same safe title boundary as evidence insertion, leaving a new paragraph
+  // ready for writing and the inserted link displayed through its readable alias.
+  if (!replace && noteBlockInsertionPosition(view.state.doc.toString(), selection.to) !== selection.to) {
+    insertText(view, `${insert}\n\n`)
+    return
+  }
+  const frontmatterEnd = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0].length ?? 0
+  const from = selection.from < frontmatterEnd ? frontmatterEnd : selection.from
+  const to = selection.to < frontmatterEnd ? frontmatterEnd : selection.to
   view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true })
   view.focus()
 }

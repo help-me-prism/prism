@@ -513,7 +513,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <small title={node.relativePath}>{fileName(node)}</small>
       </div>
       <div className="note-doc-actions">
-        <span className={`note-save ${saved ? 'is-saved' : ''}`} role="status">{saved ? '저장됨' : '저장 중…'}</span>
+        <span className={`note-save ${ready && saved ? 'is-saved' : ''}`} role="status">{!ready ? '불러오는 중…' : saved ? '저장됨' : '저장 중…'}</span>
         {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
         {/^## (?:메모|Notes)\s*$/m.test(content) && <button className="ghost" title="저장한 메모와 AI 답변이 있는 구간으로 이동합니다" onClick={() => editorRef.current?.focusSection(content.match(/^## (메모|Notes)\s*$/m)?.[1] ?? '메모')}><PenLine size={13} /> 메모 보기</button>}
@@ -614,7 +614,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       <div className="picker-list">
         {picker.kind === 'evidence'
           ? pickerAnchors.length ? pickerAnchors.map((anchor) => <button key={`${anchor.paperId}-${anchor.anchorId}`} onClick={() => insertEvidence(anchor, picker.relink)}><small>{evidenceTypeLabel(anchor.type)} · p.{anchor.page} · {anchor.paperTitle}</small><strong>{anchor.source}</strong></button>)
-            : <p>저장된 PDF 앵커가 없습니다. 리더에서 논문을 열면 문장·수식·표 앵커가 만들어집니다.</p>
+            : <p role="status">{anchors.length ? '검색어와 일치하는 PDF 근거가 없습니다. 논문 제목이나 문장의 다른 단어로 검색해 보세요.' : '저장된 PDF 근거가 없습니다. 리더에서 논문을 열면 문장·수식·표 근거를 선택할 수 있습니다.'}</p>
           : pickerTargets.length ? pickerTargets.map((target) => <button key={target.id} onClick={() => {
             if (picker.kind === 'answer') void addAnswer(target)
             else if (picker.kind === 'relation') void addRelation(target, picker.type)

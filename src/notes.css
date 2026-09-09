@@ -761,3 +761,7 @@ button.cm-section-fold-summary:focus-visible { outline: 2px solid light-dark(#5f
 }
 .tree-search-result .tree-unread { top: 18px; }
 .tree-search-result .tree-delete { flex: 0 0 20px; margin-top: 10px; }
+.create-paper-link { display: flex; align-items: flex-start; gap: 7px; margin: 8px 0; font-size: 12px; line-height: 1.5; }
+.tree-create .create-paper-link input { width: 14px; height: 14px; flex: none; margin: 3px 0 0; padding: 0; }
+.create-paper-link span { min-width: 0; overflow-wrap: anywhere; }
+.create-paper-link small { display: block; margin-top: 3px; opacity: .72; font-size: 11px; }

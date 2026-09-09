@@ -53,6 +53,16 @@ input, select, textarea, button { font-family: var(--font-ui); }
 .message-actions button { min-height: 28px; border-radius: 5px; font-size: 11px; }
 .message-actions span { font-size: 11px; }
 
+.note-picker input { font-size: 13px; min-height: 32px; }
+.picker-types button { height: 28px; font-size: 12px; }
+.picker-list strong { font-size: 13px; line-height: 1.55; }
+.picker-list small { font-size: 11px; line-height: 1.5; }
+.picker-list p { font-size: 12px; line-height: 1.65; }
+.note-picker > footer button { height: auto; min-height: 32px; font-size: 12px; }
+.side-connected .side-list { max-height: 240px; overflow-y: auto; }
+.side-connected .side-row-title { font-size: 13px; line-height: 1.5; }
+.side-connected .side-list small { font-size: 11px; }
+
 /* Reflow is a screen-reading view. Keep the source-like serif metrics confined
    to paper mode; source canvases retain their actual scientific glyphs. */
 .reading-translation.paper-format { font-weight: 500; }

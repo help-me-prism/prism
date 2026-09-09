@@ -427,7 +427,7 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
 }
 
 
-const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
+const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함', related: '관련', discusses: '다룸', presents: '제시함', derived_from: '출발함', link: '링크' }
 
 /** Approved relations that say something, as links. Plain `[[links]]` are already in the prose that made them. */
 function typedRelationLines(views: Array<{ type: string; direction: string; reviewStatus: string; origin?: string; other: { title: string; relativePath: string } }>) {
@@ -439,7 +439,7 @@ function typedRelationLines(views: Array<{ type: string; direction: string; revi
 function relationLine(relation: { type: string; direction: string; other: { title: string; relativePath: string } }) {
   const wording = relationWording[relation.type] ?? relation.type
   const subject = `[[${relation.other.relativePath.replace(/\.md$/i, '')}|${relation.other.title}]]`
-  return relation.direction === 'incoming' ? `${subject}가 ${wording}` : `${wording} · ${subject}`
+  return relation.direction === 'incoming' && relation.type !== 'related' ? `${subject}가 ${wording}` : `${wording} · ${subject}`
 }
 
 /**

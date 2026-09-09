@@ -156,7 +156,7 @@ async function replaceEditor(connection, content, selector = '.cm-content') {
 }
 
 async function pressKey(connection, key, code, modifiers = 0) {
-  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'Tab' ? 9 : key === 'End' ? 35 : 0
+  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'Tab' ? 9 : key === 'End' ? 35 : key === 'Backspace' ? 8 : 0
   const eventKey = key.length === 1 && (modifiers & 8) ? key.toUpperCase() : key
   await connection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
   await connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
@@ -294,6 +294,15 @@ try {
   await notesConnection.send('Page.captureScreenshot', { format: 'png' }).then(async (shot) => { await fs.mkdir(path.resolve('tmp/ui'), { recursive: true }); await fs.writeFile(path.resolve('tmp/ui/notes-shell.png'), Buffer.from(shot.data, 'base64')) })
 
   // ---------- editing round-trips exact Markdown and autosaves ----------
+  // A first toolbar insertion must preserve the title and show the link alias,
+  // even though the researcher has never placed a caret in this note's body.
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.trim() === '링크').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('Linked Paper Fixture')))`), 'The toolbar link picker did not offer the other paper.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('Linked Paper Fixture')).click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('|Linked Paper Fixture]]'), 'Toolbar link was not saved.')
+  const firstLink = await fs.readFile(notePath, 'utf8')
+  assert(firstLink.indexOf('# Research note') < firstLink.indexOf('|Linked Paper Fixture]]') && firstLink.includes('# Research note\n'), 'Toolbar link damaged or preceded the note title.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.innerText.includes('Linked Paper Fixture') && !document.querySelector('.note-body .cm-content')?.innerText.includes('[[papers/2401.01234')`), 'The newly inserted link exposed its internal path instead of its alias.')
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
   await notesConnection.send('Input.insertText', { text: '\n\n연구 메모 한 줄.' })
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('연구 메모 한 줄.'), 'Autosave did not write the edit to disk.', 8000)
@@ -396,6 +405,12 @@ try {
   // ---------- evidence cards from the toolbar picker ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.textContent.includes('근거')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-picker .picker-list button').length >= 4`), 'The evidence picker did not list stored anchors.')
+  await notesConnection.evaluate(`document.querySelector('.note-picker input').focus()`)
+  await notesConnection.send('Input.insertText', { text: 'no-such-evidence-round25' })
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-picker [role="status"]')?.textContent.includes('검색어와 일치하는')`), 'A failed evidence search was confused with an empty library.')
+  await notesConnection.evaluate(`document.querySelector('.note-picker input').select()`)
+  await pressKey(notesConnection, 'Backspace', 'Backspace')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-picker .picker-list button').length >= 4`), 'Clearing the query did not restore existing evidence.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find((button) => button.textContent.includes('denoising score matching')).click()`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('^evidence-test-0001-sentence-p1-1'), 'Choosing an anchor did not insert an evidence card.', 8000)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-evidence .evidence-row').length >= 1`), 'The evidence list did not show the inserted card.')
@@ -575,9 +590,13 @@ ${claimAfterRelation}`)
   // Prism used to find this out by re-reading the file on a timer; now the main process names the file that
   // moved, so this is what proves an open note still notices Obsidian writing underneath it.
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'The note never reached a saved state before the external write.', 8000)
+  // Inspect the end where this external edit will arrive. CodeMirror may omit
+  // off-screen lines from the DOM even after its document has updated correctly.
+  await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
+  await pressKey(notesConnection, 'End', 'End', undoModifier)
   const followLine = '외부 편집기가 조용히 추가한 줄.'
   await fs.writeFile(notePath, `${await fs.readFile(notePath, 'utf8')}\n\n${followLine}\n`, 'utf8')
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content').textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
   assert(!(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-conflict'))`)), 'A note with nothing unsaved raised a conflict instead of following the disk.')
 
   // ---------- external change and conflict resolution ----------
@@ -599,7 +618,9 @@ ${claimAfterRelation}`)
 
   // ---------- search ----------
   await setInput(notesConnection, '노트 검색', '역확산')
-  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].length === 1 && document.querySelector('.tree-file').textContent.includes('역확산')`), 'Typing did not filter the tree.')
+  // Contextual creation also mentions the concept in the connected paper's
+  // preview, so both are legitimate matches. Unrelated notes must disappear.
+  await waitFor(() => notesConnection.evaluate(`(() => { const rows = [...document.querySelectorAll('.tree-file')]; return rows.some(row => row.textContent.includes('역확산')) && rows.every(row => row.textContent.includes('역확산')) })()`), 'Typing did not filter the tree to matching titles or previews.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="노트 검색"]'); input.focus(); })()`)
   await pressKey(notesConnection, 'Enter', 'Enter')
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.tree-folder.is-static')?.textContent.includes('본문 검색')`), 'Enter did not run the semantic search.', 8000)
@@ -693,6 +714,29 @@ ${claimAfterRelation}`)
   assert(await fs.readFile(path.join(orphanJournal, 'draft.md'), 'utf8') === orphanDraft && await fs.readFile(path.join(orphanJournal, 'before.md'), 'utf8') === orphanBefore, 'Recovery modified the preserved journal versions.')
   assert(!(await notesConnection.evaluate(`(async () => (await window.prism.listPendingNoteRecoveries()).some(entry => entry.id === ${JSON.stringify(pendingOrphan.id)}))()`)), 'Recovered note remained listed as missing.')
   process.stdout.write('Orphan recovery UI passed: absent unindexed target, publishing journal discovery, exact readonly draft preview, explicit restore, and preserved history.\n')
+
+  // Creating a thought from a paper offers an explicit, reversible association.
+  for (const connectPaper of [true, false]) {
+    await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-2401.01234')`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'Context paper did not open.')
+    const paperBeforeCreation = await fs.readFile(linkedNotePath, 'utf8')
+    await notesConnection.evaluate(`document.querySelector('.tree-new').click()`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.create-paper-link input')?.checked === true && document.querySelector('.create-paper-link')?.textContent.includes('Linked Paper Fixture')`), 'Creation did not show the specific paper association.')
+    if (!connectPaper) await notesConnection.evaluate(`document.querySelector('.create-paper-link input').click()`)
+    const title = connectPaper ? 'Contextual concept regression' : 'Independent concept regression'
+    await notesConnection.evaluate(`document.querySelector('input[aria-label="새 노트 제목"]').select()`)
+    await notesConnection.send('Input.insertText', { text: title })
+    await notesConnection.evaluate(`document.querySelector('.create-actions .primary').click()`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === ${JSON.stringify(title)} && !document.querySelector('.tree-create')`), 'Created note did not open.')
+    const edges = await notesConnection.evaluate(`(async () => { const node = (await window.prism.listKnowledgeNodes()).find(node => node.title === ${JSON.stringify(title)}); return window.prism.listKnowledgeRelations(node.id) })()`)
+    assert(edges.some(edge => edge.type === 'related' && edge.direction === 'outgoing' && edge.other.id === 'paper-2401.01234') === connectPaper, 'Creation ignored the paper association choice.')
+    assert(await fs.readFile(linkedNotePath, 'utf8') === paperBeforeCreation, 'Creating a connected thought modified the source paper Markdown.')
+    if (connectPaper) {
+      await waitFor(() => notesConnection.evaluate(`document.querySelector('.side-connected')?.textContent.includes('Linked Paper Fixture')`), 'The new note did not offer a readable route back to its paper.')
+      await notesConnection.evaluate(`document.querySelector('.side-connected button').click()`)
+      await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'Connected-note navigation did not return to the paper.')
+    }
+  }
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
