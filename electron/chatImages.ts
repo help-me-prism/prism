@@ -46,3 +46,20 @@ export async function resolveChatImages(references: ChatFigureReference[], libra
   }
   return result
 }
+
+export async function readSavedFigure(reference: ChatFigureReference, library: Array<{ arxivId: string; pdfPath: string }>) {
+  const [image] = await resolveChatImages([reference], library)
+  const dataUrl = `data:image/png;base64,${(await fs.readFile(image.path)).toString('base64')}`
+  let rect: { x: number; y: number; width: number; height: number } | undefined
+  let page: number | undefined
+  try {
+    const directory = path.dirname(image.path)
+    const metadataPath = await fs.realpath(path.join(directory, `${reference.anchorId}.json`))
+    if (!inside(directory, metadataPath) || (await fs.stat(metadataPath)).size > 64_000) return { dataUrl }
+    const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'))
+    const box = metadata.rect
+    if (box && ['x', 'y', 'width', 'height'].every(key => typeof box[key] === 'number' && Number.isFinite(box[key])) && box.x >= 0 && box.y >= 0 && box.width > 0 && box.height > 0 && box.x + box.width <= 1.001 && box.y + box.height <= 1.001) rect = { x: box.x, y: box.y, width: box.width, height: box.height }
+    if (Number.isInteger(metadata.page) && metadata.page > 0 && metadata.page <= 100_000) page = metadata.page
+  } catch { /* Old or externally removed metadata does not hide a valid image. */ }
+  return { dataUrl, rect, page }
+}

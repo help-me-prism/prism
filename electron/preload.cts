@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld('prism', {
   listEvidenceBacklinks: (anchor: unknown) => ipcRenderer.invoke('evidence:backlinks', anchor),
   openKnowledgeNodeInNotes: (id: string) => ipcRenderer.invoke('knowledge:open-in-notes', id),
   onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribe('knowledge:open-requested', callback),
+  readSavedFigure: (paperId: string, anchorId: string) => ipcRenderer.invoke('paper:figure:read', paperId, anchorId),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),
   savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),

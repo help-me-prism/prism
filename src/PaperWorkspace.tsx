@@ -207,10 +207,11 @@ function segmentRects(segment: TranslationSegment, itemRects: ItemRect[], scale 
   return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean)
 }
 
-function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure, onCaptureError }: {
+function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure, onCaptureError, focusedFigure }: {
   document: PdfDocument; pageNumber: number; scale: number; fitWidth?: boolean; translationFormat?: 'paper' | 'flow'; segments: TranslationSegment[]; translation: Map<string, string>; mode: 'original' | 'translated'
   highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void
   sourceFigures: Array<PaperFigureAsset & { captionAnchorId?: string; preview?: string }>
+  focusedFigure?: { anchorId: string; rect: { x: number; y: number; width: number; height: number } }
   onCaptureError: (message: string) => void
   onFigure: (page: number, dataUrl: string, preview: string, rect: { x: number; y: number; width: number; height: number }, sourceFigure?: PaperFigureAsset) => void
 }) {
@@ -365,6 +366,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     <div className="anchor-layer">{segments.filter((segment) => !['artifact', 'equation', 'table'].includes(segment.kind)).flatMap((segment) => segmentRects(segment, itemRects, scale).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭: 채팅 태그 · 우클릭: 노트에 담기" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
     <div className="structure-anchor-layer">{structuredRegions.map(({ segment, rect }) => <button key={segment.id} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title={`${segment.kind === 'table' ? '표' : '수식'} · 클릭: 채팅 태그 · 우클릭: 노트에 담기`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }}>{segment.kind === 'table' ? <Table2 size={11} /> : <Sigma size={11} />}</button>)}</div>
     {figureSelect && <div className="figure-capture-layer" onPointerDown={(event) => { const value = point(event); const next = { startX: value.x, startY: value.y, x: value.x, y: value.y }; event.currentTarget.setPointerCapture(event.pointerId); selectionRef.current = next; setSelection(next) }} onPointerMove={(event) => { const current = selectionRef.current; if (!current) return; const value = point(event); const next = { ...current, x: value.x, y: value.y }; selectionRef.current = next; setSelection(next) }} onPointerUp={finishFigure}>{selection && <span style={{ left: Math.min(selection.startX, selection.x), top: Math.min(selection.startY, selection.y), width: Math.abs(selection.x - selection.startX), height: Math.abs(selection.y - selection.startY) }} />}</div>}
+    {focusedFigure && <span data-saved-figure={focusedFigure.anchorId} style={{ position: 'absolute', pointerEvents: 'none', zIndex: 7, left: focusedFigure.rect.x * pageSize.width, top: focusedFigure.rect.y * pageSize.height, width: focusedFigure.rect.width * pageSize.width, height: focusedFigure.rect.height * pageSize.height, outline: '2px solid #8873cb', outlineOffset: 3 }} />}
     <span className="page-badge">{pageNumber}</span>
   </div>
 }
@@ -383,6 +385,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [translationTargetPage, setTranslationTargetPage] = useState(1); const [pendingTranslationPage, setPendingTranslationPage] = useState<number>(); const [translationScope, setTranslationScope] = useState<'page' | 'all'>('page'); const [translationJobs, setTranslationJobs] = useState<Record<string, boolean>>({}); const translating = Boolean(activeId && translationJobs[activeId]); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
+  const [focusedFigure, setFocusedFigure] = useState<{ paperId: string; page: number; anchorId: string; rect: { x: number; y: number; width: number; height: number } }>()
   const [syncScrollEnabled, setSyncScrollEnabled] = useState(true); const [syncZoomEnabled, setSyncZoomEnabled] = useState(false); const [pendingAnchor, setPendingAnchor] = useState<ContextAnchor>()
   const activeIdRef = useRef<string | undefined>(undefined); const autoStartedRef = useRef(new Set<string>()); const sourceScrollRef = useRef<HTMLDivElement>(null); const translatedScrollRef = useRef<HTMLDivElement>(null); const layoutRef = useRef<PaneNode>(layout); const arrangedRef = useRef(false); const syncLock = useRef(false)
   const zoomAnchorRef = useRef<{ page: number; progress: number } | undefined>(undefined)
@@ -453,17 +456,36 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     }
   }, [command?.id])
   useEffect(() => {
-    if (!pendingAnchor || pendingAnchor.paperId !== activeId || !allSegments.length) return
+    if (!pendingAnchor || pendingAnchor.paperId !== activeId || !pdf) return
     const sourceGroup = groupHolding(layout, 'original')
     if (!sourceGroup) { openPane('original'); return }
     if (sourceGroup.active !== 'original') { applyLayout(activateKind(layout, 'original')); return }
-    setHighlighted(pendingAnchor.anchorId); setPageNumber(pendingAnchor.page)
-    const timeout = window.setTimeout(() => {
-      const target = window.document.querySelector(`[data-page="original-${pendingAnchor.page}"] [data-anchor="${CSS.escape(pendingAnchor.anchorId)}"]`) ?? window.document.querySelector(`[data-page="original-${pendingAnchor.page}"]`)
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setPendingAnchor(undefined)
-    }, 120)
-    return () => window.clearTimeout(timeout)
-  }, [pendingAnchor, activeId, allSegments, layout])
+    let cancelled = false; let timer = 0
+    const anchor = pendingAnchor
+    setHighlighted(anchor.anchorId); setPageNumber(anchor.page); setFocusedFigure(undefined)
+    async function locate() {
+      let waitForTarget = allSegments.some(segment => segment.id === anchor.anchorId)
+      if (/^(figure-p|source-)/.test(anchor.anchorId)) {
+        const saved = await window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).catch(() => undefined)
+        if (cancelled) return
+        if (saved?.rect && saved.page === anchor.page) { waitForTarget = true; setFocusedFigure({ paperId: anchor.paperId, page: anchor.page, anchorId: anchor.anchorId, rect: saved.rect }) }
+      }
+      const pageSelector = `[data-page="original-${anchor.page}"]`
+      window.document.querySelector(pageSelector)?.scrollIntoView({ block: 'center' })
+      const deadline = performance.now() + 3000
+      function center() {
+        if (cancelled) return
+        const page = window.document.querySelector(pageSelector)
+        const target = page?.querySelector(`[data-saved-figure="${CSS.escape(anchor.anchorId)}"], [data-anchor="${CSS.escape(anchor.anchorId)}"]`)
+        if ((!page?.classList.contains('rendered') || (waitForTarget && !target)) && performance.now() < deadline) { timer = window.setTimeout(center, 50); return }
+        ;(target ?? page)?.scrollIntoView({ block: 'center' })
+        setPendingAnchor(undefined)
+      }
+      timer = window.setTimeout(center, 50)
+    }
+    void locate()
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [pendingAnchor, activeId, pdf, layout])
   useEffect(() => {
     Promise.all([window.prism.getSettings(), window.prism.listLibrary()]).then(([saved, papers]) => { setSettings(saved); setLibrary(papers); if (papers[0]) { setTabs([papers[0].arxivId]); setActiveId(papers[0].arxivId) } }).catch((reason) => setError(String(reason)))
     const offProgress = window.prism.onTranslationProgress((payload) => { const event = payload as { arxivId?: string; completedSegments?: number; totalSegments?: number; segments?: TranslationSegment[] }; if (event.arxivId) setTranslating(true, event.arxivId); if (event.arxivId === activeIdRef.current && event.segments) { setTranslation(event.segments); setCacheExists((event.completedSegments ?? 0) > 0); setTranslating(true); setTranslationProgress({ completed: event.completedSegments ?? 0, total: event.totalSegments ?? 0 }) } })
@@ -667,7 +689,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     requestAnimationFrame(() => { syncLock.current = false })
   }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
-  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' && sourceFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onCaptureError={setError} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' && sourceFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
   const comparisonPreference = useRef<'dual' | 'stacked' | undefined>(undefined)
   useEffect(() => {
     const dismissMenus = (event: PointerEvent) => {

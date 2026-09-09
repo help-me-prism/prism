@@ -1,4 +1,4 @@
-import { resolveChatImages, type ChatImage } from './chatImages.js'
+import { readSavedFigure, resolveChatImages, type ChatImage } from './chatImages.js'
 import { buildCodexImageInputs, buildClaudeImageMessage } from './chatImageInputs.js'
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
@@ -1468,6 +1468,7 @@ ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
   notesWindow?.show(); notesWindow?.focus()
   return true
 })
+ipcMain.handle('paper:figure:read', async (_event, paperId: string, anchorId: string) => readSavedFigure({ paperId, anchorId }, await readLibrary()))
 ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => {
   if (!/^[a-zA-Z0-9._-]{1,120}$/.test(figureId)) throw new Error('피겨 ID가 올바르지 않습니다.')
   if (typeof dataUrl !== 'string' || dataUrl.length > 30_000_000) throw new Error('피겨 이미지가 너무 큽니다.')

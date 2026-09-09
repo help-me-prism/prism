@@ -172,6 +172,7 @@ interface Window {
     listEvidenceBacklinks: (anchor: EvidenceAnchorRef) => Promise<EvidenceBacklink[]>
     openKnowledgeNodeInNotes: (id: string) => Promise<boolean>
     onOpenKnowledgeNode: (callback: (id: string) => void) => () => void
+    readSavedFigure: (paperId: string, anchorId: string) => Promise<{ dataUrl: string; rect?: { x: number; y: number; width: number; height: number }; page?: number }>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>

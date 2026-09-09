@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { transformWithOxc } from 'vite'
 const {code}=await transformWithOxc(await fs.readFile('electron/chatImages.ts','utf8'),'electron/chatImages.ts')
-const {resolveChatImages}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
+const {resolveChatImages,readSavedFigure}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'prism-chat-images-'))
 try {
   const paper=path.join(root,'paper'), figures=path.join(paper,'figures')
@@ -15,6 +15,16 @@ try {
   const library=[{arxivId:'paper',pdfPath:path.join(paper,'paper.pdf')}]
   const ref={paperId:'paper',anchorId:'p1-figure-1',label:'Figure 1'}
   assert.deepEqual(await resolveChatImages([ref],library),[{...ref,path:await fs.realpath(file)}])
+  assert.equal((await readSavedFigure(ref,library)).dataUrl, 'data:image/png;base64,'+png.toString('base64'))
+  const metadataPath=path.join(figures,'p1-figure-1.json')
+  const rect={x:.1,y:.2,width:.5,height:.3}
+  await fs.writeFile(metadataPath,JSON.stringify({rect,page:4}))
+  assert.deepEqual((await readSavedFigure(ref,library)).rect,rect)
+  await fs.writeFile(metadataPath,JSON.stringify({rect:{...rect,x:2},page:-1}))
+  const invalid=await readSavedFigure(ref,library)
+  assert.equal(invalid.rect,undefined);assert.equal(invalid.page,undefined)
+  await fs.writeFile(metadataPath,'malformed')
+  assert.equal((await readSavedFigure(ref,library)).rect,undefined)
   assert.equal((await resolveChatImages([ref,ref],library)).length,1,'Duplicate references cannot increase image cost')
   await assert.rejects(resolveChatImages(Array(5).fill(ref),library),/4개/)
   await assert.rejects(resolveChatImages([{...ref,paperId:'unknown'}],library))
