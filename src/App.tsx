@@ -1,5 +1,6 @@
 import { compactAnchorContext } from './paper/anchorContext'
 import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
+import { readComposerDom } from './paper/composerDom'
 import { answerReferenceAnchors, answerReferences } from './paper/answerReferences'
 import FigureAttachments from './FigureAttachments'
 import { useDialogFocus } from './useDialogFocus'
@@ -176,19 +177,12 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
   const composingRef = useRef(false)
   function editorSnapshot() {
     const root = editorRef.current; if (!root) return { text: '', anchors: [] as ContextAnchor[] }
-    const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor])); let value = ''; const placed: ContextAnchor[] = []
-    const walk = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) { value += (node.textContent ?? '').replaceAll(composerCaretSentinel, ''); return }
-      if (!(node instanceof HTMLElement)) return
-      const placementId = node.dataset.placementId
-      if (placementId) { const anchor = byPlacement.get(placementId); if (anchor) placed.push({ ...anchor, placementId, textOffset: value.length }); return }
-      if (node.tagName === 'BR') { value += '\n'; return }
-      const startsBlock = node !== root && node.tagName === 'DIV' && value.length > 0 && !value.endsWith('\n')
-      if (startsBlock) value += '\n'
-      node.childNodes.forEach(walk)
-    }
-    root.childNodes.forEach(walk)
-    return { text: value.replace(/\n{3,}/g, '\n\n'), anchors: placed }
+    const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor]))
+    const snapshot = readComposerDom(root)
+    return { text: snapshot.text, anchors: snapshot.placements.flatMap(placement => {
+      const anchor = byPlacement.get(placement.placementId)
+      return anchor ? [{ ...anchor, ...placement }] : []
+    }) }
   }
 
   function readEditor() { const snapshot = editorSnapshot(); onChange(snapshot.text, snapshot.anchors) }
@@ -197,8 +191,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     const root = editorRef.current; const selection = window.getSelection()
     if (!root || !selection?.rangeCount || !selection.focusNode || !root.contains(selection.focusNode)) return
     const range = document.createRange(); range.selectNodeContents(root); range.setEnd(selection.focusNode, selection.focusOffset)
-    const wrapper = document.createElement('div'); wrapper.append(range.cloneContents()); wrapper.querySelectorAll('[data-placement-id]').forEach((node) => node.remove()); wrapper.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
-    onCaretChange((wrapper.textContent ?? '').replaceAll(composerCaretSentinel, '').length)
+    onCaretChange(readComposerDom(range.cloneContents()).text.length)
     if (selection.isCollapsed && document.activeElement === root) {
       let caret = selection.getRangeAt(0).getBoundingClientRect()
       // Chromium reports an empty Range rect on the blank line after a pasted

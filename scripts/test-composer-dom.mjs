@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import { transformWithOxc } from 'vite'
+const { code } = await transformWithOxc(await fs.readFile('src/paper/composerDom.ts', 'utf8'), 'src/paper/composerDom.ts')
+const { readComposerDom } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+const text = textContent => ({ nodeType: 3, textContent })
+const element = (tagName, childNodes = [], placementId = null) => ({ nodeType: 1, tagName, childNodes, getAttribute: name => name === 'data-placement-id' ? placementId : null })
+const root = childNodes => ({ childNodes })
+const chip = element('SPAN', [text('문장88 4쪽 · 문장 hidden transport text')], 'evidence-1')
+const prefix = root([text('First paragraph.'), element('DIV', [text('Second: ')])])
+const doc = root([text('First paragraph.'), element('DIV', [text('Second: '), chip, text('\u200Bremaining question')]), element('DIV', [text('Third.')])])
+const snapshot = readComposerDom(doc)
+assert.equal(snapshot.text, 'First paragraph.\nSecond: remaining question\nThird.')
+assert.equal(snapshot.placements[0].textOffset, readComposerDom(prefix).text.length, 'A cloned caret prefix and the full editor must agree on paragraph offsets')
+assert(!snapshot.text.includes('문장88'), 'Evidence presentation is never inserted into the prompt')
+const blanks = readComposerDom(root([text('First\n\n\n'), chip, text('Last')]))
+assert.equal(blanks.text, 'First\n\n\nLast', 'Do not collapse user blank lines after measuring anchor offsets')
+assert.equal(blanks.placements[0].textOffset, 'First\n\n\n'.length)
+assert.equal(readComposerDom(root([element('P', [text('First')]), element('P', [text('Next')])])).text, 'First\nNext')
+assert.equal(readComposerDom(root([text('First'), element('BR'), text('Next')])).text, 'First\nNext')
+console.log('Composer DOM passed: paragraph and caret agreement, stable offsets, blank lines and excluded chip labels.')
