@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { appendToNotesSection, captureToPaperNote, ensureLinkStubs } from '../dist-electron/capture.js'
+import { appendToNotesSection, captureToPaperNote, ensureLinkStubs, chatCaptureProvenance } from '../dist-electron/capture.js'
 import { listKnowledgeNodes, migratePaperNotes } from '../dist-electron/knowledge.js'
 
 // Reading-time capture and link stubs work on plain Markdown in a throwaway vault; no Electron needed.
@@ -45,7 +45,18 @@ try {
   // Chat capture is a collapsed AI callout with provenance metadata, not user text.
   await captureToPaperNote(root, paper, { kind: 'chat', paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\n\n둘째 줄 $x$', provider: 'codex', model: 'gpt-x', anchors: [{ paperId: 'test.0001', anchorId: 'equation-p2-3', label: '수식1', page: 2 }] })
   content = await fs.readFile(notePath, 'utf8')
-  assert(content.includes('> [!ai]- AI 답변 ·') && content.includes('> **Q:** 이 목적함수는 왜 가중 score matching인가?') && content.includes('> 첫 줄\n>\n> 둘째 줄 $x$') && content.includes('> 참조: 수식1 (p.2)') && content.includes('<!-- prism-ai-answer:'), `The chat capture block is malformed:\n${content}`)
+  assert(content.includes('> [!ai]- AI 답변 ·') && content.includes('> **Q:** 이 목적함수는 왜 가중 score matching인가?') && content.includes('> 첫 줄\n>\n> 둘째 줄 $x$') && content.includes('> 참조: [수식1 · Capture fixture · p.2](prism://paper/test.0001?anchor=equation-p2-3&page=2)') && content.includes('<!-- prism-ai-answer:'), `The chat capture block is malformed:\n${content}`)
+  const reference={paperId:'test.0001',anchorId:'equation-p2-3',label:'근거1',page:2}
+  const provenance=chatCaptureProvenance('설명 [@근거1]. `[@근거1]`\n```text\n[@근거1]\n```\n$E=mc^2$',[reference,reference],paper)
+  assert.equal(provenance.anchors.length,1,'Native duplicate request/cited anchors collapse by stable identity')
+  assert.equal(provenance.references.split('prism://').length-1,1)
+  assert(provenance.answer.startsWith('설명 [@근거1](prism://paper/test.0001?anchor=equation-p2-3&page=2).'))
+  assert(provenance.answer.includes('`[@근거1]`\n```text\n[@근거1]\n```\n$E=mc^2$'),'Literal code and math are preserved')
+  assert.equal(chatCaptureProvenance('$[@근거1]$',[reference],paper).answer,'$[@근거1]$','Citation-like math content stays literal')
+  const multi=chatCaptureProvenance('비교 [@근거1]',[reference,{...reference,paperId:'other/paper'}],paper)
+  assert.equal(multi.answer,'비교 [@근거1]','Ambiguous same-label multi-paper citations must not guess')
+  assert.equal(multi.anchors.length,2)
+  assert(multi.references.includes('other/paper')&&multi.references.includes('prism://paper/other%2Fpaper'))
   assert(content.indexOf('[!ai]-') < content.indexOf('## 관련 개념'), 'The chat capture did not stay inside the Notes section.')
 
   // Unknown anchors are rejected without touching the note.

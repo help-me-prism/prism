@@ -407,7 +407,7 @@ try {
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.trim() === '관계').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-picker .picker-types'))`), 'The relation picker did not open.')
   const relationChoices = await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-types button')].map((button) => button.textContent)`)
-  assert(JSON.stringify(relationChoices) === JSON.stringify(['사용함', '지지함', '반박함', '확장함', '질문 제기', '답함']), `The claim relation picker offered the wrong model: ${JSON.stringify(relationChoices)}`)
+  assert(JSON.stringify(relationChoices) === JSON.stringify(['관련', '사용함', '지지함', '반박함', '확장함', '질문 제기', '답함']), `The claim relation picker offered the wrong model: ${JSON.stringify(relationChoices)}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-types button')].find((button) => button.textContent === '반박함').click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find((button) => button.textContent.includes('청크가 길면')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-scope-warning')?.textContent.includes('도메인이 다릅니다')`), 'Contradicting claims with different scope did not warn.')
@@ -464,11 +464,12 @@ ${claimAfterRelation}`)
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
-  // CodeMirror renders only the slice it believes is visible, and setting the container's scrollTop does not
-  // make it look further. Scrolling to the last line it has rendered does, and repeating that walks the
-  // viewport to the end of the document a screen at a time.
+  // The document scrolls in its outer note pane, while CodeMirror virtualizes its lines. Scrolling the
+  // last currently mounted line can stall at a viewport boundary before Notes. Use the same section
+  // navigation a reader uses; this also verifies that the newly captured section reached React state.
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('메모 보기')))`), 'The captured Notes section did not become available in the open note.', 10000)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('메모 보기')).click()`)
   await waitFor(async () => {
-    await notesConnection.evaluate(`(() => { const lines = document.querySelectorAll('.note-body .cm-line'); lines[lines.length - 1]?.scrollIntoView({ block: 'end' }) })()`)
     await sleep(120)
     return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
   }, 'The open note did not reload the externally captured memo.', 20000)
@@ -555,6 +556,12 @@ ${claimAfterRelation}`)
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
+} catch (error) {
+  if (notesConnection) {
+    const diagnostic = await notesConnection.evaluate(`(() => ({ title: document.querySelector('.note-doc-title')?.textContent, actions: document.querySelector('.note-doc-actions')?.textContent, body: document.querySelector('.note-body')?.innerText, scroll: [...document.querySelectorAll('.cm-scroller, .note-doc-scroll')].map(el => ({ className: el.className, top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight })) }))()`).catch(String)
+    process.stderr.write(`Notes failure diagnostic: ${JSON.stringify(diagnostic)}\n`)
+  }
+  throw error
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)
   notesConnection?.socket.close()

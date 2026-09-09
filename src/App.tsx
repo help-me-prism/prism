@@ -1,3 +1,4 @@
+import FigureAttachments from './FigureAttachments'
 import { useDialogFocus } from './useDialogFocus'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -501,6 +502,7 @@ function App() {
     preparingMessages.current.set(sessionId, pending)
     setRunningIds(current => [...new Set([...current, sessionId])])
     const assistantId = uniqueId('assistant')
+    const userMessageId = uniqueId('user')
     try {
     const stored = await window.prism.listEvidenceAnchors().catch(() => [])
     if (pending.cancelled) return
@@ -525,7 +527,7 @@ function App() {
       updatedAt: now,
       messages: [
         ...session.messages,
-        { id: uniqueId('user'), role: 'user', text: renamedPrompt, createdAt: now, anchors: selectedAnchors, paperIds: contextPaperIdsForMessage, ...attribution },
+        { id: userMessageId, role: 'user', text: renamedPrompt, createdAt: now, anchors: selectedAnchors, paperIds: contextPaperIdsForMessage, ...attribution },
         { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors, paperIds: contextPaperIdsForMessage, ...attribution },
       ],
     }))
@@ -533,6 +535,7 @@ function App() {
       await window.prism.sendMessage({
         prompt: promptWithContext, sessionId, messageId: assistantId, provider: activeSession.provider,
         model: activeSession.model, providerThreadId: activeSession.providerThreadId,
+        figures: selectedAnchors.filter((anchor, index) => anchor.type === 'figure' && selectedAnchors.findIndex(other => other.paperId === anchor.paperId && other.anchorId === anchor.anchorId) === index).map(({ paperId, anchorId, label }) => ({ paperId, anchorId, label })),
       })
       if (pending.cancelled) await window.prism.cancelMessage(sessionId)
     } catch (reason) {
@@ -540,7 +543,7 @@ function App() {
       restoreDraft()
       setRunningIds((current) => current.filter((id) => id !== sessionId))
       setErrors((current) => ({ ...current, [sessionId]: reason instanceof Error ? reason.message : String(reason) }))
-      updateSession(sessionId, (session) => ({ ...session, messages: session.messages.filter((message) => message.id !== assistantId) }))
+      updateSession(sessionId, (session) => ({ ...session, messages: session.messages.filter((message) => message.id !== assistantId && message.id !== userMessageId) }))
     } finally {
       if (preparingMessages.current.get(sessionId) === pending) {
         preparingMessages.current.delete(sessionId)
@@ -729,6 +732,7 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
+              <FigureAttachments anchors={contextAnchors} />
               <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>

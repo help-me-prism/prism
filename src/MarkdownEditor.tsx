@@ -6,6 +6,26 @@ import { markdown } from '@codemirror/lang-markdown'
 import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 import katex from 'katex'
+import { evidenceFromUri } from './paper/evidenceUri'
+import { noteBlockInsertionPosition } from './noteInsertion'
+
+class SourceEvidenceLink extends WidgetType {
+  constructor(readonly uri: string, readonly label: string) { super() }
+  eq(other: SourceEvidenceLink) { return this.uri === other.uri && this.label === other.label }
+  toDOM() {
+    const button = document.createElement('button')
+    button.type = 'button'; button.className = 'cm-source-evidence-link'; button.textContent = this.label
+    button.title = '클릭하면 논문 원문 근거로 이동합니다'
+    button.addEventListener('click', event => {
+      const anchor = evidenceFromUri(this.uri, this.label)
+      if (!anchor) return
+      event.preventDefault(); event.stopPropagation()
+      button.dispatchEvent(new CustomEvent('prism-open-evidence', { detail: anchor, bubbles: true }))
+    })
+    return button
+  }
+  ignoreEvent() { return true }
+}
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence'
@@ -703,6 +723,13 @@ function liveEditDecorationSet(view: EditorView) {
       addInline(line.from, text, /(?<!\*)\*[^*\n]+\*(?!\*)/g, 'cm-md-emphasis', 1)
       addInline(line.from, text, /`[^`\n]+`/g, 'cm-md-inline-code', 1)
       addInline(line.from, text, /\$[^$\n]+\$/g, 'cm-md-inline-math', 1)
+      if (!isActive(line.from, line.to)) {
+        for (const match of text.matchAll(/(?<!!)\[([^\]\n]+)\]\((prism:\/\/paper\/[^\s)]+)\)/g)) {
+          const before = text.slice(0, match.index)
+          if ((before.match(/`/g)?.length ?? 0) % 2 || !evidenceFromUri(match[2], match[1])) continue
+          ranges.push({ from: line.from + match.index!, to: line.from + match.index! + match[0].length, decoration: Decoration.replace({ widget: new SourceEvidenceLink(match[2], match[1]) }) })
+        }
+      }
       addWikiLinks(line.from, text)
       if (!isActive(line.from, line.to)) {
         for (const comment of text.matchAll(/<!--[\s\S]*?-->/g)) {
@@ -800,7 +827,7 @@ function focusSection(view: EditorView, heading: string) {
     }
     const folded = view.state.field(sectionFoldState, false)?.folded
     const effects = sectionHeadings(view.state).filter(section => folded?.has(section.from) && anchor >= section.from && anchor < section.end).map(section => toggleSectionFold.of(section.from))
-    view.dispatch({ effects, selection: { anchor }, scrollIntoView: true })
+    view.dispatch({ effects: [...effects, EditorView.scrollIntoView(anchor, { y: 'start', yMargin: 32 })], selection: { anchor } })
     view.focus()
     return true
   }
@@ -845,8 +872,7 @@ function openInsertMenu(view: EditorView) {
 }
 function insertText(view: EditorView, text: string) {
   const selection = view.state.selection.main
-  const frontmatter = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
-  const position = Math.max(selection.to, frontmatter?.[0].length ?? 0)
+  const position = noteBlockInsertionPosition(view.state.doc.toString(), selection.to)
   const before = view.state.doc.sliceString(Math.max(0, position - 2), position)
   const after = view.state.doc.sliceString(position, Math.min(view.state.doc.length, position + 2))
   const prefix = position === 0 || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'

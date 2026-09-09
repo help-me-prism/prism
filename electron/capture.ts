@@ -50,6 +50,32 @@ export function memosFor(paper: KnowledgeNodeRecord, content: string): CurationM
 const typeLabels: Record<EvidenceAnchor['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
 const vaultFolders = new Set(['papers', 'concepts', 'claims', 'questions', 'insights', 'projects', 'templates', 'assets', '00 inbox'])
 
+/** Ordinary Markdown links also retain provenance when this note opens in Obsidian. */
+export function chatCaptureProvenance(answer: string, anchors: Array<{ paperId: string; anchorId: string; label: string; page?: number }>, paper: Pick<CapturePaper, 'arxivId' | 'title'>) {
+  const unique = new Map<string, typeof anchors[number]>()
+  const aliases = new Map<string, Set<string>>()
+  for (const anchor of anchors) {
+    if (!anchor.paperId || !anchor.anchorId) continue
+    const key = JSON.stringify([anchor.paperId,anchor.anchorId])
+    if (!unique.has(key)) unique.set(key,anchor)
+    const keys = aliases.get(anchor.label) ?? new Set<string>(); keys.add(key); aliases.set(anchor.label,keys)
+  }
+  const target = (anchor: typeof anchors[number]) => `prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}${Number.isInteger(anchor.page) && anchor.page! > 0 ? `&page=${anchor.page}` : ''}`
+  const escape = (value: string) => value.replace(/\r?\n/g,' ').replace(/[\\[\]]/g,'\\$&')
+  // Never rewrite examples/code or choose between identical labels from two papers.
+  const linkedAnswer = answer.split(/(`{3,}[^\n]*\n[\s\S]*?`{3,}|~~~[^\n]*\n[\s\S]*?~~~|`+[^`\n]*`+|\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g).map((part,index) => index % 2 ? part : part.replace(/\[@([^\]\n]+)\](?!\()/g,(literal,label: string) => {
+    const keys = aliases.get(label)
+    if (keys?.size !== 1) return literal
+    const anchor = unique.get([...keys][0])!
+    return `[@${escape(label)}](${target(anchor)})`
+  })).join('')
+  const references = [...unique.values()].map(anchor => {
+    const title = anchor.paperId === paper.arxivId ? paper.title : anchor.paperId
+    return `[${escape(`${anchor.label} · ${title}${Number.isInteger(anchor.page) && anchor.page! > 0 ? ` · p.${anchor.page}` : ''}`)}](${target(anchor)})`
+  }).join(', ')
+  return { answer: linkedAnswer, references, anchors: [...unique.values()] }
+}
+
 function blockIdFor(anchor: Pick<EvidenceAnchor, 'paperId' | 'anchorId'>) {
   const value = `${anchor.paperId}-${anchor.anchorId}`.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').slice(0, 90)
   return `evidence-${value || 'anchor'}`
@@ -125,9 +151,10 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
   } else {
     const capturedAt = new Date().toISOString()
     const question = request.question.replace(/\s+/g, ' ').trim().slice(0, 300)
-    const answer = request.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
-    const references = (request.anchors ?? []).map((anchor) => `${anchor.label}${anchor.page ? ` (p.${anchor.page})` : ''}`).join(', ')
-    const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt }))
+    const provenance = chatCaptureProvenance(request.answer, request.anchors ?? [], paper)
+    const answer = provenance.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
+    const references = provenance.references
+    const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt, anchors: provenance.anchors }))
     const block = `> [!ai]- AI 답변 · ${capturedAt.slice(0, 10)} · ${request.provider}/${request.model}\n> **Q:** ${question || '(질문 없음)'}\n>\n${answer}${references ? `\n>\n> 참조: ${references}` : ''}\n<!-- prism-ai-answer:${metadata} -->`
     content = appendToNotesSection(content, block)
   }

@@ -482,7 +482,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <span className={`note-save ${saved ? 'is-saved' : ''}`} role="status">{saved ? '저장됨' : '저장 중…'}</span>
         {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
-        {/^## 메모\s*$/m.test(content) && <button className="ghost" title="저장한 메모와 AI 답변이 있는 구간으로 이동합니다" onClick={() => editorRef.current?.focusSection('메모')}><PenLine size={13} /> 메모 보기</button>}
+        {/^## (?:메모|Notes)\s*$/m.test(content) && <button className="ghost" title="저장한 메모와 AI 답변이 있는 구간으로 이동합니다" onClick={() => editorRef.current?.focusSection(content.match(/^## (메모|Notes)\s*$/m)?.[1] ?? '메모')}><PenLine size={13} /> 메모 보기</button>}
         <button className="ghost" title="본문에 다른 노트 링크를 넣습니다" onClick={() => setPicker({ kind: 'link', query: '' })}><Link2 size={13} /> 링크</button>
         {node.nodeType === 'question'
           ? <button className="ghost" title="이 질문에 답하는 논문이나 주장을 연결합니다" onClick={() => setPicker({ kind: 'answer', query: '' })}><Link2 size={13} /> 답 연결</button>
@@ -566,13 +566,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       </div>
     </div>
 
-    {picker && <section className="note-picker" aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : picker.kind === 'answer' ? '이 질문에 답하는 노트 선택' : '연결할 노트 선택'}>
+    {picker && <section className="note-picker" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setPicker(undefined); editorRef.current?.focus() } }} aria-label={picker.kind === 'evidence' ? 'PDF 근거 선택' : picker.kind === 'relation' ? '관계 대상 선택' : picker.kind === 'evidence-claim' ? '근거를 연결할 주장 선택' : picker.kind === 'copy-evidence' ? '근거를 복사할 노트 선택' : picker.kind === 'answer' ? '이 질문에 답하는 노트 선택' : '연결할 노트 선택'}>
       <header>
         <div><Search size={13} /><input autoFocus aria-label="노트 및 근거 검색" value={picker.query} placeholder={picker.kind === 'evidence' ? '논문 제목, 문장, 수식 검색' : '제목, 본문 검색'} onChange={(event) => setPicker({ ...picker, query: event.target.value })} /></div>
         <button aria-label="선택 닫기" onClick={() => setPicker(undefined)}><X size={13} /></button>
       </header>
       {picker.kind === 'relation' && <nav className="picker-types" aria-label="관계 유형">{availableRelationTypes.map((type) => <button key={type} className={picker.type === type ? 'active' : ''} aria-pressed={picker.type === type} onClick={() => setPicker({ ...picker, type })}>{relationLabels[type]}</button>)}</nav>}
       {picker.kind === 'relation' && <p className="picker-direction">이 노트 → {relationLabels[picker.type]} → 아래에서 선택할 노트</p>}
+      {picker.kind === 'relation' && <p className="picker-direction">‘관련’은 지지나 상하 관계를 단정하지 않는 연결입니다. 정확한 출처 문장이나 피겨는 ‘근거’로 남기세요.</p>}
       {picker.kind === 'link' && <p className="picker-direction">본문에 노트 링크를 넣습니다. 지지·반박 같은 의미를 정하려면 ‘관계’를 사용하세요.</p>}
       {picker.kind === 'evidence-claim' && <nav className="picker-types" aria-label="근거 관계 유형">{(['supports', 'contradicts', 'extends'] as const).map((type) => <button key={type} className={picker.type === type ? 'active' : ''} aria-pressed={picker.type === type} onClick={() => setPicker({ ...picker, type })}>{relationLabels[type]}</button>)}</nav>}
       <div className="picker-list">

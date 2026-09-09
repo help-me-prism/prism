@@ -668,3 +668,6 @@ button.cm-section-fold-summary:focus-visible { outline: 2px solid light-dark(#5f
 .note-hint button { flex-shrink: 0; white-space: nowrap; min-height: 28px; }
 .note-hint > span { flex: 1 1 220px; line-height: 1.7; }
 .picker-direction { margin: 0; padding: 7px 14px; color: light-dark(#68745e, #aab89e); font-size: 11px; line-height: 1.6; }
+/* Source references stay ordinary Markdown in the vault and act as links here. */
+.cm-source-evidence-link { color: var(--accent, #6fae97); background: transparent; border: 0; padding: 0; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cm-source-evidence-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }

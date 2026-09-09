@@ -15,7 +15,7 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
   ipcMain.handle = (channel, listener) => register(channel, async (...args) => {
     if (channel === 'providers:list') return [{ id: 'codex', name: 'Codex', installed: true, available: true, status: 'Offline UI test', models: [{ id: 'gpt-5.6-luna', name: 'Luna', description: 'Offline UI test' }] }]
     if (channel === 'evidence:list') await new Promise(resolve => setTimeout(resolve, 800))
-    if (channel === 'chat:send') { fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), 'called\n'); throw new Error('Offline UI test prevents paid calls') }
+    if (channel === 'chat:send') { fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls') }
     return listener(...args)
   })
 }
