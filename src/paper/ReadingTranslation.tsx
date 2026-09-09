@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
 import PaperTranslationLayout from './PaperTranslationLayout'
+import FlowProseExcerpt from './FlowProseExcerpt'
 import { clearCropBoundary } from './paperLayout'
 import { groupReadingSegments } from './readingBlocks'
 import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices } from './excerptGeometry'
@@ -12,6 +13,16 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
   useEffect(() => {
     if (!canvas.current) return
     const ratio = source.width / Math.max(1, parseFloat(source.style.width) || source.width)
+    // Fitted PDF viewports can have fractional CSS dimensions. Recalculating a
+    // full-page crop from the width ratio can lose a pixel from the other axis.
+    if (!padding && !clipRects && rect.left === 0 && rect.top === 0
+      && Math.abs(rect.width - (parseFloat(source.style.width) || source.width)) < .001
+      && Math.abs(rect.height - (parseFloat(source.style.height) || source.height)) < .001) {
+      canvas.current.width = source.width; canvas.current.height = source.height
+      canvas.current.style.width = `${rect.width}px`
+      canvas.current.getContext('2d')?.drawImage(source, 0, 0)
+      return
+    }
     const left = Math.max(0, rect.left - padding); const top = Math.max(0, rect.top - padding)
     const width = Math.min(source.width / ratio - left, rect.width + padding * 2)
     const height = Math.min(source.height / ratio - top, rect.height + padding * 2)
@@ -41,15 +52,19 @@ export default function ReadingTranslation({ segments, translation, source, read
   const mixedParagraphs = mixedProseParagraphs(segments)
   const unsafeParagraphs = unsafeParagraphIds(segments)
   const originalParagraphs = new Set([...mixedParagraphs].filter(id => unsafeParagraphs.has(id) || !segments.some(item => item.blockId === id && translation.get(item.id))))
-  const blocks = joinPreservedRegions(groupReadingSegments(segments, originalParagraphs, segment => translation.get(segment.id) ? 'translated' : 'source').map(({ id, items, original }) => {
+  const blocks = joinPreservedRegions(groupReadingSegments(segments, originalParagraphs, segment => translation.get(segment.id) ? 'translated' : 'source').map(({ id, kind, items, original }) => {
     const boxes = items.flatMap(rectangles)
     const left = Math.min(...boxes.map(box => box.left)); const top = Math.min(...boxes.map(box => box.top))
-    return { id, items, original, rect: boxes.length ? { left, top, width: Math.max(...boxes.map(box => box.left + box.width)) - left, height: Math.max(...boxes.map(box => box.top + box.height)) - top } : undefined }
+    return { id, kind, items, original, rect: boxes.length ? { left, top, width: Math.max(...boxes.map(box => box.left + box.width)) - left, height: Math.max(...boxes.map(box => box.top + box.height)) - top } : undefined }
   }))
   // Follow the parser's reading order. Embedded bitmap figures join their nearest caption.
   const placed = new Set<number>()
   const clips = (items: TranslationSegment[]) => items.every(item => ['text', 'artifact', 'heading', 'caption'].includes(item.kind) && item.preciseRects?.length) ? items.flatMap(rectangles) : items.every(item => ['text', 'artifact'].includes(item.kind) && item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId)) ? items.flatMap(rectangles) : undefined
-  const crop = (rect: Rect, label: string, clipRects?: Rect[], alignProse = false) => source && ready ? <OriginalExcerpt source={source} rect={rect} label={label} clipRects={clipRects} alignProse={alignProse} /> : null
+  const crop = (rect: Rect, label: string, clipRects?: Rect[], alignProse = false) => {
+    if (!source || !ready) return null
+    const original = <OriginalExcerpt source={source} rect={rect} label={label} clipRects={clipRects} alignProse={alignProse} />
+    return format === 'flow' && alignProse && clipRects ? <FlowProseExcerpt source={source} rects={clipRects} label={label} fallback={original} /> : original
+  }
   // Reposition only a precisely located protected sentence between translated prose.
   // Its PDF anchors and source rectangles remain untouched.
   const protectedProse = (items: TranslationSegment[]) => items.length === 1 && items[0].kind === 'artifact' && !!items[0].preciseRects?.length && !!items[0].blockId && mixedParagraphs.has(items[0].blockId) && !originalParagraphs.has(items[0].blockId)
@@ -65,7 +80,7 @@ export default function ReadingTranslation({ segments, translation, source, read
     </div>
     const items = blocks.flatMap(block => {
       if (!block.rect || containedInFigure(block.rect)) return []
-      const kind = block.items[0].kind
+      const kind = block.kind
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind) || block.items.some(segment => !translation.get(segment.id))
       const neighbors = kind === 'caption' ? [...figures, ...blocks.filter(item => ['table', 'artifact'].includes(item.items[0].kind)).flatMap(item => item.rect ? [item.rect] : [])].map(rect => ({ rect, distance: Math.max(rect.top - block.rect!.top - block.rect!.height, block.rect!.top - rect.top - rect.height, 0) })).filter(item => item.distance < 120 && item.rect.width > block.rect!.width && item.rect.left < block.rect!.left + block.rect!.width && item.rect.left + item.rect.width > block.rect!.left).sort((a, b) => a.distance - b.distance) : []
       const rect = !preserved && neighbors[0] ? { ...block.rect, left: neighbors[0].rect.left, width: neighbors[0].rect.width } : block.rect
@@ -88,7 +103,7 @@ export default function ReadingTranslation({ segments, translation, source, read
   if (format === 'paper') return null
   return <div className="reading-translation">
     {blocks.map(block => {
-      const kind = block.items[0].kind
+      const kind = block.kind
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind)
       if (preserved && block.rect && figures.some(rect => block.rect!.left >= rect.left - 5 && block.rect!.top >= rect.top - 5 && block.rect!.left + block.rect!.width <= rect.left + rect.width + 5 && block.rect!.top + block.rect!.height <= rect.top + rect.height + 5)) return null
       const associated = kind === 'caption' && block.rect ? figures.map((rect, index) => ({ rect, index })).filter(({ rect, index }) => !placed.has(index) && rect.top + rect.height <= block.rect!.top + 8 && block.rect!.top - rect.top - rect.height < 180 && rect.left < block.rect!.left + block.rect!.width && rect.left + rect.width > block.rect!.left) : []

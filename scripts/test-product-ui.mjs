@@ -27,7 +27,7 @@ let captureFailure = async () => {}; let socket; let sequence = 0; const pending
 try {
   let target
   for (let i = 0; i < 150 && !target; i++) {
-    try { target = (await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())).find(page => page.type === 'page') } catch {}
+    try { target = (await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())).find(page => page.type === 'page' && page.title === 'Prism' && page.url.startsWith('file:')) } catch {}
     if (!target) await sleep(100)
   }
   assert(target, logs)
@@ -36,23 +36,35 @@ try {
     const message = JSON.parse(event.data)
     if (message.method === 'Runtime.consoleAPICalled') logs += '\n' + message.params.args.map(item => item.value ?? item.description ?? '').join(' ')
     if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text)
-    if (message.id) { const handler = pending.get(message.id); pending.delete(message.id); message.error ? handler.reject(message.error) : handler.resolve(message.result) }
+    if (message.id) { const handler = pending.get(message.id); pending.delete(message.id); if (handler) message.error ? handler.reject(Object.assign(new Error(`${handler.method}: ${message.error.message} (${target.url})`), { code: message.error.code })) : handler.resolve(message.result) }
   })
   await new Promise(resolve => socket.addEventListener('open', resolve))
-  const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })) })
+  const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject, method }); socket.send(JSON.stringify({ id, method, params })) })
   const evaluate = async expression => { const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails)); return result.result.value }
-  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,top:e.scrollTop,rect:e.getBoundingClientRect().toJSON(),s:e.getAttribute('style')})))")}\n${logs}`) }
+  const wait = async expression => { for (let i = 0; i < 200; i++) {
+    try { if (await evaluate(expression)) return } catch (error) {
+      // These are readonly predicates. A navigation can temporarily detach its
+      // execution context; never apply this retry to imports, saves or clicks.
+      if (error.code !== -32000 || !/active page|context|navigat/i.test(error.message)) throw error
+    }
+    await sleep(100)
+  } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,top:e.scrollTop,rect:e.getBoundingClientRect().toJSON(),s:e.getAttribute('style')})))")}\n${logs}`) }
+  const reload = async () => {
+    const epoch = `reload-${Date.now()}-${sequence}`
+    await evaluate(`window.__testNavigationEpoch=${JSON.stringify(epoch)}; location.reload()`)
+    await wait(`Boolean(window.prism && window.__testNavigationEpoch !== ${JSON.stringify(epoch)})`)
+  }
   const shot = async name => { const image = await send('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('tmp/ui', { recursive: true }); await fs.writeFile(`tmp/ui/${name}.png`, Buffer.from(image.data, 'base64')) }
   captureFailure = () => Promise.race([shot('product-ui-failure'), sleep(2000)])
   await send('Runtime.enable'); await wait('Boolean(window.prism && document.querySelector(".reader-empty"))')
   assert.equal((await evaluate('window.prism.getSettings()')).autoTranslate, false)
-  await evaluate('localStorage.setItem("prism.appearance", "light"); dispatchEvent(new Event("prism-theme")); location.reload()')
+  await evaluate('localStorage.setItem("prism.appearance", "light"); dispatchEvent(new Event("prism-theme"))'); await reload()
   await wait('Boolean(document.querySelector(".reader-empty"))'); await shot('product-welcome-light')
   const paper = await evaluate('window.prism.importLocalPaper()')
   assert(paper.arxivId.startsWith('local-')); assert.equal(paper.title, 'Cell biology')
   assert.equal((await evaluate('window.prism.importLocalPaper()')).arxivId, paper.arxivId)
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 1)
-  await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
+  await reload(); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   await wait('document.querySelectorAll("[data-anchor]").length > 3')
   await wait('document.querySelector(".page-jump input").value === "1"')
   assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
@@ -78,7 +90,7 @@ try {
   await evaluate('document.querySelector(".page-jump").requestSubmit()')
   await wait('document.querySelector(".page-jump input").value === "3"')
   await wait('Boolean(document.querySelector("[data-page=original-3].rendered"))')
-  await evaluate('location.reload()')
+  await reload()
   await wait('document.querySelector(".page-jump input")?.value === "3"')
   await wait('Boolean(document.querySelector("[data-page=original-3].rendered"))')
   assert(await evaluate('(() => { const p = document.querySelector("[data-page=original-3]").getBoundingClientRect(); const pane = document.querySelector(".document-scroll").getBoundingClientRect(); return Math.abs(p.top - pane.top) < 40; })()'), 'Reload must restore the actual page, not merely its counter')
@@ -95,8 +107,10 @@ try {
   await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [{ ...citedSource, kind: citedSource.type, translation: '인용 표시가 누락된 잘못된 번역' }] }))
   assert.equal((await evaluate(`window.prism.readTranslation(${JSON.stringify(paper.arxivId)})`)).segments[0].translation, undefined)
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
-  await wait('Boolean(document.querySelector(".untouched-paper > canvas"))')
-  assert(await evaluate('(() => { const page = document.querySelector(".paper-layout-page.rendered"); return page.querySelector(":scope > canvas").toDataURL() === page.querySelector(".untouched-paper > canvas").toDataURL(); })()'), 'An untranslated page must preserve the complete original pixels, without recropping headings or sentences')
+  await wait('Boolean(document.querySelector(".paper-layout-page.rendered .untouched-paper > canvas"))')
+  // Width fitting may start a replacement render between separate observations.
+  // Check ready state and complete pixel identity atomically on the same page.
+  await wait('(() => { const page = document.querySelector(".paper-layout-page.rendered"), copy=page?.querySelector(".untouched-paper > canvas"); return !!copy && page.querySelector(":scope > canvas").toDataURL() === copy.toDataURL(); })()')
   const translations = new Map([
     ['Cells respond to changes in their environment.', '세포는 주변 환경의 변화에 반응한다. 번역문이 원문보다 길어져도 수식이나 표를 덮지 않고 자연스럽게 다음 줄로 이어져야 한다.'],
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
@@ -104,7 +118,7 @@ try {
     ['Results should not imply causation.', '결과를 인과 관계로 해석해서는 안 된다.'],
   ])
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
-  await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".document-mode"))')
+  await reload(); await wait('Boolean(document.querySelector(".document-mode"))')
 
   await evaluate('document.querySelector(".comparison-options > summary").click()')
   assert(await evaluate('(() => { const button = document.querySelector(".comparison-options .reader-toolbar-popover button"); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()'), 'Comparison choices must be visible and clickable, not clipped by their parent')
@@ -119,6 +133,20 @@ try {
   assert.equal(await evaluate('Boolean(document.querySelector(".paper-layout-page > .flow-page-heading, .paper-layout-page > .flow-original"))'), false)
   assert(await evaluate('[...document.querySelectorAll(".paper-layout-page.rendered > canvas")].every(canvas => canvas.width >= 1000)'))
   await shot('product-translation-paper')
+  const setTranslationZoom = async value => {
+    await evaluate(`(() => { const select=document.querySelector('select[aria-label="번역 배율"]'); select.value=${JSON.stringify(value)}; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+    await wait(`Boolean(document.querySelector('.paper-layout-page.rendered[data-render-scale="${value}"] .paper-layout-block.text'))`)
+    await evaluate('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))')
+  }
+  const translatedMetrics = () => evaluate('(() => { const page=document.querySelector(".paper-layout-page.rendered"), text=page.querySelector(".paper-layout-block.text:has(span[data-anchor])"), figure=page.querySelector("figure canvas"); return {width:page.getBoundingClientRect().width,font:parseFloat(getComputedStyle(text).fontSize),textHeight:text.getBoundingClientRect().height,figureWidth:figure.getBoundingClientRect().width}; })()')
+  await setTranslationZoom('1')
+  const at100 = await translatedMetrics()
+  await setTranslationZoom('1.5')
+  const at150 = await translatedMetrics()
+  for (const metric of ['width','font','figureWidth']) assert(Math.abs(at150[metric]/at100[metric]-1.5)<.02, `Paper zoom must scale ${metric} together`)
+  assert(Math.abs(at150.textHeight/at100.textHeight-1.5)<.08,`Paper zoom must preserve paragraph composition, not enlarge text inside a fixed page: ${JSON.stringify({at100,at150})}`)
+  await evaluate('(() => { const select=document.querySelector(\'select[aria-label="번역 배율"]\'); select.value="fit"; select.dispatchEvent(new Event("change",{bubbles:true})); })()')
+  await wait('(() => { const page=document.querySelector(".paper-layout-page.rendered"); if(!page) return false; const pane=page.closest(".document-scroll"); return page.getBoundingClientRect().width <= pane.clientWidth && page.scrollWidth <= page.clientWidth+2; })()')
   await evaluate(`document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]').click()`)
   await wait('Boolean(document.querySelector(".composer-anchor .type-figure"))')
   await wait('Boolean(document.querySelector(".figure-attachment img"))')

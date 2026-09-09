@@ -18,3 +18,15 @@ console.log('Reading blocks passed: actual engineering p11 protected sentence st
 
 const partial=groupReadingSegments([{id:'ok1',kind:'text',blockId:'p'},{id:'bad',kind:'text',blockId:'p'},{id:'ok2',kind:'text',blockId:'p'}],new Set(),item=>item.id==='bad'?'source':'translated')
 assert.deepEqual(partial.map(group=>group.items.map(item=>item.id)),[['ok1'],['bad'],['ok2']], 'A single failed sentence must not hide accepted neighboring translations')
+
+// Actual engineering p11 run-in heading coordinates: bold ink starts slightly
+// below the adjoining regular text. It must remain before its own paragraph.
+const heading={id:'heading',kind:'heading',blockId:'p11',preciseRects:[{left:211.349,top:642.937,width:60.853,height:9.375}]}
+const body={id:'body',kind:'text',blockId:'p11',preciseRects:[{left:278.983,top:642.312,width:294.308,height:10},{left:199.387,top:655.295,width:364.562,height:10}]}
+const runIn=groupReadingSegments([heading,body])
+assert.equal(runIn.length,1)
+assert.equal(runIn[0].kind,'text')
+assert.deepEqual(runIn[0].items.map(item=>item.id),['heading','body'])
+assert.equal(groupReadingSegments([heading,{...body,blockId:'other'}]).length,2)
+assert.equal(groupReadingSegments([heading,{...body,preciseRects:[{left:199,top:660,width:365,height:10}]}]).length,2,'A separate-line title must remain separate')
+assert.equal(groupReadingSegments([heading,body],new Set(),item=>item.id==='body'?'source':'translated').length,2,'Do not merge across untranslated content')

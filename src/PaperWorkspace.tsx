@@ -344,12 +344,12 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = detectedFigureRects.length
     ? [...detectedFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(detectedFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
     : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
-  if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} style={{ width: translationFormat === 'paper' ? 'min(100%, 1000px)' : pageSize.width, fontSize: 15 * scale }}>
+  if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, fontSize: 15 * scale }}>
     {translationFormat === 'flow' && <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>}
     {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
-    <ReadingTranslation format={translationFormat} fontScale={requestedScale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
+    <ReadingTranslation format={translationFormat} fontScale={1} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
       if (segment.kind !== 'artifact') { onTag(segment); return }
       const boxes = segmentRects(segment, itemRects, scale)
       if (!boxes.length) return
@@ -358,7 +358,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     }} onFindNotes={onFindNotes} />
     {translationFormat === 'flow' && <span className="page-badge">{pageNumber}</span>}
   </div>
-  return <div className={`continuous-page ${mode} ${rendered ? 'rendered' : 'pending'}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} style={pageSize}><canvas ref={canvasRef} />
+  return <div className={`continuous-page ${mode} ${rendered ? 'rendered' : 'pending'}`} ref={pageRef} data-page={`${mode}-${pageNumber}`} data-render-scale={scale} style={pageSize}><canvas ref={canvasRef} />
     {!rendered && <div className="page-loading">{pageError ? <><span role="alert">페이지를 표시하지 못했습니다: {pageError}</span><button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button></> : <><LoaderCircle className="spin" size={16} /><span>페이지 {pageNumber} 준비 중</span></>}</div>}
 
 
@@ -379,6 +379,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
+  const [translatedFit, setTranslatedFit] = useState(true)
   const [pageNumber, setPageNumber] = useState(1); const [sourceScale, setSourceScale] = useState(1); const [sourceFit, setSourceFit] = useState(true); const [translatedScale, setTranslatedScale] = useState(1); const [allSegments, setAllSegments] = useState<TranslationSegment[]>([])
   const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
   const [translationFormat, setTranslationFormat] = useState<'paper' | 'flow'>(() => localStorage.getItem('prism.translation-format') === 'flow' ? 'flow' : 'paper'); const [cacheExists, setCacheExists] = useState(false)
@@ -728,16 +729,29 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   }, [layout, pendingTranslationPage, translationFormat])
   function setPaneZoom(mode: 'original' | 'translated', value: number) {
     if (mode === 'original' || syncZoomEnabled) setSourceFit(false)
+    if (mode === 'translated' || syncZoomEnabled) setTranslatedFit(false)
     const activePane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
     zoomAnchorRef.current = navigationTarget.current ?? scrollAnchor(activePane)
     if (syncZoomEnabled) { setSourceScale(value); setTranslatedScale(value) } else if (mode === 'original') setSourceScale(value); else setTranslatedScale(value)
   }
-  function changeZoom(mode: 'original' | 'translated', direction: -1 | 1) { const current = mode === 'original' ? sourceScale : translatedScale; const target = direction > 0 ? zoomLevels.find((value) => value > current + .001) : [...zoomLevels].reverse().find((value) => value < current - .001); if (target) setPaneZoom(mode, target) }
+  function fitPane(mode: 'original' | 'translated') {
+    zoomAnchorRef.current = navigationTarget.current ?? scrollAnchor(mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current)
+    if (mode === 'original' || syncZoomEnabled) setSourceFit(true)
+    if (mode === 'translated' || syncZoomEnabled) setTranslatedFit(true)
+  }
+  function changeZoom(mode: 'original' | 'translated', direction: -1 | 1) {
+    const pane = mode === 'original' ? sourceScrollRef.current : translatedScrollRef.current
+    const fitted = mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit
+    const renderedScale = Number(pane?.querySelector<HTMLElement>(`[data-page="${mode}-${pageNumber}"]`)?.dataset.renderScale)
+    const current = fitted && renderedScale > 0 ? renderedScale : mode === 'original' ? sourceScale : translatedScale
+    const target = direction > 0 ? zoomLevels.find(value => value > current + .001) : [...zoomLevels].reverse().find(value => value < current - .001)
+    if (target) setPaneZoom(mode, target)
+  }
   useEffect(() => {
     const pairs: Array<[HTMLDivElement | null, 'original' | 'translated']> = [[sourceScrollRef.current, 'original'], [translatedScrollRef.current, 'translated']]
     const cleanups = pairs.flatMap(([pane, mode]) => { if (!pane) return []; const zoomWheel = (event: WheelEvent) => { if (!event.ctrlKey) return; event.preventDefault(); changeZoom(mode, event.deltaY < 0 ? 1 : -1) }; pane.addEventListener('wheel', zoomWheel, { passive: false }); return [() => pane.removeEventListener('wheel', zoomWheel)] })
     return () => cleanups.forEach((cleanup) => cleanup())
-  }, [sourceScale, translatedScale, syncZoomEnabled, activePaper?.arxivId, pdf, layout])
+  }, [sourceScale, translatedScale, sourceFit, translatedFit, translationFormat, pageNumber, syncZoomEnabled, activePaper?.arxivId, pdf, layout])
   useEffect(() => {
     const anchor = zoomAnchorRef.current
     if (!anchor) return
@@ -745,7 +759,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const frame = requestAnimationFrame(restore); const timeout = window.setTimeout(restore, 180)
     zoomAnchorRef.current = undefined
     return () => { cancelAnimationFrame(frame); window.clearTimeout(timeout) }
-  }, [sourceScale, translatedScale])
+  }, [sourceScale, translatedScale, sourceFit, translatedFit])
   function syncScroll(from: HTMLDivElement, to: HTMLDivElement | null) {
     if (!to || syncLock.current) return
     syncLock.current = true; restoreScrollAnchor(to, scrollAnchor(from))
@@ -753,7 +767,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     requestAnimationFrame(() => { syncLock.current = false })
   }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
-  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' && sourceFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={setHighlighted} onTag={tagSegment} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
   const comparisonPreference = useRef<'dual' | 'stacked' | undefined>(undefined)
   useEffect(() => {
     const dismissMenus = (event: PointerEvent) => {
@@ -777,7 +791,12 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   function toolbarMenuKey(event: React.KeyboardEvent<HTMLDetailsElement>) {
     if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() }
   }
-  const paneZoom = (mode: 'original' | 'translated') => { const value = mode === 'original' ? sourceScale : translatedScale; return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : '번역 글자 크기'} value={mode === 'original' && sourceFit ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? setSourceFit(true) : setPaneZoom(mode, Number(event.target.value))}>{mode === 'original' && <option value="fit">너비 맞춤</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div> }
+  const paneZoom = (mode: 'original' | 'translated') => {
+    const value = mode === 'original' ? sourceScale : translatedScale
+    const paperZoom = mode === 'original' || translationFormat === 'paper'
+    const fitted = paperZoom && (mode === 'original' ? sourceFit : translatedFit)
+    return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={!fitted && value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : paperZoom ? '번역 배율' : '번역 글자 크기'} value={fitted ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? fitPane(mode) : setPaneZoom(mode, Number(event.target.value))}>{paperZoom && <option value="fit">너비 맞춤</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={!fitted && value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div>
+  }
 
   return <section className="reader-pane paper-workspace">
     {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}

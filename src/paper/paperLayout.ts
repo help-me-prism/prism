@@ -10,7 +10,10 @@ export function placePaperBlocks(rects: PaperRect[], heights: number[], ratio: n
     for (const prior of placed) {
       const overlap = Math.min(prior.rect.left + prior.rect.width, item.rect.left + item.rect.width) - Math.max(prior.rect.left, item.rect.left)
       if (overlap <= Math.min(prior.rect.width, item.rect.width) * .08) continue
-      const gap = Math.max(6, (item.rect.top - prior.rect.top - prior.rect.height) * ratio)
+      // Keep the original top whenever the translated paragraph still fits in
+      // the available whitespace. Reapplying the entire original gap after a
+      // taller paragraph needlessly pushes every subsequent block down.
+      const gap = Math.min(6 * ratio, Math.max(0, (item.rect.top - prior.rect.top - prior.rect.height) * ratio))
       top = Math.max(top, positions[prior.index] + heights[prior.index] + gap)
     }
     positions[item.index] = top

@@ -82,8 +82,9 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .reading-block .untranslated { color: #59645f; }
 .original-excerpt { display: block; max-width: 100%; margin: 10px auto; padding: 0; border: 0; background: white; }
 .original-excerpt canvas, .reading-translation figure canvas { max-width: 100%; height: auto; }
+.original-excerpt:has(.flow-prose-excerpt) { width: 100%; font: inherit; }
 .reading-translation figure { margin: 20px 0; text-align: center; }
-.paper-layout-page { padding: 0; }
+.flow-page.paper-layout-page { padding: 0; max-width: none; min-height: 0; }
 .paper-layout-page > .flow-page-heading { padding: 12px 18px; margin: 0; }
 .paper-layout-page > .flow-original { margin: 10px 18px 0; }
 .paper-translation-layout { position: relative; width: 100%; }
