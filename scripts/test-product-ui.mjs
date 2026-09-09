@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
+const require = createRequire(import.meta.url)
+const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-product-ui-'))
+const vault = path.join(root, 'vault'); await fs.mkdir(vault)
+await fs.mkdir(path.join(root, 'profile')); await fs.writeFile(path.join(root, 'profile', 'settings.json'), JSON.stringify({ libraryPath: vault, autoTranslate: false }))
+const sample = path.join(root, 'Cell biology.pdf')
+// A deterministic two-column PDF with prose, a numeric table and a vector diagram.
+const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET'
+const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
+let pdf = '%PDF-1.4\n'; const offsets = [0]
+objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n` })
+const xref = Buffer.byteLength(pdf)
+pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+await fs.writeFile(sample, pdf); await fs.writeFile(path.join(root, 'selection.txt'), sample)
+const port = 9341
+const processHandle = spawn(require('electron'), [`--remote-debugging-port=${port}`, `--user-data-dir=${path.join(root, 'profile')}`, 'scripts/product-test-host.cjs'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PRISM_PRODUCT_TEST_ROOT: root, PRISM_TEST_LIBRARY_PATH: '', PRISM_TEST_DISABLE_AUTO_TRANSLATE: '1', PRISM_TEST_WINDOW_SIZE: '1280x900' } })
+let logs = ''; processHandle.stdout.on('data', chunk => { logs += chunk }); processHandle.stderr.on('data', chunk => { logs += chunk })
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+let socket; let sequence = 0; const pending = new Map(); const exceptions = []
+try {
+  let target
+  for (let i = 0; i < 150 && !target; i++) {
+    try { target = (await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())).find(page => page.type === 'page') } catch {}
+    if (!target) await sleep(100)
+  }
+  assert(target, logs)
+  socket = new WebSocket(target.webSocketDebuggerUrl)
+  socket.addEventListener('message', event => {
+    const message = JSON.parse(event.data)
+    if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text)
+    if (message.id) { const handler = pending.get(message.id); pending.delete(message.id); message.error ? handler.reject(message.error) : handler.resolve(message.result) }
+  })
+  await new Promise(resolve => socket.addEventListener('open', resolve))
+  const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })) })
+  const evaluate = async expression => { const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails)); return result.result.value }
+  const wait = async expression => { for (let i = 0; i < 200; i++) { if (await evaluate(expression)) return; await sleep(100) } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${logs}`) }
+  const shot = async name => { const image = await send('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('tmp/ui', { recursive: true }); await fs.writeFile(`tmp/ui/${name}.png`, Buffer.from(image.data, 'base64')) }
+  await send('Runtime.enable'); await wait('Boolean(window.prism && document.querySelector(".reader-empty"))')
+  assert.equal((await evaluate('window.prism.getSettings()')).autoTranslate, false)
+  await evaluate('localStorage.setItem("prism.appearance", "light"); dispatchEvent(new Event("prism-theme")); location.reload()')
+  await wait('Boolean(document.querySelector(".reader-empty"))'); await shot('product-welcome-light')
+  const paper = await evaluate('window.prism.importLocalPaper()')
+  assert(paper.arxivId.startsWith('local-')); assert.equal(paper.title, 'Cell biology')
+  assert.equal((await evaluate('window.prism.importLocalPaper()')).arxivId, paper.arxivId)
+  assert.equal((await evaluate('window.prism.listLibrary()')).length, 1)
+  await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
+  await wait('document.querySelectorAll("[data-anchor]").length > 3')
+  await shot('product-pdf-light')
+  let anchorData
+  for (let attempt = 0; attempt < 30 && !anchorData; attempt++) { try { anchorData = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'anchors.json'), 'utf8')) } catch { await sleep(100) } }
+  assert(anchorData)
+  const translations = new Map([
+    ['Cells respond to changes in their environment.', '세포는 주변 환경의 변화에 반응한다. 번역문이 원문보다 길어져도 수식이나 표를 덮지 않고 자연스럽게 다음 줄로 이어져야 한다.'],
+    ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
+    ['The control group received no treatment.', '대조군에는 처치를 시행하지 않았다.'],
+    ['Results should not imply causation.', '결과를 인과 관계로 해석해서는 안 된다.'],
+  ])
+  await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
+  await evaluate('location.reload()'); await wait('Boolean(document.querySelector(".document-mode"))')
+
+  await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
+  await wait('Boolean(document.querySelector(".reading-translation .reading-block"))')
+  assert.equal(await evaluate('Boolean(document.querySelector(".translated-text-layer"))'), false)
+  assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
+  await wait('document.querySelectorAll(".reading-translation figure canvas").length >= 2')
+  assert(await evaluate('[...document.querySelectorAll(".reading-translation figure canvas")].every(canvas => canvas.width > 10 && canvas.height > 10)'))
+  await shot('product-translation-flow')
+  await evaluate(`document.querySelector('[aria-label="설정"]').click()`)
+  await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  await evaluate(`document.querySelector('[aria-label="설정 닫기"]').click()`)
+  assert.equal(await evaluate('document.documentElement.style.colorScheme'), 'dark')
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".continuous-page")).colorScheme'), 'light')
+  assert.notEqual(await evaluate('getComputedStyle(document.querySelector(".titlebar")).backgroundColor'), 'rgba(0, 0, 0, 0)')
+  await sleep(200)
+  assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
+  await shot('product-pdf-dark')
+  await evaluate('window.prism.choosePaperStorage()')
+  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, `${pdf}\n% Second paper`); await fs.writeFile(path.join(root, 'selection.txt'), second)
+  const external = await evaluate('window.prism.importLocalPaper()')
+  assert(external.pdfPath.startsWith(path.join(root, 'external-papers')))
+  assert(external.notePath.startsWith(vault)); assert.equal(external.externalAssets, true)
+  const records = await evaluate('window.prism.listLibrary()')
+  assert.equal(records.length, 2); assert.equal(records.find(item => item.arxivId === paper.arxivId).pdfPath, paper.pdfPath)
+  assert.equal(records.find(item => item.arxivId === external.arxivId).pdfPath, external.pdfPath)
+  const note = await fs.readFile(external.notePath, 'utf8'); assert(note.includes('file:///')); assert(!note.includes('tags: [paper, arxiv]'))
+  const bad = path.join(root, 'invalid.pdf'); await fs.writeFile(bad, 'not PDF'); await fs.writeFile(path.join(root, 'selection.txt'), bad)
+  assert(await evaluate('window.prism.importLocalPaper().then(() => false, () => true)'))
+  assert.equal((await evaluate('window.prism.listLibrary()')).length, 2)
+  const node = (await evaluate('window.prism.listKnowledgeNodes()')).find(node => node.title === 'Cell biology')
+  assert(node)
+  const snapshot = await evaluate(`window.prism.readKnowledgeNode(${JSON.stringify(node.id)})`)
+  assert(snapshot.vaultId)
+  await evaluate('window.prism.chooseWorkspace()')
+  const saved = await evaluate(`window.prism.saveKnowledgeNode(${JSON.stringify(node.id)}, ${JSON.stringify({ content: snapshot.content + '\nSaved after vault switch.\n', expectedRevision: snapshot.revision, vaultId: snapshot.vaultId })})`)
+  assert(saved.saved)
+  assert((await fs.readFile(paper.notePath, 'utf8')).includes('Saved after vault switch.'))
+  assert.equal((await evaluate('window.prism.listLibrary()')).length, 0)
+  assert.deepEqual(exceptions, [])
+  console.log('Product UI passed: first launch, real PDF import/rendering, deduplication, reflow, theme and print colors, separate storage, existing-path preservation, and invalid file rejection.')
+} finally {
+  socket?.close(); processHandle.kill()
+  if (processHandle.exitCode === null) await new Promise(resolve => processHandle.once('exit', resolve))
+  if (path.basename(root).startsWith('prism-product-ui-') && path.dirname(root) === os.tmpdir()) await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+}

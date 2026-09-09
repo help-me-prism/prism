@@ -47,6 +47,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [suggesting, setSuggesting] = useState(false)
   const [digesting, setDigesting] = useState(false)
   const digestedRef = useRef<string | undefined>(undefined)
+  const vaultIdRef = useRef<string | undefined>(undefined)
   const contentRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined); const nodeIdRef = useRef(node.id); const stubScanRef = useRef('')
   const editorRef = useRef<MarkdownEditorHandle>(null)
 
@@ -80,7 +81,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     dirtyRef.current = false
     window.prism.readKnowledgeNode(node.id).then((next) => {
       if (disposed) return
-      revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+      vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content)
     }).catch((reason) => { if (!disposed && loadAttempt === 0) onNotify(String(reason), 'error') })
     return () => { disposed = true }
@@ -105,7 +106,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (conflict && !force) return false
     const value = contentRef.current
     try {
-      const result = await window.prism.saveKnowledgeNode(id, { content: value, expectedRevision: revisionRef.current, force })
+      const result = await window.prism.saveKnowledgeNode(id, { content: value, expectedRevision: revisionRef.current, force, vaultId: vaultIdRef.current })
       if (!result.saved) { setConflict(result.conflict); setSaved(false); return false }
       revisionRef.current = result.snapshot.revision
       setConflict(undefined); setSnapshot(result.snapshot)
@@ -166,7 +167,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         if (disposed || next.revision === revisionRef.current) return
         if (dirtyRef.current) setConflict(next)
         else {
-          revisionRef.current = next.revision; contentRef.current = next.content
+          vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content
           setSnapshot(next); setContent(next.content); setSaved(true)
           void onReloadContext()
         }
@@ -226,7 +227,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (result.updated) {
         const next = await window.prism.readKnowledgeNode(node.id)
         if (nodeIdRef.current === node.id && !dirtyRef.current) {
-          revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+          vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
           setSnapshot(next); setContent(next.content); setSaved(true)
         }
       }
@@ -387,7 +388,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       const result = await window.prism.pruneEmptySections(node.id)
       if (!result.removed.length) { onNotify('비어 있는 섹션이 없습니다.'); return }
       const next = await window.prism.readKnowledgeNode(node.id)
-      revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
+      vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content); setSaved(true)
       onNotify(`빈 섹션 ${result.removed.length}개를 지웠습니다: ${result.removed.join(', ')}`)
     } catch (reason) { onNotify(String(reason), 'error') }

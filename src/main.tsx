@@ -4,6 +4,10 @@ import '@fontsource-variable/noto-serif-kr'
 import App from './App'
 import NotesWindow from './NotesWindow'
 import './styles.css'
+import './product.css'
+import { applyTheme } from './ThemeControl'
+applyTheme()
+window.addEventListener('storage', applyTheme)
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {}

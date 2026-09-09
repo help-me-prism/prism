@@ -16,9 +16,9 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
 type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
 type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
 type LatexBlock = { id: string; kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'; source: string; section?: string }
 type LatexStructure = { version: 3; rootFile: string; generatedAt: string; blocks: LatexBlock[] }
@@ -26,8 +26,8 @@ type TranslationSegment = { id: string; page: number; source: string; kind: 'tex
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
 type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
 type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string; libraryPath?: string }
-type NoteSnapshot = { content: string; revision: string; modifiedAt: number }
-type NoteSaveRequest = { content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
+type NoteSnapshot = { vaultId?: string; content: string; revision: string; modifiedAt: number }
+type NoteSaveRequest = { vaultId?: string; content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
 type NoteSaveResult = { saved: true; snapshot: NoteSnapshot; stubs?: string[] } | { saved: false; conflict: NoteSnapshot }
 type PaperCaptureRequest =
   | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
@@ -105,13 +105,18 @@ interface Window {
     onProviderAuthData: (callback: (event: ProviderAuthEvent) => void) => () => void
     loadSessions: () => Promise<ChatSession[]>
     saveSessions: (sessions: ChatSession[]) => Promise<boolean>
+    onSettingsChanged: (callback: (settings: AppSettings) => void) => () => void
     getSettings: () => Promise<AppSettings>
     updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+    choosePaperStorage: (reset?: boolean) => Promise<AppSettings | null>
     chooseWorkspace: () => Promise<AppSettings | null>
     listLibrary: () => Promise<PaperRecord[]>
+    searchCrossref: (query: string) => Promise<ArxivPaper[]>
+    openDoi: (id: string) => Promise<void>
     searchArxiv: (input: string) => Promise<ArxivPaper[]>
     autocompletePapers: (input: string) => Promise<Array<{ title: string; authorsYear?: string }>>
     openArxiv: (arxivId: string) => Promise<void>
+    importLocalPaper: (metadata?: ArxivPaper) => Promise<PaperRecord | null>
     downloadPaper: (paper: ArxivPaper) => Promise<PaperRecord>
     readPaperPdf: (arxivId: string) => Promise<Uint8Array>
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>

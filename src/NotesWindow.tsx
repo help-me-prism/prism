@@ -44,6 +44,10 @@ export default function NotesWindow() {
   // it turns on happens.
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [settings, setSettings] = useState<AppSettings>()
+  useEffect(() => window.prism.onSettingsChanged(next => {
+    setSettings(next)
+    if (next.libraryPath !== libraryPath) { setOpenIds([]); setActiveId(undefined); void reloadNodes(); void reloadCuration() }
+  }), [libraryPath])
   const searchRef = useRef<HTMLInputElement>(null)
   const activeIdRef = useRef<string | undefined>(undefined)
   const nodesRef = useRef<KnowledgeNodeRecord[]>([])

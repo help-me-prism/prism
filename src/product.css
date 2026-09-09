@@ -1,0 +1,85 @@
+/* Reading surfaces are quiet; color is reserved for actions and state. */
+:root {
+  --accent: light-dark(#346c60, #94c4b7);
+  --accent-soft: light-dark(#e5eeea, #253b35);
+  --muted: light-dark(#666860, #a9ada5);
+  --ink: light-dark(#292d29, #e0e3dc);
+  accent-color: var(--accent);
+}
+button, select, summary { cursor: pointer; }
+button:disabled { cursor: default; }
+button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+[hidden] { display: none !important; }
+.continuous-page { color-scheme: light; color: #292a27; }
+.reading-focus { justify-self: end; -webkit-app-region: no-drag; border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+.sidebar { width: 216px; flex-basis: 216px; }
+.repository-card small, .nav-label { font-size: 10px; letter-spacing: .04em; }
+.repository-card strong, .paper-tree strong, .session-copy strong { font: 500 12px/1.5 "Segoe UI", sans-serif; }
+.paper-tree small, .session-copy small, .paper-tree > small { font-size: 10px; }
+.paper-tree { max-height: 32vh; }
+.paper-tree button { min-height: 47px; }
+.session-copy small { color: var(--muted); }
+.reader-empty { padding: 32px; max-width: 700px; margin: auto; }
+.reader-empty h1 { font-family: "Segoe UI", sans-serif; font-size: 27px; font-weight: 600; line-height: 1.4; }
+.reader-empty p { max-width: 370px; font-size: 14px; line-height: 1.9; color: var(--muted); }
+.reader-empty button { font-size: 13px; padding: 12px 18px; background: light-dark(#346c60, #446e61); }
+.welcome-note { display: block; max-width: 340px; margin-top: 24px; font-size: 11px; line-height: 1.8; color: var(--muted); }
+.paper-stack { color: var(--accent); }
+.chat-pane { min-width: 310px; width: min(380px, 31vw); flex-basis: min(380px, 31vw); }
+.model-bar select { font-size: 11px; height: 29px; }
+.model-bar label > span { font-size: 9px; }
+.message-body { font-size: 13px; line-height: 1.85; }
+.theme-control { display: flex; align-items: center; justify-content: space-between; gap: 24px; font-size: 13px; }
+.theme-control select { border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; background: var(--paper); color: var(--ink); }
+.import-pdf-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.import-pdf-row button { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+.import-pdf-row span { color: var(--muted); font-size: 11px; }
+.translation-options { position: relative; }
+.translation-options summary { padding: 6px; font-size: 12px; }
+.translation-options > div { position: absolute; top: 100%; left: 0; z-index: 60; display: flex; flex-direction: column; gap: 12px; width: 245px; padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px #0002; }
+.translation-control .translation-options label { display: flex; justify-content: space-between; gap: 10px; }
+.translation-control .translation-options select { max-width: 165px; font-size: 12px; }
+.paper-finder header p, .finder-empty p { font-size: 13px; line-height: 1.7; }
+.finder-search input { font-size: 14px; }
+.paper-result h3 { font-size: 17px; line-height: 1.5; }
+.paper-result .abstract { font-size: 12px; line-height: 1.75; }
+.app-settings { max-height: calc(100vh - 48px); overflow-y: auto; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.storage-settings label { display: grid; gap: 5px; margin: 14px 0 8px; font-size: 12px; }
+.storage-settings output { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.storage-actions { display: flex; gap: 8px; }
+
+.search-source { padding: 16px 20px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; }
+.search-source select { padding: 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); }
+.search-source small { color: var(--muted); }
+
+.pdf-page, .continuous-page { color-scheme: light; background: #fff; }
+.finder-search input { background: transparent; color: var(--ink); }
+.result-actions button.primary, .finder-search button { background: #346c60; color: #fff; border-color: #346c60; }
+
+.flow-page { min-height: 300px; padding: 28px 32px 42px; }
+.flow-page-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #58655f; font-size: 12px; border-bottom: 1px solid #e3e7e3; padding-bottom: 14px; }
+.flow-page-heading small { color: #747c76; font-size: 10px; }
+.flow-original { margin: 14px 0; color: #65736b; font-size: 11px; }
+.flow-original > canvas { width: 100% !important; height: auto !important; margin-top: 12px; }
+.reading-translation { color: #28332e; font: 1em/1.95 "Noto Serif KR Variable", Georgia, serif; }
+.reading-block { margin: 0 0 16px; }
+.reading-block.heading { font-family: "Segoe UI", sans-serif; font-size: 1.2em; font-weight: 650; margin-top: 26px; }
+.reading-block.caption { font-size: .8em; line-height: 1.8; color: #566259; }
+.reading-block span[role=button] { cursor: pointer; border-radius: 2px; }
+.reading-block span[role=button]:hover, .reading-block .highlighted { background: #e1eee6; }
+.reading-block .untranslated { color: #59645f; }
+.original-excerpt { display: block; max-width: 100%; margin: 10px auto; padding: 0; border: 0; background: white; }
+.original-excerpt canvas, .reading-translation figure canvas { max-width: 100%; height: auto; }
+.reading-translation figure { margin: 20px 0; text-align: center; }
+.flow-loading { color: #65736b; font-size: 12px; }
+
+.reader-notice { padding: 10px 16px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.document-title { min-width: 0; max-width: 100%; }
+.document-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paper-context-bar > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

@@ -44,6 +44,13 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
   const dragging = useRef<{ kind: 'pan' | 'node'; id?: string; startX: number; startY: number; originX: number; originY: number; moved: boolean } | undefined>(undefined)
   const frame = useRef<number | undefined>(undefined)
   const dirty = useRef(true)
+  useEffect(() => {
+    const repaint = () => { dirty.current = true }
+    const media = matchMedia('(prefers-color-scheme: dark)')
+    window.addEventListener('storage', repaint); window.addEventListener('prism-theme', repaint); media.addEventListener('change', repaint)
+    return () => { window.removeEventListener('storage', repaint); window.removeEventListener('prism-theme', repaint); media.removeEventListener('change', repaint) }
+  }, [])
+
 
   const view: GraphViewData = useMemo(() => {
     if (!graph) return { nodes: [], edges: [], hidden: 0 }
@@ -192,6 +199,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
     if (!canvas || !sim) return
     const context = canvas.getContext('2d')
     if (!context) return
+    const ink = getComputedStyle(canvas).color
     const ratio = window.devicePixelRatio || 1
     const { width, height } = size.current
     if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -371,7 +379,7 @@ export default function GraphView({ activeId, onOpenNode, onNotify }: {
       context.lineWidth = 3
       context.strokeText(label, x, top)
       context.globalAlpha = dim(node.id)
-      context.fillStyle = node.id === highlight || node.id === activeId ? '#3c352c' : '#6f675d'
+      context.fillStyle = ink
       context.fillText(label, x, top)
     }
     context.globalAlpha = 1

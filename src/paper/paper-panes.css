@@ -1,44 +1,44 @@
 /* The reader's window arrangement. Kept out of styles.css so the reader's layout and the chat's styles never
    have to be edited in the same file. Colours follow the tokens styles.css already sets on :root. */
 
-.pane-workbench { position: relative; min-height: 0; flex: 1; overflow: hidden; background: #d5d3cd; }
+.pane-workbench { position: relative; min-height: 0; flex: 1; overflow: hidden; background: light-dark(#d5d3cd, #42413d); }
 .pane-workbench.dragging { cursor: grabbing; }
 .pane-workbench.dragging * { cursor: grabbing !important; user-select: none; }
 
 .pane-chrome { position: absolute; z-index: 6; display: flex; }
-.pane-tabs { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 0; padding-right: 6px; border-bottom: 1px solid #c7c4bc; background: #e5e3dd; }
-.pane-tab { display: inline-flex; align-items: center; gap: 4px; max-width: 190px; padding: 0 7px 0 4px; border: 0; border-right: 1px solid #d3cfc7; border-radius: 0; background: transparent; color: #7b7871; font-size: 10px; cursor: grab; touch-action: none; }
-.pane-tab.on { background: var(--paper); color: #35342f; font-weight: 600; box-shadow: inset 0 2px var(--accent); }
+.pane-tabs { flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 0; padding-right: 6px; border-bottom: 1px solid light-dark(#c7c4bc, #8b8983); background: light-dark(#e5e3dd, #343330); }
+.pane-tab { display: inline-flex; align-items: center; gap: 4px; max-width: 190px; padding: 0 7px 0 4px; border: 0; border-right: 1px solid light-dark(#d3cfc7, #454340); border-radius: 0; background: transparent; color: light-dark(#7b7871, #8e8c86); font-size: 10px; cursor: grab; touch-action: none; }
+.pane-tab.on { background: var(--paper); color: light-dark(#35342f, #c4c3bf); font-weight: 600; box-shadow: inset 0 2px var(--accent); }
 .pane-tab.travelling { opacity: .45; }
 .pane-tab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pane-tab .pane-grip { flex: 0 0 auto; color: #b3afa7; opacity: 0; }
+.pane-tab .pane-grip { flex: 0 0 auto; color: light-dark(#b3afa7, #8b8883); opacity: 0; }
 .pane-tab:hover .pane-grip { opacity: 1; }
-.pane-tab i { display: grid; place-items: center; padding: 2px; border-radius: 4px; color: #a9a69e; font-style: normal; }
-.pane-tab i:hover { background: #dcd8d0; color: #55524c; }
+.pane-tab i { display: grid; place-items: center; padding: 2px; border-radius: 4px; color: light-dark(#a9a69e, #8b8983); font-style: normal; }
+.pane-tab i:hover { background: light-dark(#dcd8d0, #3d3c39); color: light-dark(#55524c, #acaaa5); }
 .pane-tab-filler { flex: 1; min-width: 6px; }
 
 .pane-body { position: absolute; z-index: 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--paper); }
 .pane-body > * { flex: 1; min-height: 0; }
 
-.pane-empty { position: absolute; z-index: 2; display: grid; place-items: center; padding: 20px; background: #e9e7e1; color: var(--muted); font-size: 11px; text-align: center; }
+.pane-empty { position: absolute; z-index: 2; display: grid; place-items: center; padding: 20px; background: light-dark(#e9e7e1, #31302d); color: var(--muted); font-size: 11px; text-align: center; }
 
-.pane-sash { position: absolute; z-index: 8; touch-action: none; background: #c9c6be; }
+.pane-sash { position: absolute; z-index: 8; touch-action: none; background: light-dark(#c9c6be, #8b8983); }
 .pane-sash.row { width: 7px; margin-left: -3px; cursor: col-resize; }
 .pane-sash.col { height: 7px; margin-top: -3px; cursor: row-resize; }
 .pane-sash:hover, .pane-sash:active { background: var(--accent); }
 
-.pane-drop { position: absolute; z-index: 10; pointer-events: none; border: 1.5px solid var(--accent); border-radius: 4px; background: #6e5bd62e; transition: left .08s, top .08s, width .08s, height .08s; }
-.pane-ghost { position: fixed; z-index: 40; pointer-events: none; padding: 4px 9px; border: 1px solid #c3bce8; border-radius: 6px; background: var(--paper); color: #4f4c58; font-size: 10px; font-weight: 600; box-shadow: 0 8px 18px #292a2733; }
+.pane-drop { position: absolute; z-index: 10; pointer-events: none; border: 1.5px solid var(--accent); border-radius: 4px; background: light-dark(#78b9a62e, #63ab962e); transition: left .08s, top .08s, width .08s, height .08s; }
+.pane-ghost { position: fixed; z-index: 40; pointer-events: none; padding: 4px 9px; border: 1px solid light-dark(#c4e0d8, #2c5146); border-radius: 6px; background: var(--paper); color: light-dark(#4f4c58, #a4a1ae); font-size: 10px; font-weight: 600; box-shadow: 0 8px 18px light-dark(#292a2733, #cacbc733); }
 
 /* The reader's own controls, sitting in a group's tab bar instead of a column header. */
-.pane-tabs .pane-note { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; color: #817d75; font-size: 9px; white-space: nowrap; }
+.pane-tabs .pane-note { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; color: light-dark(#817d75, #8b8883); font-size: 9px; white-space: nowrap; }
 .pane-tabs .zoom-control { align-self: center; }
 
 /* The paper's windows, shown as chips inside its tab so they stay bundled with that paper. */
 .editor-tabs .paper-tab.active { max-width: 340px; }
 .paper-tab .paper-tab-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.paper-tab .tab-views { display: flex; align-items: center; gap: 2px; margin-left: 2px; padding-left: 5px; border-left: 1px dashed #cbc7be; }
-.paper-tab .tab-views button { display: inline-flex; align-items: center; gap: 3px; height: 17px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #a6a29a; font-size: 8px; cursor: pointer; }
-.paper-tab .tab-views button:hover { background: #e9e6de; color: #6d6a63; }
-.paper-tab .tab-views button.open { border-color: #d3cee2; background: var(--paper); color: #4f4c58; font-weight: 600; }
+.paper-tab .tab-views { display: flex; align-items: center; gap: 2px; margin-left: 2px; padding-left: 5px; border-left: 1px dashed light-dark(#cbc7be, #8b8983); }
+.paper-tab .tab-views button { display: inline-flex; align-items: center; gap: 3px; height: 17px; padding: 0 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: light-dark(#a6a29a, #8c8983); font-size: 8px; cursor: pointer; }
+.paper-tab .tab-views button:hover { background: light-dark(#e9e6de, #32312e); color: light-dark(#6d6a63, #999691); }
+.paper-tab .tab-views button.open { border-color: light-dark(#cee2dc, #2b483f); background: var(--paper); color: light-dark(#4f4c58, #a4a1ae); font-weight: 600; }
 .paper-tab .tab-views button.open::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }

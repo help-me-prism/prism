@@ -23,7 +23,9 @@
     "package:win": "npm run build && electron-builder --win portable --publish never",
     "package:mac": "npm run build && electron-builder --mac dmg --publish never",
     "package:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",
-    "package:mac:arm64": "npm run build && electron-builder --mac dmg --arm64 --publish never"
+    "package:mac:arm64": "npm run build && electron-builder --mac dmg --arm64 --publish never",
+    "test:product": "npm run build && node scripts/test-product-core.mjs && node scripts/test-product-ui.mjs",
+    "test:core": "npm run build && node scripts/run-core-tests.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",

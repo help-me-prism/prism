@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'el
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
 import { accessSync, constants as fsConstants, promises as fs, readFileSync, readdirSync, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
@@ -25,6 +25,11 @@ import { readPaperStructure, refinePaperStructure } from './paperStructure.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 import { decideCodexServerRequest } from './codexApproval.js'
+import { buildTranslationPrompt, validateTranslation, reuseTranslations } from './translationHarness.js'
+import { downloadBytes } from './downloadBytes.js'
+import { searchCrossref } from './scholarlySearch.js'
+import { readLocalPaper } from './localPaper.js'
+import { atomicWriteFile } from './atomicFile.js'
 import { chatMemoryInstruction } from './noteContract.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -35,9 +40,9 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
 type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 function normalizePdfControls(value: string) {
@@ -46,6 +51,7 @@ function normalizePdfControls(value: string) {
 
 const activeChats = new Map<string, ActiveChat>()
 const sessionOwners = new Map<string, { sender: WebContents; sessionId: string; messageId: string }>()
+const translationRuns = new Map<string, { cancelled: boolean }>()
 const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
 const activeAuthProcesses = new Map<string, ChildProcessWithoutNullStreams>()
 
@@ -195,18 +201,19 @@ async function refreshClaudeRateLimits() {
   } catch { /* 한도는 부가 정보다. 못 읽으면 조용히 넘어간다. */ }
 }
 
+function modelCostRank(id: string) { return /luna|mini|haiku|spark/.test(id) ? 0 : /terra/.test(id) ? 1 : /sol|sonnet/.test(id) ? 2 : 3 }
 function codexModels() {
   try {
     const cachePath = path.join(app.getPath('home'), '.codex', 'models_cache.json')
     const parsed = JSON.parse(readFileSync(cachePath, 'utf8')) as { models?: Array<Record<string, unknown>> }
     const models = (parsed.models ?? []).filter((model) => model.visibility === 'list' && typeof model.slug === 'string')
       .map((model) => ({ id: String(model.slug), name: String(model.display_name ?? model.slug), description: String(model.description ?? '') }))
-    if (models.length) return models
+    if (models.length) return models.sort((a, b) => modelCostRank(a.id) - modelCostRank(b.id))
   } catch { /* use portable fallbacks */ }
   return [
-    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: '가장 강력한 Codex 모델' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna · 가벼운 작업', description: '빠르고 가벼운 기본 모델' },
     { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: '균형 잡힌 작업용 모델' },
-    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', description: '빠르고 가벼운 모델' },
+    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: '복잡한 작업에 직접 선택' },
   ]
 }
 
@@ -238,9 +245,9 @@ function providerInfo() {
   return [
     { id: 'codex', name: 'Codex', installed: Boolean(codexExecutable), available: codexAvailable, status: codexStatus, models: codexModels() },
     { id: 'claude', name: 'Claude', installed: Boolean(claudeExecutable), available: claudeAvailable, status: claudeStatus, models: [
+      { id: 'haiku', name: 'Claude Haiku', description: '빠르고 효율적인 응답' },
       { id: 'sonnet', name: 'Claude Sonnet', description: '속도와 성능의 균형' },
       { id: 'opus', name: 'Claude Opus', description: '가장 복잡한 연구와 추론' },
-      { id: 'haiku', name: 'Claude Haiku', description: '빠르고 효율적인 응답' },
     ] },
   ]
 }
@@ -554,13 +561,14 @@ async function readSettings(): Promise<AppSettings> {
     const value = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<AppSettings>
     return {
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
+      paperStoragePath: typeof value.paperStoragePath === 'string' ? value.paperStoragePath : undefined,
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
-      translationModel: typeof value.translationModel === 'string' ? value.translationModel : 'gpt-5.6-terra',
-      autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate !== false,
+      translationModel: typeof value.translationModel === 'string' ? value.translationModel : value.translationProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna',
+      autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate === true,
       knowledgeProvider: value.knowledgeProvider === 'claude' || value.knowledgeProvider === 'codex' ? value.knowledgeProvider : undefined,
       knowledgeModel: typeof value.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(value.knowledgeModel) ? value.knowledgeModel : undefined,
     }
-  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-terra', autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1' } }
+  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false } }
 }
 async function readSettingsAndWatch() { const settings = await readSettings(); watchVault(settings.libraryPath); return settings }
 async function writeSettings(patch: Partial<AppSettings>) {
@@ -573,40 +581,54 @@ async function writeSettings(patch: Partial<AppSettings>) {
   }
   const next = { ...current, ...patch }
   await fs.mkdir(path.dirname(settingsPath()), { recursive: true })
-  await fs.writeFile(settingsPath(), JSON.stringify(next, null, 2), 'utf8')
-  watchVault(next.libraryPath)
-  return next
+  await atomicWriteFile(settingsPath(), JSON.stringify(next, null, 2))
+  const effective = await readSettings()
+  watchVault(effective.libraryPath)
+  for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) safeSend(window.webContents, 'settings:changed', effective)
+  return effective
 }
 
 function libraryIndexPath(libraryPath: string) { return path.join(libraryPath, '.prism', 'library.json') }
 /** library.json stores absolute paths; when the folder was moved, copied, or synced to another machine, rebase them under the current library. */
 function rebasePaperRecord(libraryPath: string, record: PaperRecord): PaperRecord {
   const inside = (candidate: string | undefined) => Boolean(candidate) && !path.relative(libraryPath, candidate!).startsWith('..') && !path.isAbsolute(path.relative(libraryPath, candidate!))
-  if (inside(record.pdfPath) && inside(record.notePath)) return record
+  if ((inside(record.pdfPath) || record.externalAssets) && inside(record.notePath)) return record
   const safeId = record.arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_')
   const paperDir = path.join(libraryPath, 'papers', safeId)
   return {
     ...record,
-    pdfPath: inside(record.pdfPath) ? record.pdfPath : path.join(paperDir, path.basename(record.pdfPath || 'original.pdf')),
+    pdfPath: record.externalAssets || inside(record.pdfPath) ? record.pdfPath : path.join(paperDir, path.basename(record.pdfPath || 'original.pdf')),
     notePath: inside(record.notePath) ? record.notePath : path.join(paperDir, path.basename(record.notePath || `${safeId}.md`)),
-    translationPath: inside(record.translationPath) ? record.translationPath : path.join(paperDir, path.basename(record.translationPath || 'translation.ko.json')),
-    sourcePath: record.sourcePath ? inside(record.sourcePath) ? record.sourcePath : path.join(paperDir, path.basename(record.sourcePath)) : undefined,
+    translationPath: record.externalAssets || inside(record.translationPath) ? record.translationPath : path.join(paperDir, path.basename(record.translationPath || 'translation.ko.json')),
+    sourcePath: record.sourcePath ? record.externalAssets || inside(record.sourcePath) ? record.sourcePath : path.join(paperDir, path.basename(record.sourcePath)) : undefined,
+  }
+}
+async function readLibraryAt(libraryPath: string): Promise<PaperRecord[]> {
+  try {
+    const value = JSON.parse(await fs.readFile(libraryIndexPath(libraryPath), 'utf8'))
+    if (!Array.isArray(value)) throw new Error('라이브러리 색인의 형식이 올바르지 않습니다.')
+    return (value as PaperRecord[]).map(record => rebasePaperRecord(libraryPath, record))
+  } catch (reason) {
+    if ((reason as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw new Error('라이브러리 색인을 읽지 못했습니다. 파일을 덮어쓰지 않았습니다.', { cause: reason })
   }
 }
 async function readLibrary(): Promise<PaperRecord[]> {
   const settings = await readSettings()
-  if (!settings.libraryPath) return []
-  try {
-    const value = JSON.parse(await fs.readFile(libraryIndexPath(settings.libraryPath), 'utf8'))
-    return Array.isArray(value) ? (value as PaperRecord[]).map((record) => rebasePaperRecord(settings.libraryPath!, record)) : []
-  } catch { return [] }
+  return settings.libraryPath ? readLibraryAt(settings.libraryPath) : []
 }
-async function writeLibrary(records: PaperRecord[]) {
-  const settings = await readSettings()
-  if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  const indexPath = libraryIndexPath(settings.libraryPath)
-  await fs.mkdir(path.dirname(indexPath), { recursive: true })
-  await fs.writeFile(indexPath, JSON.stringify(records, null, 2), 'utf8')
+const libraryWrites = new Map<string, Promise<unknown>>()
+async function registerPaper(libraryPath: string, record: PaperRecord) {
+  const operation = (libraryWrites.get(libraryPath) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const existing = await readLibraryAt(libraryPath)
+    const same = existing.find(paper => paper.arxivId === record.arxivId)
+    if (same) return same
+    await atomicWriteFile(libraryIndexPath(libraryPath), JSON.stringify([record, ...existing], null, 2))
+    invalidateKnowledgeCache(libraryPath)
+    return record
+  })
+  libraryWrites.set(libraryPath, operation)
+  try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
 }
 
 function decodeXml(value: string) {
@@ -642,7 +664,7 @@ let lastArxivRequest = 0
 async function semanticArxivSearch(query: string): Promise<ArxivPaper[]> {
   try {
     const fields = 'title,authors,abstract,publicationDate,citationCount,externalIds,openAccessPdf'
-    const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=${encodeURIComponent(fields)}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
+    const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=${encodeURIComponent(fields)}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
     if (!response.ok) return []
     const body = await response.json() as { data?: Array<{ title?: string; authors?: Array<{ name?: string }>; abstract?: string; publicationDate?: string; citationCount?: number; externalIds?: { ArXiv?: string }; openAccessPdf?: { url?: string } }> }
     return (body.data ?? []).filter((paper) => paper.externalIds?.ArXiv && paper.title).map((paper) => {
@@ -665,7 +687,7 @@ async function arxivSearch(input: string) {
   const params = id
     ? `id_list=${encodeURIComponent(id)}`
     : `search_query=${encodeURIComponent(rankedQuery)}&start=0&max_results=20&sortBy=relevance&sortOrder=descending`
-  const response = await fetch(`https://export.arxiv.org/api/query?${params}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
+  const response = await fetch(`https://export.arxiv.org/api/query?${params}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
   lastArxivRequest = Date.now()
   if (!response.ok) {
     if (!id && response.status === 429) {
@@ -704,7 +726,7 @@ async function paperAutocomplete(input: string) {
   if (query.length < 2) return []
   try {
     const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/autocomplete?query=${encodeURIComponent(query)}`, {
-      headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' },
+      signal: AbortSignal.timeout(15_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' },
     })
     if (!response.ok) return []
     const data = await response.json() as { matches?: Array<{ title?: string; authorsYear?: string }> }
@@ -714,7 +736,7 @@ async function paperAutocomplete(input: string) {
 
 function yamlString(value: string) { return JSON.stringify(value.replace(/\r?\n/g, ' ')) }
 function paperMarkdown(paper: ArxivPaper, pdfFile: string, template?: { id: string; content: string }) {
-  const values: Record<string, string> = { title: paper.title, date: new Date().toISOString().slice(0, 10), authors: paper.authors.join(', '), year: paper.published.slice(0, 4), arxiv_id: paper.arxivId, doi: '', paper_link: paper.absUrl, current_project: '', selected_anchor: '' }
+  const values: Record<string, string> = { title: paper.title, date: new Date().toISOString().slice(0, 10), authors: paper.authors.join(', '), year: paper.published.slice(0, 4), arxiv_id: paper.arxivId, doi: paper.absUrl.startsWith('https://doi.org/') ? paper.absUrl.slice(16) : '', paper_link: paper.absUrl, current_project: '', selected_anchor: '' }
   const abstract = `> [!abstract]- Abstract\n> ${paper.summary.replace(/\n/g, '\n> ')}`
   let body: string
   if (template) {
@@ -723,37 +745,53 @@ function paperMarkdown(paper: ArxivPaper, pdfFile: string, template?: { id: stri
     body = /^#\s/.test(filled) ? filled.replace(/^(#[^\n]*\n)/, `$1\n${abstract}\n`) : `# ${paper.title}\n\n${abstract}\n\n${filled}`
     if (!/^##\s+Notes\s*$/mi.test(body)) body = `${body.trimEnd()}\n\n## Notes\n`
   } else body = `# ${paper.title}\n\n${abstract}\n\n## Notes\n`
-  return `---\ntype: paper\nprism_id: ${yamlString(paperNodeId(paper.arxivId))}\narxiv_id: ${yamlString(paper.arxivId)}\ntitle: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\nstatus: inbox\nreading_status: to_read\nimportance: medium\nconfidence: medium\ncreated_by: user\n${template ? `template_id: ${yamlString(template.id)}\n` : ''}created_at: ${yamlString(new Date().toISOString())}\ntags: [paper, arxiv]\n---\n\n${body.trimEnd()}\n`
+  return `---\ntype: paper\nprism_id: ${yamlString(paperNodeId(paper.arxivId))}\narxiv_id: ${yamlString(paper.arxivId)}\n${values.doi ? `doi: ${yamlString(values.doi)}\n` : ''}title: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\nstatus: inbox\nreading_status: to_read\nimportance: medium\nconfidence: medium\ncreated_by: user\n${template ? `template_id: ${yamlString(template.id)}\n` : ''}created_at: ${yamlString(new Date().toISOString())}\ntags: [paper, arxiv]\n---\n\n${body.trimEnd()}\n`
 }
 
+const paperDownloads = new Map<string, Promise<PaperRecord>>()
+async function writeInitialPaperNote(filePath: string, content: string) {
+  try { await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' }) }
+  catch (reason) { if ((reason as NodeJS.ErrnoException).code !== 'EEXIST') throw reason }
+}
 async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   const settings = await readSettings()
+  const key = `${settings.libraryPath}:${paper.arxivId}`
+  const running = paperDownloads.get(key)
+  if (running) return running
+  const task = downloadPaperNow(paper, settings)
+  paperDownloads.set(key, task)
+  try { return await task } finally { if (paperDownloads.get(key) === task) paperDownloads.delete(key) }
+}
+async function downloadPaperNow(paper: ArxivPaper, settings: AppSettings): Promise<PaperRecord> {
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  const existing = (await readLibrary()).find((item) => item.arxivId === paper.arxivId)
+  const existing = (await readLibraryAt(settings.libraryPath)).find((item) => item.arxivId === paper.arxivId)
   if (existing) return existing
   const safeId = paper.arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_')
-  const paperDir = path.join(settings.libraryPath, 'papers', safeId)
+  const noteDir = path.join(settings.libraryPath, 'papers', safeId)
+  const paperDir = settings.paperStoragePath ? path.join(settings.paperStoragePath, safeId) : noteDir
+  await fs.mkdir(noteDir, { recursive: true })
   const pdfPath = path.join(paperDir, 'original.pdf')
-  const notePath = path.join(paperDir, `${safeId}.md`)
+  const notePath = path.join(noteDir, `${safeId}.md`)
   const translationPath = path.join(paperDir, 'translation.ko.json')
   const sourcePath = path.join(paperDir, 'source.tar.gz')
-  const response = await fetch(paper.pdfUrl, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
+  const response = await fetch(paper.pdfUrl, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
   if (!response.ok) throw new Error(`PDF 다운로드에 실패했습니다 (${response.status}).`)
-  const pdf = Buffer.from(await response.arrayBuffer())
+  const pdf = await downloadBytes(response)
   if (pdf.subarray(0, 4).toString() !== '%PDF') throw new Error('다운로드한 파일이 PDF 형식이 아닙니다.')
   await fs.mkdir(paperDir, { recursive: true })
   await fs.writeFile(pdfPath, pdf)
   let downloadedSourcePath: string | undefined
   try {
-    const sourceResponse = await fetch(`https://arxiv.org/src/${paper.arxivId}`, { headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
+    const sourceResponse = await fetch(`https://arxiv.org/src/${paper.arxivId}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
     if (sourceResponse.ok) {
-      const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer())
+      const sourceBuffer = await downloadBytes(sourceResponse)
       await fs.writeFile(sourcePath, sourceBuffer)
       downloadedSourcePath = sourcePath
       const sourceDir = path.join(paperDir, 'source')
       await fs.mkdir(sourceDir, { recursive: true })
       try {
-        await tar.x({ file: sourcePath, cwd: sourceDir, preservePaths: false, strict: true })
+        let expandedBytes = 0
+        await tar.x({ file: sourcePath, cwd: sourceDir, preservePaths: false, strict: true, filter: (_name, entry) => { expandedBytes += entry.size; return expandedBytes < 300 * 1024 * 1024 && 'type' in entry && ['File', 'Directory', 'OldFile'].includes(String(entry.type)) } })
       } catch {
         let singleSource: string | undefined
         for (const candidate of [() => sourceBuffer.toString('utf8'), () => gunzipSync(sourceBuffer).toString('utf8')]) {
@@ -768,11 +806,9 @@ async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(paper, null, 2), 'utf8')
   const templates = await listTemplates(settings.libraryPath).catch(() => [])
   const template = templates.find((item) => item.nodeType === 'paper' && item.isDefault) ?? templates.find((item) => item.nodeType === 'paper')
-  await fs.writeFile(notePath, paperMarkdown(paper, 'original.pdf', template), 'utf8')
-  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now() }
-  const library = await readLibrary()
-  await writeLibrary([record, ...library])
-  return record
+  await writeInitialPaperNote(notePath, paperMarkdown(paper, settings.paperStoragePath ? pathToFileURL(pdfPath).href : 'original.pdf', template))
+  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
+  return registerPaper(settings.libraryPath, record)
 }
 
 async function latexStructure(record: PaperRecord): Promise<LatexStructure | null> {
@@ -826,19 +862,11 @@ async function paperFigures(record: PaperRecord) {
   return result
 }
 
-function parseTranslationJson(text: string): Array<{ id: string; translation: string }> {
-  const object = text.match(/\[[\s\S]*\]/)?.[0]
-  if (!object) throw new Error('번역 모델이 올바른 JSON을 반환하지 않았습니다.')
-  const parsed = JSON.parse(object)
-  if (!Array.isArray(parsed)) throw new Error('번역 결과 형식이 올바르지 않습니다.')
-  return parsed.filter((item) => item && typeof item.id === 'string' && typeof item.translation === 'string')
-}
-
 async function runTranslationCli(provider: ProviderId, model: string, prompt: string, jobKey: string) {
   const executable = findCli(provider)
   if (!executable) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude'} CLI를 찾지 못했습니다.`)
   const args = provider === 'codex'
-    ? ['exec', '--json', '--color', 'never', '--sandbox', 'read-only', '--skip-git-repo-check', '--model', model, '-']
+    ? ['exec', '--json', '--color', 'never', '--sandbox', 'read-only', '--skip-git-repo-check', '--config', 'model_reasoning_effort="low"', '--model', model, '-']
     : ['-p', '--output-format', 'json', '--permission-mode', 'plan', '--model', model]
   const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
   translationJobs.set(jobKey, child)
@@ -846,9 +874,11 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { stdout += chunk })
   child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr += chunk })
   child.stdin.end(prompt)
-  const code = await new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject) })
-  translationJobs.delete(jobKey)
-  if (code) throw new Error(stderr.trim() || '번역 CLI 실행에 실패했습니다.')
+  const timeout = setTimeout(() => child.kill(), 180_000)
+  let code: number | null
+  try { code = await new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject) }) }
+  finally { clearTimeout(timeout); if (translationJobs.get(jobKey) === child) translationJobs.delete(jobKey) }
+  if (code !== 0) throw new Error(stderr.trim() || '번역 CLI 실행에 실패했습니다.')
   if (provider === 'claude') {
     const result = JSON.parse(stdout) as { result?: string }
     return result.result ?? ''
@@ -860,17 +890,22 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   return final
 }
 
+function cachedSegments(value: unknown): TranslationSegment[] {
+  return Array.isArray(value) ? value.filter(segment => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && Number.isInteger(segment.page) && typeof segment.kind === 'string' && (segment.translation === undefined || typeof segment.translation === 'string')) : []
+}
+
 async function translatePaper(sender: WebContents, record: PaperRecord, segments: TranslationSegment[], force = false) {
   const settings = await readSettings()
   const jobKey = record.arxivId
-  if (translationJobs.has(jobKey)) throw new Error('이 논문은 이미 번역 중입니다.')
+  if (translationRuns.has(jobKey)) throw new Error('이 논문은 이미 번역 중입니다.')
+  const run = { cancelled: false }; translationRuns.set(jobKey, run)
+  try {
   let cache: { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] } = {
     version: 1, provider: settings.translationProvider, model: settings.translationModel,
     sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: [],
   }
-  if (!force) try { cache = JSON.parse(await fs.readFile(record.translationPath, 'utf8')) } catch { /* first translation */ }
-  const existing = new Map(cache.segments.map((segment) => [segment.id, segment]))
-  const merged = segments.map((segment) => existing.get(segment.id)?.translation ? { ...segment, translation: existing.get(segment.id)?.translation } : segment)
+  if (!force) try { const saved = JSON.parse(await fs.readFile(record.translationPath, 'utf8')); if (Array.isArray(saved.segments)) cache = { ...saved, segments: cachedSegments(saved.segments) } } catch { /* first translation */ }
+  const merged = reuseTranslations(segments, cache.segments)
   const translatable = (segment: TranslationSegment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.source.trim().length > 1
   const missing = merged.filter((segment) => translatable(segment) && !segment.translation)
   const totalSegments = merged.filter(translatable).length
@@ -883,19 +918,22 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   }
   if (batch.length) batches.push(batch)
   for (let index = 0; index < batches.length; index += 1) {
-    const input = batches[index].map(({ id, source, sourceMode, blockId, sectionTitle, paragraphContext }) => ({ id, source, sourceMode: sourceMode ?? 'pdf', blockId, section: sectionTitle, paragraphContext }))
-    const prompt = `You translate academic papers into natural, precise Korean. Translate only the value of "source". LaTeX-derived paragraphContext is read-only context for resolving terminology and sentence boundaries; never translate or return it. Never translate, rewrite, or evaluate equations, symbols, citations, variable names, figure labels, or LaTeX. Preserve technical terms when needed. Return ONLY a JSON array of objects with exactly {"id":"...","translation":"..."}, one for every input item, in the same order.\n\nINPUT:\n${JSON.stringify(input)}`
+    if (run.cancelled) return
+    const input = batches[index]
+    const prompt = buildTranslationPrompt(input)
     const output = await runTranslationCli(settings.translationProvider, settings.translationModel, prompt, jobKey)
-    const translated = new Map(parseTranslationJson(output).map((item) => [item.id, item.translation]))
+    if (run.cancelled) return
+    const translated = validateTranslation(output, input)
     for (const segment of merged) if (translated.has(segment.id)) segment.translation = translated.get(segment.id)
     cache = { version: 1, provider: settings.translationProvider, model: settings.translationModel, sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: merged }
-    await fs.writeFile(record.translationPath, JSON.stringify(cache, null, 2), 'utf8')
+    await atomicWriteFile(record.translationPath, JSON.stringify(cache, null, 2))
     const completedSegments = merged.filter((segment) => translatable(segment) && segment.translation).length
     safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, completedSegments, totalSegments, segments: merged, force })
   }
   for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'table' || segment.kind === 'artifact') segment.translation = segment.source
-  await fs.writeFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2), 'utf8')
+  await atomicWriteFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2))
   safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged })
+  } catch (reason) { if (!run.cancelled) throw reason } finally { if (translationRuns.get(jobKey) === run) translationRuns.delete(jobKey) }
 }
 
 let mainWindow: BrowserWindow | undefined
@@ -1027,11 +1065,25 @@ ipcMain.handle('workspace:choose', async (event) => {
   await fs.mkdir(path.join(libraryPath, '.prism'), { recursive: true })
   return writeSettings({ libraryPath })
 })
+ipcMain.handle('storage:choose-papers', async (event, reset: boolean) => {
+  if (reset === true) return writeSettings({ paperStoragePath: undefined })
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  const options = { title: '새 논문의 PDF·번역·피겨 보관 위치', properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> }
+  const selection = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (selection.canceled || !selection.filePaths[0]) return null
+  return writeSettings({ paperStoragePath: selection.filePaths[0] })
+})
 ipcMain.handle('library:list', async () => {
   const settings = await readSettingsAndWatch()
   // Writing prism_id into old paper notes changes files under our own feet; start from a clean cache.
   if (settings.libraryPath && await migratePaperNotes(settings.libraryPath).catch(() => 0)) invalidateKnowledgeCache(settings.libraryPath)
   return readLibrary()
+})
+ipcMain.handle('papers:search-crossref', (_event, input: string) => searchCrossref(String(input)))
+ipcMain.handle('papers:open-doi', (_event, id: string) => {
+  const doi = String(id).replace(/^doi:/, '')
+  if (!/^10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(doi)) throw new Error('올바른 DOI가 아닙니다.')
+  return shell.openExternal(`https://doi.org/${doi}`)
 })
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
 ipcMain.handle('paper:autocomplete', (_event, input: string) => paperAutocomplete(String(input)))
@@ -1039,6 +1091,40 @@ ipcMain.handle('arxiv:open', (_event, arxivId: string) => {
   const id = extractArxivId(String(arxivId))
   if (!id) throw new Error('올바른 arXiv ID가 아닙니다.')
   return shell.openExternal(`https://arxiv.org/abs/${id}`)
+})
+let importQueue: Promise<unknown> = Promise.resolve()
+ipcMain.handle('paper:import-local', async (event, metadata?: ArxivPaper) => {
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  const options = { title: '논문 PDF 가져오기', filters: [{ name: 'PDF', extensions: ['pdf'] }], properties: ['openFile'] as Array<'openFile'> }
+  const selection = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (selection.canceled || !selection.filePaths[0]) return null
+  const operation = importQueue.catch(() => undefined).then(async () => {
+    const settings = await readSettings()
+    if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+    const local = await readLocalPaper(selection.filePaths[0])
+    const library = await readLibraryAt(settings.libraryPath)
+    const existing = library.find(paper => paper.arxivId === local.id)
+    if (existing) return existing
+    const noteDirectory = path.join(settings.libraryPath, 'papers', local.id)
+    const directory = settings.paperStoragePath ? path.join(settings.paperStoragePath, local.id) : noteDirectory
+    await fs.mkdir(noteDirectory, { recursive: true })
+    await fs.mkdir(directory, { recursive: true })
+    const record: PaperRecord = { arxivId: local.id, title: local.title, authors: [], summary: '', published: '', updated: '', categories: ['PDF'], pdfUrl: '', absUrl: '', pdfPath: path.join(directory, 'original.pdf'), notePath: path.join(noteDirectory, `${local.id}.md`), translationPath: path.join(directory, 'translation.ko.json'), downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
+    if (metadata && /^doi:10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(metadata.arxivId)) {
+      record.title = String(metadata.title || local.title).slice(0, 1000)
+      record.authors = Array.isArray(metadata.authors) ? metadata.authors.map(String).slice(0, 200) : []
+      record.summary = String(metadata.summary || '').slice(0, 100_000)
+      record.published = String(metadata.published || '').slice(0, 10)
+      record.absUrl = `https://doi.org/${metadata.arxivId.slice(4)}`
+      record.categories = Array.isArray(metadata.categories) ? metadata.categories.map(String).slice(0, 50) : []
+    }
+    await fs.writeFile(record.pdfPath, local.bytes)
+    await atomicWriteFile(path.join(directory, 'metadata.json'), JSON.stringify(record, null, 2))
+    await writeInitialPaperNote(record.notePath, paperMarkdown(record, settings.paperStoragePath ? pathToFileURL(record.pdfPath).href : 'original.pdf').replace('tags: [paper, arxiv]', 'tags: [paper]'))
+    return registerPaper(settings.libraryPath, record)
+  })
+  importQueue = operation
+  return operation
 })
 ipcMain.handle('paper:download', async (_event, input: ArxivPaper) => {
   const id = extractArxivId(String(input?.arxivId ?? ''))
@@ -1152,8 +1238,10 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
   if (options !== undefined && (typeof options !== 'object' || options === null || (options.refresh !== undefined && typeof options.refresh !== 'boolean'))) throw new Error('인용 조회 옵션이 올바르지 않습니다.')
-  if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false })
-  return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh })
+  const record = (await readLibrary()).find(paper => paper.arxivId === arxivId)
+  const externalId = record?.absUrl.startsWith('https://doi.org/') ? `DOI:${record.absUrl.slice(16)}` : undefined
+  if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false, externalId })
+  return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh, externalId })
 })
 ipcMain.handle('paper:structure', async (_event, arxivId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
@@ -1255,18 +1343,24 @@ ipcMain.handle('knowledge:apply-template-sections', async (_event, request: Appl
   if (!request || typeof request.nodeId !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(request.nodeId) || typeof request.templateId !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(request.templateId) || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('템플릿 섹션 추가 정보가 올바르지 않습니다.')
   return applyTemplateSections(settings.libraryPath, request)
 })
-ipcMain.handle('knowledge:read', async (_event, id: string) => {
+const noteVaults = new WeakMap<WebContents, Map<string, string>>()
+ipcMain.handle('knowledge:read', async (event, id: string) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return readKnowledgeNode(settings.libraryPath, String(id))
+  const snapshot = await readKnowledgeNode(settings.libraryPath, String(id))
+  const vaultId = createHash('sha256').update(settings.libraryPath).digest('hex')
+  const vaults = noteVaults.get(event.sender) ?? new Map<string, string>(); vaults.set(vaultId, settings.libraryPath); noteVaults.set(event.sender, vaults)
+  return { ...snapshot, vaultId }
 })
-ipcMain.handle('knowledge:save', async (_event, id: string, request: NoteSaveRequest) => {
+ipcMain.handle('knowledge:save', async (event, id: string, request: NoteSaveRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.content !== 'string' || request.content.length > 2_000_000 || typeof request.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedRevision)) throw new Error('지식 노트 저장 정보가 올바르지 않습니다.')
   if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('지식 노트 저장 옵션이 올바르지 않습니다.')
-  const result = await saveKnowledgeNode(settings.libraryPath, String(id), request)
-  if (result.saved && request.createStubs) return { ...result, stubs: await ensureLinkStubs(settings.libraryPath, request.content).catch(() => []) }
+  const vaultPath = request.vaultId ? noteVaults.get(event.sender)?.get(request.vaultId) : settings.libraryPath
+  if (!vaultPath) throw new Error('이 노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
+  const result = await saveKnowledgeNode(vaultPath, String(id), request)
+  if (result.saved && request.createStubs) return { ...result, stubs: await ensureLinkStubs(vaultPath, request.content).catch(() => []) }
   return result
 })
 ipcMain.handle('knowledge:update-properties', async (_event, id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => {
@@ -1364,7 +1458,7 @@ ipcMain.handle('paper:figure:save', async (_event, arxivId: string, figureId: st
 ipcMain.handle('translation:read', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  try { return JSON.parse(await fs.readFile(record.translationPath, 'utf8')) }
+  try { const saved = JSON.parse(await fs.readFile(record.translationPath, 'utf8')); return { ...saved, segments: cachedSegments(saved?.segments) } }
   catch { return null }
 })
 ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: TranslationSegment[]) => {
@@ -1397,9 +1491,11 @@ ipcMain.handle('translation:start', async (event, arxivId: string, segments: Tra
   return { started: true }
 })
 ipcMain.handle('translation:cancel', (_event, arxivId: string) => {
+  const run = translationRuns.get(arxivId)
+  if (run) run.cancelled = true
   const child = translationJobs.get(arxivId)
-  if (!child) return false
-  child.kill(); translationJobs.delete(arxivId); return true
+  child?.kill()
+  return Boolean(run || child)
 })
 ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   const prompt = request.prompt?.trim()

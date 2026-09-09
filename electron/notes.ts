@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
 
 export type NoteSnapshot = {
@@ -9,6 +10,7 @@ export type NoteSnapshot = {
 }
 
 export type NoteSaveRequest = {
+  vaultId?: string
   content: string
   expectedRevision?: string
   force?: boolean
@@ -39,8 +41,16 @@ const noteWriteListeners = new Set<NoteWriteListener>()
 export function onNoteWritten(listener: NoteWriteListener) { noteWriteListeners.add(listener); return () => { noteWriteListeners.delete(listener) } }
 function announceNoteWritten(notePath: string) { for (const listener of noteWriteListeners) try { listener(notePath) } catch { /* a stale cache must never break a save */ } }
 
+const noteWrites = new Map<string, Promise<unknown>>()
 export async function saveNoteSnapshot(notePath: string, request: NoteSaveRequest): Promise<NoteSaveResult> {
+  const key = process.platform === 'win32' ? path.resolve(notePath).toLowerCase() : path.resolve(notePath)
+  const operation = (noteWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => saveSerialized(notePath, request))
+  noteWrites.set(key, operation)
+  try { return await operation } finally { if (noteWrites.get(key) === operation) noteWrites.delete(key) }
+}
+async function saveSerialized(notePath: string, request: NoteSaveRequest): Promise<NoteSaveResult> {
   const disk = await readNoteSnapshot(notePath)
+  if (disk.content === request.content) return { saved: true, snapshot: disk }
   if (!request.force && request.expectedRevision && disk.revision !== request.expectedRevision) {
     return { saved: false, conflict: disk }
   }

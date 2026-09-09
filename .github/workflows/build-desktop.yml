@@ -2,9 +2,9 @@ name: Build desktop apps
 
 on:
   push:
-    branches: [kys_enhanced]
+    branches: [main, 'codex/**']
   pull_request:
-    branches: [kys_enhanced]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -37,6 +37,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:core
+      - run: node scripts/test-product-ui.mjs
+      - run: node scripts/smoke-electron-ui.mjs
       - run: npm run ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
