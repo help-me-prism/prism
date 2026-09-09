@@ -246,7 +246,10 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
       if (cancelled || !canvasRef.current) return
       setNaturalWidth(page.getViewport({ scale: 1 }).width)
       setNaturalHeight(page.getViewport({ scale: 1 }).height)
-      const viewport = page.getViewport({ scale }); const deviceRatio = window.devicePixelRatio || 1; const ratio = mode === 'translated' ? Math.max(deviceRatio, Math.min(4, Math.ceil(1000 / viewport.width) * deviceRatio)) : deviceRatio; const canvas = canvasRef.current; const context = canvas.getContext('2d')!
+      // Both panes must rasterize at the same quality. Rendering the original
+      // at screen resolution made its small text look heavier than source
+      // crops in the translated pane, even for identical PDF content.
+      const viewport = page.getViewport({ scale }); const deviceRatio = window.devicePixelRatio || 1; const ratio = Math.max(deviceRatio, Math.min(4, Math.ceil(1000 / viewport.width) * deviceRatio)); const canvas = canvasRef.current; const context = canvas.getContext('2d')!
       canvas.width = Math.floor(viewport.width * ratio); canvas.height = Math.floor(viewport.height * ratio); canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`
       renderTask = page.render({ canvas, canvasContext: context, viewport, transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0] }); await renderTask.promise
       if (!cancelled) setRendered(true)
@@ -438,7 +441,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const hasCachedTranslation = cacheExists
   const pageTranslatable = translatableSegments.filter(segment => segment.page === pageNumber && segment.source.trim().length > 1)
   const pageTranslated = pageTranslatable.filter(segment => translation.some(saved => saved.id === segment.id && saved.source === segment.source && saved.translation)).length
-  const pageTranslationLabel = !pageTranslatable.length ? '원문 유지' : !pageTranslated ? '번역 전 · 원문' : pageTranslated < pageTranslatable.length ? `${pageTranslated}/${pageTranslatable.length}문장 번역` : '이 페이지 번역됨'
+  const pageTranslationLabel = !pageTranslatable.length ? '원문 유지' : !pageTranslated ? '미번역 · 원문 표시' : pageTranslated < pageTranslatable.length ? `${pageTranslated}/${pageTranslatable.length}문장 번역` : '이 페이지 번역됨'
   const pageTranslationDetail = `${pageNumber}쪽: ${pageTranslated}/${pageTranslatable.length}문장 번역. ${!pageTranslatable.length ? '번역할 본문이 없는 페이지는 원문으로 표시합니다.' : pageTranslated < pageTranslatable.length ? '아직 번역하지 않은 문장은 원문으로 표시합니다. 위의 AI 번역 버튼으로 이 페이지를 번역할 수 있습니다.' : '번역문이 저장돼 있습니다.'}${preservedParagraphCount ? ` 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존합니다.` : protectedProseCount ? ` 글자와 기호를 보존한 원문 ${protectedProseCount}곳이 포함돼 있습니다.` : ''}`
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
   const captionSegments = allSegments.filter((segment) => segment.kind === 'caption')

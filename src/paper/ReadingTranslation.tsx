@@ -56,7 +56,22 @@ export default function ReadingTranslation({ segments, translation, source, read
 }) {
   const mixedParagraphs = mixedProseParagraphs(segments)
   const unsafeParagraphs = unsafeParagraphIds(segments)
-  const originalParagraphs = new Set([...mixedParagraphs].filter(id => unsafeParagraphs.has(id) || !segments.some(item => item.blockId === id && translation.get(item.id))))
+  // Cached original equations/tables/artifacts are preservation records, not
+  // displayed prose translations. They must not trigger page reconstruction.
+  const hasProseTranslation = (segment: TranslationSegment) => ['text', 'heading', 'caption'].includes(segment.kind) && Boolean(translation.get(segment.id)?.trim())
+  const originalParagraphs = new Set([...mixedParagraphs].filter(id => unsafeParagraphs.has(id) || !segments.some(item => item.blockId === id && hasProseTranslation(item))))
+  const intactProseParagraphs = new Set<string>()
+  if (format === 'paper') {
+    const paragraphs = new Map<string, TranslationSegment[]>()
+    for (const segment of segments) if (segment.blockId) {
+      const items = paragraphs.get(segment.blockId) ?? []
+      items.push(segment); paragraphs.set(segment.blockId, items)
+    }
+    // A run-in heading and its untranslated body already share correct PDF
+    // positions. Keep one original crop instead of introducing layout collisions
+    // between their separate ink boxes. Never swallow translated neighboring text.
+    for (const [id, items] of paragraphs) if (items.every(item => ['text', 'heading'].includes(item.kind)) && !items.some(hasProseTranslation)) { originalParagraphs.add(id); intactProseParagraphs.add(id) }
+  }
   const blocks = joinPreservedRegions(groupReadingSegments(segments, originalParagraphs, segment => translation.get(segment.id) ? 'translated' : 'source').map(({ id, kind, items, original }) => {
     const boxes = items.flatMap(rectangles)
     const left = Math.min(...boxes.map(box => box.left)); const top = Math.min(...boxes.map(box => box.top))
@@ -75,11 +90,22 @@ export default function ReadingTranslation({ segments, translation, source, read
   const protectedProse = (items: TranslationSegment[]) => items.length === 1 && items[0].kind === 'artifact' && !!items[0].preciseRects?.length && !!items[0].blockId && mixedParagraphs.has(items[0].blockId) && !originalParagraphs.has(items[0].blockId)
   const figureCrop = (rect: Rect) => <button className="original-excerpt" title="피겨를 질문에 추가" onClick={() => onFigureRect(rect)}>{crop(rect, '원문 피겨')}</button>
   const text = (items: TranslationSegment[]) => items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} />{' '}</span>)
+  const intactProseCrop = (items: TranslationSegment[], rect: Rect) => {
+    // Keep every original sentence selectable even when its paragraph is one
+    // bitmap. These are siblings of the canvas, never nested interactive buttons.
+    const left = Math.max(0, rect.left - 3), top = Math.max(0, rect.top - 3)
+    const sourceWidth = source ? parseFloat(source.style.width) || source.width : rect.left + rect.width + 6
+    const sourceHeight = source ? parseFloat(source.style.height) || source.height : rect.top + rect.height + 6
+    const width = Math.min(sourceWidth - left, rect.width + 6), height = Math.min(sourceHeight - top, rect.height + 6)
+    return <div style={{ position: 'relative' }}>{crop(rect, '번역 전 원문 문단')}
+      <div className="anchor-layer">{items.flatMap(segment => rectangles(segment).map((box, index) => <span key={`${segment.id}-${index}`} data-anchor={segment.id} role="button" tabIndex={0} aria-label={segment.source.slice(0, 100)} className={highlighted === segment.id ? 'highlighted' : ''} style={{ left: `${(box.left - left) / width * 100}%`, top: `${(box.top - top) / height * 100}%`, width: `${box.width / width * 100}%`, height: `${box.height / height * 100}%`, pointerEvents: 'auto' }} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
+    </div>
+  }
   const containedInFigure = (rect: Rect) => figures.some(figure => rect.left >= figure.left - 3 && rect.top >= figure.top - 3 && rect.left + rect.width <= figure.left + figure.width + 3 && rect.top + rect.height <= figure.top + figure.height + 3)
   if (format === 'paper' && source && ready) {
     const sourceWidth = parseFloat(source.style.width) || source.width
     const sourceHeight = parseFloat(source.style.height) || source.height
-    if (!segments.some(segment => translation.get(segment.id) && !originalParagraphs.has(segment.blockId ?? ''))) return <div className="reading-translation paper-format untouched-paper">
+    if (!segments.some(segment => hasProseTranslation(segment) && !originalParagraphs.has(segment.blockId ?? ''))) return <div className="reading-translation paper-format untouched-paper">
       <OriginalExcerpt source={source} rect={{ left: 0, top: 0, width: sourceWidth, height: sourceHeight }} label="아직 번역하지 않은 원문 페이지" padding={0} />
       <div className="anchor-layer">{segments.flatMap(segment => rectangles(segment).map((rect, index) => <span key={`${segment.id}-${index}`} data-anchor={segment.id} role="button" tabIndex={0} aria-label={segment.source.slice(0, 100)} className={highlighted === segment.id ? 'highlighted' : ''} style={{ left: `${rect.left / sourceWidth * 100}%`, top: `${rect.top / sourceHeight * 100}%`, width: `${rect.width / sourceWidth * 100}%`, height: `${rect.height / sourceHeight * 100}%` }} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
     </div>
@@ -98,7 +124,7 @@ export default function ReadingTranslation({ segments, translation, source, read
       const lineHeight = !preserved && kind === 'text' && startsParagraph && block.items.every(segment => segment.preciseRects?.length)
         ? sourceParagraphLineHeight(block.items.flatMap(rectangles), fontSize) : undefined
       return [{ id: block.id, rect, kind, fontSize, lineHeight, firstLineIndent, content: preserved
-        ? <button data-anchor={block.items[0].id} className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button>
+        ? block.original && block.items.length > 1 && intactProseParagraphs.has(block.items[0].blockId ?? '') ? intactProseCrop(block.items, block.rect) : <button data-anchor={block.items[0].id} className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button>
         : text(block.items) }]
     })
     const figureItems = figures.map((rect, index) => ({ id: `figure-${index}`, rect, kind: 'figure', content: <figure>{figureCrop(rect)}</figure> }))

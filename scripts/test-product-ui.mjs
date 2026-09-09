@@ -151,13 +151,21 @@ try {
   assert(anchorData)
   const citedSource = anchorData.anchors.find(anchor => anchor.source.includes('[1]'))
   assert(citedSource)
-  await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [{ ...citedSource, kind: citedSource.type, translation: '인용 표시가 누락된 잘못된 번역' }] }))
+  const preservedCache = anchorData.anchors.filter(anchor => ['equation', 'table', 'artifact'].includes(anchor.type)).map(anchor => ({ ...anchor, kind: anchor.type, translation: anchor.source }))
+  assert(preservedCache.length > 0, 'The fixture must include protected source content for the identity-cache regression')
+  await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [{ ...citedSource, kind: citedSource.type, translation: '인용 표시가 누락된 잘못된 번역' }, ...preservedCache] }))
   assert.equal((await evaluate(`window.prism.readTranslation(${JSON.stringify(paper.arxivId)})`)).segments[0].translation, undefined)
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
   await wait('Boolean(document.querySelector(".paper-layout-page.rendered .untouched-paper > canvas"))')
   // Width fitting may start a replacement render between separate observations.
   // Check ready state and complete pixel identity atomically on the same page.
   await wait('(() => { const page = document.querySelector(".paper-layout-page.rendered"), copy=page?.querySelector(".untouched-paper > canvas"); return !!copy && page.querySelector(":scope > canvas").toDataURL() === copy.toDataURL(); })()')
+  const captionSource = anchorData.anchors.find(anchor => anchor.source.startsWith('Figure 1.'))
+  assert(captionSource)
+  await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [...preservedCache, { ...captionSource, kind: captionSource.type, translation: 'Figure 1. 벡터 도식.' }] }))
+  await reload()
+  await wait(`Boolean(document.querySelector('.paper-layout-page.rendered .paper-layout-block.caption span[data-anchor="${captionSource.id}"]'))`)
+  assert(await evaluate(`document.querySelector('.paper-layout-page.rendered .paper-layout-block.caption span[data-anchor="${captionSource.id}"]').textContent.includes('벡터 도식')`), 'A real caption translation must remain visible even if the body is untranslated')
   const translations = new Map([
     ['Cells respond to changes in their environment.', '세포는 주변 환경의 변화에 반응한다. 번역문이 원문보다 길어져도 수식이나 표를 덮지 않고 자연스럽게 다음 줄로 이어져야 한다.'],
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
@@ -171,7 +179,7 @@ try {
   await evaluate('document.querySelector(".page-jump input").focus()')
   await send('Input.insertText', { text: '2' })
   await evaluate('document.querySelector(".page-jump").requestSubmit()')
-  await wait('document.querySelector(".page-jump input").value === "2" && document.querySelector(".pane-note").textContent.includes("번역 전 · 원문")')
+  await wait('document.querySelector(".page-jump input").value === "2" && document.querySelector(".pane-note").textContent.includes("미번역 · 원문 표시")')
   assert(!(await evaluate('document.querySelector(".pane-note").textContent')).includes('저장됨'), 'A different page cache must not imply this page is translated')
   await evaluate('document.querySelector(".page-jump input").focus()')
   await send('Input.insertText', { text: '1' })
@@ -200,6 +208,16 @@ try {
     }
     throw new Error(`Pane geometry did not finish ${arrangement}/${kind}: ${JSON.stringify(previous)}`)
   }
+
+  // Equal physical PDF content must not get different stroke weights merely
+  // because one raster is used for the original and the other for crops.
+  await evaluate(`document.querySelector('.comparison-options > summary').click()`)
+  await evaluate(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(1)').click()`)
+  await settledPane('original', 'row')
+  await evaluate(`document.querySelectorAll('.zoom-control select').forEach(select => { select.value='0.7'; select.dispatchEvent(new Event('change',{bubbles:true})); })`)
+  await wait(`['original','translated'].every(kind => Number(document.querySelector('[data-page='+kind+'-1].rendered')?.dataset.renderScale) === .7)`)
+  assert(await evaluate(`(() => { const a=document.querySelector('[data-page=original-1] > canvas'),b=document.querySelector('[data-page=translated-1] > canvas'); return a.width===b.width && a.height===b.height && a.toDataURL()===b.toDataURL(); })()`), 'Both reader panes must rasterize identical PDF pixels at equal zoom')
+  await evaluate(`document.querySelectorAll('.zoom-control select').forEach(select => { select.value='fit'; select.dispatchEvent(new Event('change',{bubbles:true})); })`)
 
   await evaluate('document.querySelector(".comparison-options > summary").click()')
   assert(await evaluate('(() => { const button = document.querySelector(".comparison-options .reader-toolbar-popover button"); const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()'), 'Comparison choices must be visible and clickable, not clipped by their parent')
