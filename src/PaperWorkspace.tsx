@@ -56,10 +56,13 @@ function writeStoredLayout(arxivId: string, layout: PaneNode) {
   try { window.localStorage.setItem(layoutStorageKey(arxivId), JSON.stringify(layout)) } catch { /* private mode, quota, or no storage at all */ }
 }
 
+// Two 612px PDF pages plus pane padding need roughly this much reading width.
+const comparisonMinWidth = 1280
+
 /** Small reading areas open a readable translation; comparison remains an explicit layout choice. */
 function withTranslated(layout: PaneNode): PaneNode {
   if (openKinds(layout).includes('translated')) return activateKind(layout, 'translated')
-  if ((document.querySelector('.paper-workspace')?.clientWidth ?? window.innerWidth) < 1200) return panePresets.translated()
+  if ((document.querySelector('.paper-workspace')?.clientWidth ?? window.innerWidth) < comparisonMinWidth) return panePresets.translated()
   const host = groupHolding(layout, 'original') ?? paneGroups(layout)[0]
   return host ? splitGroupWithKind(layout, host.id, 'translated', 'right') : panePresets.dual()
 }
@@ -369,6 +372,17 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
 }
 
 export default function PaperWorkspace({ providers, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState, readingSizeRequest }: { readingSizeRequest?: ReadingSizeRequest; providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
+  const workspaceRef = useRef<HTMLElement>(null)
+  const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth)
+  const explicitNarrowComparison = useRef(new Set<string>())
+  useEffect(() => {
+    const workspace = workspaceRef.current
+    if (!workspace) return
+    const measure = () => setWorkspaceWidth(workspace.clientWidth)
+    const observer = new ResizeObserver(measure)
+    observer.observe(workspace); measure()
+    return () => observer.disconnect()
+  }, [])
   const [reloadAttempt, setReloadAttempt] = useState(0)
   const [recovering, setRecovering] = useState(false)
   const [recoveryNotice, setRecoveryNotice] = useState('')
@@ -855,8 +869,10 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
       layoutRef.current = comparisonReturn.layout; setLayout(comparisonReturn.layout); setComparisonReturn(undefined)
       closeToolbarMenu(element); return
     }
+    const width = workspaceRef.current?.clientWidth ?? workspaceWidth
     if (explicit) comparisonPreference.current = explicit
-    const choice = explicit ?? comparisonPreference.current ?? ((element.closest('.paper-workspace')?.clientWidth ?? window.innerWidth) < 960 ? 'stacked' : 'dual')
+    if (explicit === 'dual' && width < comparisonMinWidth && activeId) explicitNarrowComparison.current.add(activeId)
+    const choice = explicit ?? comparisonPreference.current ?? (width < comparisonMinWidth ? 'stacked' : 'dual')
     queueReadingPosition(); applyLayout(choice === 'stacked' ? panePresets.stacked() : panePresets.dual())
     closeToolbarMenu(element)
   }
@@ -870,7 +886,11 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={!fitted && value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : paperZoom ? '번역 배율' : '번역 글자 크기'} value={fitted ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? fitPane(mode) : setPaneZoom(mode, Number(event.target.value))}>{paperZoom && <option value="fit">너비 맞춤</option>}{!fitted && !zoomLevels.includes(value) && <option value={value}>{Math.round(value * 100)}%</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={!fitted && value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div>
   }
 
-  return <section className="reader-pane paper-workspace">
+  const suggestStacked = bothDocumentsOpen && layout.type === 'split' && layout.dir === 'row'
+    && workspaceWidth > 0 && workspaceWidth < comparisonMinWidth && !!activeId && !explicitNarrowComparison.current.has(activeId)
+    && comparisonReturn?.paperId !== activeId
+  const comparisonHint = suggestStacked ? '현재 좌우 비교. 상하 비교로 바꾸어 각 문서를 넓게 읽기' : '원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다.'
+  return <section ref={workspaceRef} className="reader-pane paper-workspace">
     {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}
     <div className="editor-tabs"><button className="icon-button" aria-label={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} title={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>
@@ -883,7 +903,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
         <div className="document-mode" aria-label="읽기 보기">
           <button className={describeLayout(layout) === describeLayout(panePresets.original()) ? 'active' : ''} onClick={() => readLarger('original')} title="원문을 넓게 읽기">{bothDocumentsOpen ? '원문 크게' : '원문'}</button>
           <button className={describeLayout(layout) === describeLayout(panePresets.translated()) ? 'active' : ''} onClick={() => readLarger('translated')} title="번역을 넓게 읽기">{bothDocumentsOpen ? '번역 크게' : '한국어'}</button>
-          <button className={bothDocumentsOpen ? 'active' : ''} title="원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다." onClick={event => chooseComparison(event.currentTarget)}>{comparisonReturn && comparisonReturn.paperId === activeId ? (openKinds(comparisonReturn.layout).includes('original') && openKinds(comparisonReturn.layout).includes('translated') ? '비교로 복귀' : '이전 보기') : bothDocumentsOpen && layout.type === 'split' ? layout.dir === 'row' ? '좌우 비교' : '상하 비교' : '비교'}</button>
+          <button className={bothDocumentsOpen ? 'active' : ''} title={comparisonHint} aria-label={suggestStacked ? comparisonHint : undefined} onClick={event => chooseComparison(event.currentTarget, suggestStacked ? 'stacked' : undefined)}>{comparisonReturn && comparisonReturn.paperId === activeId ? (openKinds(comparisonReturn.layout).includes('original') && openKinds(comparisonReturn.layout).includes('translated') ? '비교로 복귀' : '이전 보기') : suggestStacked ? '상하로 넓게' : bothDocumentsOpen && layout.type === 'split' ? layout.dir === 'row' ? '좌우 비교' : '상하 비교' : '비교'}</button>
           <details className="reader-toolbar-menu comparison-options" onKeyDown={toolbarMenuKey}>
             <summary aria-label="비교 배치 선택" title="비교 배치 선택">⌄</summary>
             <div className="reader-toolbar-popover">

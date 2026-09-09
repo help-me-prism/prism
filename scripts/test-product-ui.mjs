@@ -209,6 +209,45 @@ try {
     throw new Error(`Pane geometry did not finish ${arrangement}/${kind}: ${JSON.stringify(previous)}`)
   }
 
+  // The first comparison in a laptop-sized viewport must keep readable width.
+  await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+  await settledPane('original', 'col')
+  await evaluate(`document.querySelector('.comparison-options > summary').click()`)
+  await evaluate(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(1)').click()`)
+  await settledPane('original', 'row')
+  assert.equal(await evaluate('document.querySelector(".document-mode > button:nth-child(3)").textContent'), '좌우 비교', 'An explicit narrow side-by-side choice must dismiss the suggestion for this paper session')
+  const savedSideBySide = await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`)
+  await reload()
+  await settledPane('original', 'row')
+  await wait('document.querySelector(".document-mode > button:nth-child(3)").textContent === "상하로 넓게"')
+  assert.equal(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), savedSideBySide, 'Offering a wider comparison must not change the saved arrangement')
+  const comparisonZooms = await evaluate('[...document.querySelectorAll(".zoom-control select")].map(select => select.value)')
+  await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+  await settledPane('original', 'col')
+  assert.deepEqual(await evaluate('[...document.querySelectorAll(".zoom-control select")].map(select => select.value)'), comparisonZooms, 'Changing comparison direction must preserve zoom choices')
+  assert.equal(await evaluate('document.querySelector(".page-jump input").value'), '1')
+  assert.notEqual(await evaluate(`localStorage.getItem(${JSON.stringify(`prism.reader.layout.${paper.arxivId}`)})`), savedSideBySide, 'The accepted direction change should persist')
+
+  // A wide-screen explicit choice remains in place when chat narrows the area;
+  // the contextual action is offered without moving content or losing a draft.
+  await send('Emulation.setDeviceMetricsOverride', { width: 1800, height: 900, deviceScaleFactor: 1, mobile: false })
+  await evaluate(`document.querySelector('.comparison-options > summary').click()`)
+  await evaluate(`document.querySelector('.comparison-options .reader-toolbar-popover button:nth-child(1)').click()`)
+  await settledPane('original', 'row')
+  await evaluate('if(document.querySelector(".chat-pane").hidden) document.querySelector(".reading-focus").click()')
+  await wait('!document.querySelector(".chat-pane").hidden')
+  await evaluate('document.querySelector(".composer-editor").focus()')
+  await send('Input.insertText', { text: '이 문단과 표의 차이를 비교하고 싶습니다.' })
+  const widthDraft = await evaluate('document.querySelector(".composer-editor").innerHTML')
+  await wait('document.querySelector(".document-mode > button:nth-child(3)").textContent === "상하로 넓게"')
+  await settledPane('original', 'row')
+  await evaluate('document.querySelector(".document-mode > button:nth-child(3)").click()')
+  await settledPane('original', 'col')
+  assert.equal(await evaluate('document.querySelector(".composer-editor").innerHTML'), widthDraft, 'Accepting a wider comparison must preserve the question draft')
+  await evaluate('document.querySelector(".reading-focus").click()')
+  await send('Emulation.clearDeviceMetricsOverride')
+  await settledPane('original', 'col')
+
   // Equal physical PDF content must not get different stroke weights merely
   // because one raster is used for the original and the other for crops.
   await evaluate(`document.querySelector('.comparison-options > summary').click()`)
