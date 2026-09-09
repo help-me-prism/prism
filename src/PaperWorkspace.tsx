@@ -372,6 +372,9 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
 }
 
 export default function PaperWorkspace({ providers, command, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState }: { providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
+  const [reloadAttempt, setReloadAttempt] = useState(0)
+  const [recovering, setRecovering] = useState(false)
+  const [recoveryNotice, setRecoveryNotice] = useState('')
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
@@ -401,6 +404,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
       window.prism.listLibrary().then(papers => { setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId) }).catch(reason => setError(String(reason)))
     }
   }), [settings.libraryPath])
+  useEffect(() => window.prism.onLibraryChanged(setLibrary), [])
   const activePaper = library.find((paper) => paper.arxivId === activeId); const translationProvider = providers.find((provider) => provider.id === settings.translationProvider)
   const openPanes = openKinds(layout)
   const bothDocumentsOpen = openPanes.includes('original') && openPanes.includes('translated')
@@ -539,10 +543,19 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
     const persist = () => saveReadingPosition(activePaper.pdfPath, navigationTarget.current ?? lastReadingPosition.current)
     window.addEventListener('beforeunload', persist)
     return () => { disposed = true; void loadingTask?.destroy().catch(() => {}); persist(); window.clearTimeout(positionSaveTimer.current); window.clearTimeout(navigationTimer.current); window.removeEventListener('beforeunload', persist) }
-  }, [activePaper?.pdfPath])
+  }, [activePaper?.pdfPath, reloadAttempt])
   function setTranslating(running: boolean, paperId = activeId) { if (paperId) setTranslationJobs(current => ({ ...current, [paperId]: running })) }
   function openPaper(paper: PaperRecord) { setTabs((current) => current.includes(paper.arxivId) ? current : [...current, paper.arxivId]); setActiveId(paper.arxivId) }
   function closeTab(id: string) { setTabs((current) => { const next = current.filter((value) => value !== id); if (activeId === id) setActiveId(next.at(-1)); return next }) }
+  async function recoverMissingPaper() {
+    setRecovering(true); setRecoveryNotice('')
+    try {
+      const result = await window.prism.reconnectPaperStorage()
+      if (result?.noteWarnings) setRecoveryNotice(`${result.noteWarnings}개 노트의 PDF 속성은 변경된 형식 또는 편집 충돌로 갱신하지 못했습니다. 노트에서 확인해 주세요.`)
+      if (result && !result.restored) setError('같은 원본을 찾지 못했습니다. 논문별 하위 폴더가 들어 있는 위치를 선택해 주세요.')
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
+    finally { setRecovering(false) }
+  }
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { const papers = await window.prism.listLibrary(); setSettings(next); setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId); if (!papers.length) setFinderOpen(true) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
   async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: !force && translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
@@ -716,6 +729,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
   const paneZoom = (mode: 'original' | 'translated') => { const value = mode === 'original' ? sourceScale : translatedScale; return <div className="zoom-control"><button onClick={() => changeZoom(mode, -1)} disabled={value <= zoomLevels[0]} title="축소"><ZoomOut size={13} /></button><select aria-label={mode === 'original' ? '원문 배율' : '번역 글자 크기'} value={mode === 'original' && sourceFit ? 'fit' : value} onChange={(event) => event.target.value === 'fit' ? setSourceFit(true) : setPaneZoom(mode, Number(event.target.value))}>{mode === 'original' && <option value="fit">너비 맞춤</option>}{zoomLevels.map((level) => <option key={level} value={level}>{Math.round(level * 100)}%</option>)}</select><button onClick={() => changeZoom(mode, 1)} disabled={value >= zoomLevels.at(-1)!} title="확대"><ZoomIn size={13} /></button></div> }
 
   return <section className="reader-pane paper-workspace">
+    {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}
     <div className="editor-tabs"><button className="icon-button" onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>
 
@@ -784,7 +798,7 @@ export default function PaperWorkspace({ providers, command, onToggleSidebar, on
           translated: <><select aria-label="번역 보기 방식" className="translation-format" value={translationFormat} onChange={event => { const format = event.target.value as 'paper' | 'flow'; queueReadingPosition(); setTranslationFormat(format); localStorage.setItem('prism.translation-format', format) }}><option value="paper">원문 형식</option><option value="flow">읽기 형식</option></select><span className="pane-note" title={preservedParagraphCount ? `PDF 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존하며 AI 번역에서 제외합니다.` : undefined}>{preservedParagraphCount ? `${preservedParagraphCount}문단 원문 유지` : translating ? `번역 중 ${translationPercent}%` : hasCachedTranslation ? '저장됨' : '번역 대기'}</span>{paneZoom('translated')}</>,
         }}
       />
-    </> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}
+    </> : activePaper && error ? <div className="reader-empty library-empty" role="alert"><FileText size={32} strokeWidth={1.5} /><h1>논문을 열지 못했습니다</h1><p>{error}</p>{activePaper.externalAssets && <button disabled={recovering} onClick={() => void recoverMissingPaper()}><FolderOpen size={17} />{recovering ? '논문 확인 중…' : '이동한 폴더 다시 연결'}</button>}<button disabled={recovering} onClick={() => setReloadAttempt(value => value + 1)}>다시 시도</button></div> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}
     {finderOpen && <Finder library={library} settings={settings} onChooseFolder={() => void chooseFolder()} onOpen={openPaper} onDownloaded={(paper) => { setLibrary((current) => current.some((item) => item.arxivId === paper.arxivId) ? current : [paper, ...current]); openPaper(paper); setFinderOpen(false) }} onSettings={(patch) => void updateSettings(patch)} onClose={() => setFinderOpen(false)} />}
   </section>
 }

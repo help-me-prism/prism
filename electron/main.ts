@@ -1,3 +1,4 @@
+import { planPaperRecovery, updateRecoveredPdfLink } from './paperRecovery.js'
 import { readSavedFigure, resolveChatImages, type ChatImage } from './chatImages.js'
 import { buildCodexImageInputs, buildClaudeImageMessage } from './chatImageInputs.js'
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
@@ -45,7 +46,7 @@ type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStrea
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
 type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
 type TranslationSegment = { sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 function normalizePdfControls(value: string) {
@@ -817,7 +818,7 @@ async function downloadPaperNow(paper: ArxivPaper, settings: AppSettings): Promi
   const templates = await listTemplates(settings.libraryPath).catch(() => [])
   const template = templates.find((item) => item.nodeType === 'paper' && item.isDefault) ?? templates.find((item) => item.nodeType === 'paper')
   await writeInitialPaperNote(notePath, paperMarkdown(paper, settings.paperStoragePath ? pathToFileURL(pdfPath).href : 'original.pdf', template))
-  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
+  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath), pdfSha256: createHash('sha256').update(pdf).digest('hex') }
   return registerPaper(settings.libraryPath, record)
 }
 
@@ -1092,6 +1093,43 @@ ipcMain.handle('storage:choose-papers', async (event, reset: boolean) => {
   if (selection.canceled || !selection.filePaths[0]) return null
   return writeSettings({ paperStoragePath: selection.filePaths[0] })
 })
+ipcMain.handle('storage:reconnect-papers', async (event) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 노트 볼트를 선택해 주세요.')
+  const libraryPath = settings.libraryPath
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  const options = { title: '이동한 논문 폴더 선택 · 논문별 하위 폴더가 들어 있는 위치', properties: ['openDirectory'] as Array<'openDirectory'> }
+  const selection = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+  if (selection.canceled || !selection.filePaths[0]) return null
+  if ((await readSettings()).libraryPath !== libraryPath) throw new Error('노트 볼트가 변경됐습니다. 현재 볼트에서 다시 시도해 주세요.')
+  const operation = (libraryWrites.get(libraryPath) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const previous = await readLibraryAt(libraryPath)
+    const result = await planPaperRecovery(previous, selection.filePaths[0])
+    let noteWarnings = 0
+    if (result.restored) {
+      await atomicWriteFile(libraryIndexPath(libraryPath), JSON.stringify(result.records, null, 2))
+      invalidateKnowledgeCache(libraryPath)
+      for (const next of result.records) {
+        const old = previous.find(paper => paper.arxivId === next.arxivId)
+        if (!old || old.pdfPath === next.pdfPath) continue
+        try {
+          const snapshot = await readKnowledgeNode(libraryPath, paperNodeId(next.arxivId))
+          const content = updateRecoveredPdfLink(snapshot.content, old.pdfPath, next.pdfPath)
+          if (content !== undefined) {
+            const saved = await saveKnowledgeNode(libraryPath, paperNodeId(next.arxivId), { content, expectedRevision: snapshot.revision })
+            if (!saved.saved) noteWarnings++
+          } else noteWarnings++
+        } catch { noteWarnings++ }
+      }
+      const currentSettings = await readSettings()
+      if (currentSettings.libraryPath === libraryPath && currentSettings.paperStoragePath && previous.some(old => path.resolve(path.dirname(path.dirname(old.pdfPath))) === path.resolve(currentSettings.paperStoragePath!) && result.records.some(next => next.arxivId === old.arxivId && next.pdfPath !== old.pdfPath))) await writeSettings({ paperStoragePath: selection.filePaths[0] })
+      if ((await readSettings()).libraryPath === libraryPath) for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) safeSend(window.webContents, 'library:changed', result.records)
+    }
+    return { restored: result.restored, skipped: result.skipped, noteWarnings }
+  })
+  libraryWrites.set(libraryPath, operation)
+  try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
+})
 ipcMain.handle('library:list', async () => {
   const settings = await readSettingsAndWatch()
   // Writing prism_id into old paper notes changes files under our own feet; start from a clean cache.
@@ -1128,7 +1166,7 @@ ipcMain.handle('paper:import-local', async (event, metadata?: ArxivPaper) => {
     const directory = settings.paperStoragePath ? path.join(settings.paperStoragePath, local.id) : noteDirectory
     await fs.mkdir(noteDirectory, { recursive: true })
     await fs.mkdir(directory, { recursive: true })
-    const record: PaperRecord = { arxivId: local.id, title: local.title, authors: [], summary: '', published: '', updated: '', categories: ['PDF'], pdfUrl: '', absUrl: '', pdfPath: path.join(directory, 'original.pdf'), notePath: path.join(noteDirectory, `${local.id}.md`), translationPath: path.join(directory, 'translation.ko.json'), downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
+    const record: PaperRecord = { arxivId: local.id, title: local.title, authors: [], summary: '', published: '', updated: '', categories: ['PDF'], pdfUrl: '', absUrl: '', pdfPath: path.join(directory, 'original.pdf'), notePath: path.join(noteDirectory, `${local.id}.md`), translationPath: path.join(directory, 'translation.ko.json'), pdfSha256: createHash('sha256').update(local.bytes).digest('hex'), downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
     if (metadata && /^doi:10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(metadata.arxivId)) {
       record.title = String(metadata.title || local.title).slice(0, 1000)
       record.authors = Array.isArray(metadata.authors) ? metadata.authors.map(String).slice(0, 200) : []
@@ -1159,9 +1197,26 @@ ipcMain.handle('paper:download', async (_event, input: ArxivPaper) => {
   return downloadPaper(paper)
 })
 ipcMain.handle('paper:pdf', async (_event, arxivId: string) => {
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
+  const settings = await readSettings()
+  const record = (settings.libraryPath ? await readLibraryAt(settings.libraryPath) : []).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return new Uint8Array(await fs.readFile(record.pdfPath))
+  let data: Buffer
+  try { data = await fs.readFile(record.pdfPath) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('PDF 파일을 찾을 수 없습니다. 외부 논문 폴더를 옮겼다면 설정의 파일 보관 위치에서 이동한 폴더를 다시 연결해 주세요.')
+    throw error
+  }
+  if (!record.pdfSha256 && settings.libraryPath) {
+    const libraryPath = settings.libraryPath
+    const operation = (libraryWrites.get(libraryPath) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      const records = await readLibraryAt(libraryPath)
+      const current = records.find(paper => paper.arxivId === arxivId && paper.pdfPath === record.pdfPath)
+      if (current && !current.pdfSha256) { current.pdfSha256 = createHash('sha256').update(data).digest('hex'); await atomicWriteFile(libraryIndexPath(libraryPath), JSON.stringify(records, null, 2)) }
+    })
+    libraryWrites.set(libraryPath, operation)
+    try { await operation } catch { /* Optional recovery fingerprint must not prevent reading a readable PDF in a read-only vault. */ } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
+  }
+  return new Uint8Array(data)
 })
 ipcMain.handle('paper:latex-structure', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)

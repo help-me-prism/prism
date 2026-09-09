@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('prism', {
   onSettingsChanged: (callback: (settings: unknown) => void) => subscribe('settings:changed', callback),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings: unknown) => ipcRenderer.invoke('settings:update', settings),
+  reconnectPaperStorage: () => ipcRenderer.invoke('storage:reconnect-papers'),
+  onLibraryChanged: (callback: (records: unknown) => void) => subscribe('library:changed', callback),
   choosePaperStorage: (reset = false) => ipcRenderer.invoke('storage:choose-papers', reset),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   listLibrary: () => ipcRenderer.invoke('library:list'),

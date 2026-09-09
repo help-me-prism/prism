@@ -108,6 +108,8 @@ interface Window {
     onSettingsChanged: (callback: (settings: AppSettings) => void) => () => void
     getSettings: () => Promise<AppSettings>
     updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+    reconnectPaperStorage: () => Promise<{ restored: number; skipped: number; noteWarnings: number } | null>
+    onLibraryChanged: (callback: (records: PaperRecord[]) => void) => () => void
     choosePaperStorage: (reset?: boolean) => Promise<AppSettings | null>
     chooseWorkspace: () => Promise<AppSettings | null>
     listLibrary: () => Promise<PaperRecord[]>

@@ -21,7 +21,7 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
 }
 dialog.showOpenDialog = async (...args) => {
   const options = args.at(-1)
-  const file = options.properties.includes('openFile') ? fs.readFileSync(path.join(root, 'selection.txt'), 'utf8') : path.join(root, 'external-papers')
+  const file = options.properties.includes('openFile') ? fs.readFileSync(path.join(root, 'selection.txt'), 'utf8') : fs.existsSync(path.join(root, 'directory-selection.txt')) ? fs.readFileSync(path.join(root, 'directory-selection.txt'), 'utf8') : path.join(root, 'external-papers')
   return { canceled: false, filePaths: [file] }
 }
 import('../dist-electron/main.js')
