@@ -83,6 +83,27 @@ try {
   await fs.access(path.join(root, 'Concepts', 'Flow matching.md'))
   await fs.access(path.join(root, 'Concepts', 'Score matching.md'))
 
+  // A real filesystem failure AFTER the paper commit must not invite duplicate memo submission.
+  const conceptsPath = path.join(root, 'Concepts'), heldConcepts = path.join(root, 'concepts-held-for-test')
+  assert.equal(path.dirname(path.resolve(conceptsPath)), path.resolve(root))
+  assert.equal(path.dirname(path.resolve(heldConcepts)), path.resolve(root))
+  await fs.rename(conceptsPath, heldConcepts)
+  await fs.writeFile(conceptsPath, 'A file obstructs the concept directory')
+  const uniqueMemo = 'Partial capture memo must occur exactly once.'
+  const partial = await captureToPaperNote(root, paper, { kind: 'evidence', paperId: paper.arxivId, anchorId: 'sentence-p1-1', memo: uniqueMemo, concept: 'Recovered definition' })
+  assert.equal(partial.saved, true)
+  assert(partial.warning?.includes('Recovered definition'))
+  assert(/ENOTDIR|EEXIST/.test(partial.warning), `Expected actual directory obstruction, received ${partial.warning}`)
+  assert(partial.warning.includes('메모는 비워 두고'), 'Explain how to retry only the failed connection')
+  assert.equal((await fs.readFile(notePath, 'utf8')).split(uniqueMemo).length - 1, 1)
+  await fs.unlink(conceptsPath)
+  await fs.rename(heldConcepts, conceptsPath)
+  const repaired = await captureToPaperNote(root, paper, { kind: 'evidence', paperId: paper.arxivId, anchorId: 'sentence-p1-1', memo: '', concept: 'Recovered definition' })
+  assert.equal(repaired.warning, undefined)
+  assert.equal(repaired.concept, 'Recovered definition')
+  assert.equal((await fs.readFile(notePath, 'utf8')).split(uniqueMemo).length - 1, 1, 'Retrying the connection cannot duplicate the previously saved memo')
+  assert((await fs.readFile(path.join(conceptsPath, 'Recovered definition.md'), 'utf8')).includes('Noise prediction'))
+
 process.stdout.write('Capture passed: Notes-section insertion, evidence cards with memos, duplicate-anchor merging, AI answer callouts with provenance, unknown-anchor rejection, inbox Concept stubs from unresolved links, and a link under the section for what a paper will be used for becoming a project rather than a concept.\n')
 } finally {
   await fs.rm(root, { recursive: true, force: true })

@@ -15,6 +15,14 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
   ipcMain.handle = (channel, listener) => register(channel, async (...args) => {
     if (channel === 'providers:list') return [{ id: 'codex', name: 'Codex', installed: true, available: true, status: 'Offline UI test', models: [{ id: 'gpt-5.6-luna', name: 'Luna', description: 'Offline UI test' }] }]
     if (channel === 'evidence:list') await new Promise(resolve => setTimeout(resolve, 800))
+    // Race regressions use real IPC with an explicitly delayed fixture response.
+    if (['evidence:backlinks', 'paper:note:capture'].includes(channel)) {
+      const delayFile = path.join(root, channel === 'evidence:backlinks' ? 'backlinks-delay.txt' : 'capture-delay.txt')
+      if (fs.existsSync(delayFile)) {
+        const delay = Number(fs.readFileSync(delayFile, 'utf8'))
+        if (Number.isFinite(delay) && delay > 0 && delay <= 5000) await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
     if (channel === 'chat:send') { fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls') }
     return listener(...args)
   })

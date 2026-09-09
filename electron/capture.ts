@@ -15,9 +15,9 @@ import { validatedScientificSource } from './scientificSource.js'
  */
 export type CapturePaper = EvidencePaper & { notePath: string }
 export type PaperCaptureRequest =
-  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
+  | { kind: 'evidence'; libraryPath?: string; paperId: string; anchorId: string; memo?: string; concept?: string }
   | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
-export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string; warning?: string }
 export type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: { paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 
 /** Plain paragraphs written directly under an evidence card are reading memos; a memo already linked to a Claim or Question counts as promoted. */
@@ -164,19 +164,26 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
   if (!result.saved) throw new Error('노트가 방금 외부에서 변경되었습니다. 다시 시도해 주세요.')
   const conceptTitle = request.kind === 'evidence' ? request.concept?.trim() : undefined
   if (!conceptTitle || !capturedAnchor) return { saved: true, snapshot: result.snapshot, blockId }
-  // The sentence defines a concept: record it in the concept's comparison table and as an approved `defines` relation.
-  let nodes = await listKnowledgeNodes(libraryPath)
-  let concept = nodes.find((node) => node.nodeType === 'concept' && node.title.toLocaleLowerCase() === conceptTitle.toLocaleLowerCase())
-  if (!concept) { const created = await createKnowledgeNode(libraryPath, { title: conceptTitle, nodeType: 'concept' }); nodes = created.nodes; concept = nodes.find((node) => node.id === created.id) }
-  const paperNode = nodes.find((node) => node.id === paperNodeId(paper.arxivId))
-  if (!concept || !paperNode) throw new Error('개념 정의를 연결할 노트를 찾을 수 없습니다.')
-  await addConceptDefinition(libraryPath, concept, paperNode, capturedAnchor, (request.kind === 'evidence' ? request.memo ?? '' : '').trim())
-  const relations = await listKnowledgeRelationRecords(libraryPath)
-  if (!relations.some((relation) => relation.sourceId === paperNode.id && relation.targetId === concept!.id && relation.type === 'defines' && relation.reviewStatus !== 'rejected')) {
-    const latest = await readNoteSnapshot(paper.notePath)
-    await createKnowledgeRelation(libraryPath, { sourceId: paperNode.id, targetId: concept.id, type: 'defines', creator: 'user', evidenceAnchor: { paperId: capturedAnchor.paperId, anchorId: capturedAnchor.anchorId, type: capturedAnchor.type, page: capturedAnchor.page, label: capturedAnchor.label }, expectedRevision: latest.revision })
+  try {
+    // The sentence defines a concept: record it in the concept's comparison table and as an approved `defines` relation.
+    let nodes = await listKnowledgeNodes(libraryPath)
+    let concept = nodes.find((node) => node.nodeType === 'concept' && node.title.toLocaleLowerCase() === conceptTitle.toLocaleLowerCase())
+    if (!concept) { const created = await createKnowledgeNode(libraryPath, { title: conceptTitle, nodeType: 'concept' }); nodes = created.nodes; concept = nodes.find((node) => node.id === created.id) }
+    const paperNode = nodes.find((node) => node.id === paperNodeId(paper.arxivId))
+    if (!concept || !paperNode) throw new Error('개념 정의를 연결할 노트를 찾을 수 없습니다.')
+    await addConceptDefinition(libraryPath, concept, paperNode, capturedAnchor, (request.kind === 'evidence' ? request.memo ?? '' : '').trim())
+    const relations = await listKnowledgeRelationRecords(libraryPath)
+    if (!relations.some((relation) => relation.sourceId === paperNode.id && relation.targetId === concept!.id && relation.type === 'defines' && relation.reviewStatus !== 'rejected')) {
+      const latest = await readNoteSnapshot(paper.notePath)
+      const linked = await createKnowledgeRelation(libraryPath, { sourceId: paperNode.id, targetId: concept.id, type: 'defines', creator: 'user', evidenceAnchor: { paperId: capturedAnchor.paperId, anchorId: capturedAnchor.anchorId, type: capturedAnchor.type, page: capturedAnchor.page, label: capturedAnchor.label }, expectedRevision: latest.revision })
+      if (!linked.saved) throw new Error('논문 노트가 다른 곳에서 변경되어 개념 관계를 저장하지 못했습니다.')
+    }
+    // A failed refresh after both writes succeeded is not a failed concept connection.
+    return { saved: true, snapshot: await readNoteSnapshot(paper.notePath).catch(() => result.snapshot), blockId, concept: concept.title }
+  } catch (reason) {
+    const detail = reason instanceof Error ? reason.message : String(reason)
+    return { saved: true, snapshot: result.snapshot, blockId, warning: `논문 근거와 메모는 저장했습니다. 개념 '${conceptTitle}' 연결은 완료하지 못했습니다: ${detail}. 다시 연결하려면 메모는 비워 두고 개념 이름만 입력해 주세요.` }
   }
-  return { saved: true, snapshot: await readNoteSnapshot(paper.notePath), blockId, concept: concept.title }
 }
 
 /**

@@ -30,9 +30,9 @@ type NoteSnapshot = { vaultId?: string; content: string; revision: string; modif
 type NoteSaveRequest = { vaultId?: string; content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
 type NoteSaveResult = { saved: true; snapshot: NoteSnapshot; stubs?: string[] } | { saved: false; conflict: NoteSnapshot }
 type PaperCaptureRequest =
-  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
+  | { kind: 'evidence'; libraryPath?: string; paperId: string; anchorId: string; memo?: string; concept?: string }
   | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
-type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string; warning?: string }
 type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: EvidenceAnchorRef; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 type CurationStub = { node: KnowledgeNodeRecord; backlinks: number; ready: boolean }
 type CurationPendingRelation = { relation: KnowledgeRelationRecord; source: KnowledgeNodeRecord; target: KnowledgeNodeRecord }

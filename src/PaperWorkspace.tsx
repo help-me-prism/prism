@@ -10,6 +10,7 @@ import { useDialogFocus } from './useDialogFocus'
 import { joinVectorRegions } from './paper/figureGeometry'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
+import { useEvidenceCapture } from './paper/useEvidenceCapture'
 import './readerToolbar.css'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import * as pdfjs from 'pdfjs-dist'
@@ -378,9 +379,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const [translation, setTranslation] = useState<TranslationSegment[]>([]); const [highlighted, setHighlighted] = useState<string>(); const [layout, setLayout] = useState<PaneNode>(() => panePresets.original())
   const [comparisonReturn, setComparisonReturn] = useState<{ paperId: string; layout: PaneNode; sourceScale: number; translatedScale: number; sourceFit: boolean; translatedFit: boolean }>()
   const [translationFormat, setTranslationFormat] = useState<'paper' | 'flow'>(() => localStorage.getItem('prism.translation-format') === 'flow' ? 'flow' : 'paper'); const [cacheExists, setCacheExists] = useState(false)
-  const [backlinkPanel, setBacklinkPanel] = useState<{ anchor: ContextAnchor; items: EvidenceBacklink[]; loading: boolean; error?: string }>()
-  const [captureMemo, setCaptureMemo] = useState(''); const [captureStatus, setCaptureStatus] = useState('')
-  const [captureConcept, setCaptureConcept] = useState(''); const [conceptOptions, setConceptOptions] = useState<string[]>([])
+  const { panel: backlinkPanel, memo: captureMemo, concept: captureConcept, status: captureStatus, conceptOptions, saving: captureSaving, show: showBacklinks, close: closeBacklinks, setMemo: setCaptureMemo, setConcept: setCaptureConcept, capture: captureAnchor } = useEvidenceCapture({ libraryPath: settings.libraryPath, activePaperId: activeId })
   const [sourceStatus, setSourceStatus] = useState<{ mode: 'latex' | 'pdf'; matched: number; total: number }>({ mode: 'pdf', matched: 0, total: 0 })
   const [translationTargetPage, setTranslationTargetPage] = useState(1); const [pendingTranslationPage, setPendingTranslationPage] = useState<number>(); const [translationScope, setTranslationScope] = useState<'page' | 'all'>('page'); const [translationJobs, setTranslationJobs] = useState<Record<string, boolean>>({}); const translating = Boolean(activeId && translationJobs[activeId]); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
@@ -587,22 +586,6 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: !force && translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function tagSegment(segment: TranslationSegment) { const anchor = anchorCatalog.find((item) => item.anchorId === segment.id); if (anchor) onTagAnchor(anchor) }
-  async function captureAnchor() {
-    if (!backlinkPanel) return
-    const anchor = backlinkPanel.anchor
-    try {
-      const result = await window.prism.capturePaperNote({ kind: 'evidence', paperId: anchor.paperId, anchorId: anchor.anchorId, memo: captureMemo, concept: captureConcept.trim() || undefined })
-      setCaptureMemo(''); setCaptureConcept(''); setCaptureStatus(result.concept ? `논문 노트와 Concept '${result.concept}'의 정의 비교 표에 담았습니다.` : '논문 노트의 Notes 섹션에 담았습니다.')
-      void showBacklinks(anchor, true)
-    } catch (reason) { setCaptureStatus(reason instanceof Error ? reason.message : String(reason)) }
-  }
-  async function showBacklinks(anchor: ContextAnchor, keepStatus = false) {
-    if (!keepStatus) { setCaptureMemo(''); setCaptureConcept(''); setCaptureStatus('') }
-    window.prism.listKnowledgeNodes().then((nodes) => setConceptOptions(nodes.filter((node) => node.nodeType === 'concept').map((node) => node.title))).catch(() => setConceptOptions([]))
-    setBacklinkPanel({ anchor, items: [], loading: true })
-    try { setBacklinkPanel({ anchor, items: await window.prism.listEvidenceBacklinks(anchor), loading: false }) }
-    catch (reason) { setBacklinkPanel({ anchor, items: [], loading: false, error: String(reason) }) }
-  }
   /** A node in the structure map points at a heading; the reader goes there the same way a note link does. */
   function openAnchorFromMap(anchorId: string, page: number) {
     setPageNumber(page)
@@ -847,7 +830,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
             </div>
           </details>
         </div>
-        <button className="reader-memo-action" title="현재 페이지를 출처로 메모를 남깁니다" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 메모</button>
+        <button className="reader-memo-action" title="현재 페이지를 출처로 메모를 남깁니다" onClick={() => void showBacklinks({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` })}><BookOpen size={14} /> 페이지 메모</button>
         <div className="translation-control translation-compact">
           <button className={translating ? 'cancel-translation' : 'translate-action'} aria-label={translating ? '번역 중지' : `${translationScope === 'page' ? `현재 ${pageNumber}페이지` : '본문 전체'} AI 번역`} title={`${translationScope === 'page' ? `현재 ${translating ? translationTargetPage : pageNumber}페이지` : '본문 전체 · 참고문헌 제외'} · ${settings.translationModel ?? '번역 모델 설정 필요'}`} onClick={() => translating ? void cancelTranslation() : void startTranslation()} disabled={!translating && (!translationProvider?.available || !allSegments.length || scopedMissing === 0)}>
             {translating ? <><Square size={11} fill="currentColor" /> {translationProgress.completed}/{translationProgress.total} · 중지</> : !scopedSegments.length ? '원문 유지' : scopedMissing === 0 ? `${translationScope === 'page' ? `${pageNumber}쪽` : '본문'} 번역${scopedOriginalProse ? ' · 원문 포함' : '됨'}` : `${translationScope === 'page' ? `${pageNumber}쪽` : '본문'} AI 번역 · ${scopedMissing}문장`}
@@ -877,7 +860,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     </div>
     {figureSelect && <div className="reader-capture-status" role="status"><span>피겨를 클릭하거나 영역을 드래그하세요.</span><button onClick={() => setFigureSelect(false)}>캡처 끝내기</button></div>}
 
-      {backlinkPanel && <section className="reader-evidence-backlinks" aria-label="PDF 근거 관련 노트"><header><div><BookOpen size={14} /><span><strong>{backlinkPanel.anchor.label} 관련 노트</strong><small>{backlinkPanel.anchor.paperTitle} · p.{backlinkPanel.anchor.page}</small></span></div><button aria-label="관련 노트 닫기" onClick={() => setBacklinkPanel(undefined)}><X size={13} /></button></header>{backlinkPanel.anchor.type !== 'page' && backlinkPanel.anchor.source && <blockquote className="reader-capture-source">{backlinkPanel.anchor.source}</blockquote>}<form className="reader-capture" onSubmit={(event) => { event.preventDefault(); void captureAnchor() }}><input autoFocus aria-label="노트 메모" value={captureMemo} onChange={(event) => setCaptureMemo(event.target.value)} placeholder="한 줄 메모 (선택) · Enter로 논문 노트에 담기" /><div className="reader-capture-row"><input list="prism-concept-options" aria-label="정의하는 개념" value={captureConcept} onChange={(event) => setCaptureConcept(event.target.value)} placeholder="이 문장이 정의하는 개념 (선택)" /><datalist id="prism-concept-options">{conceptOptions.map((title) => <option key={title} value={title} />)}</datalist><button type="submit" aria-label="논문 노트에 담기"><Plus size={12} /> 노트에 담기</button></div></form>{captureStatus && <p className="reader-capture-status" role="status">{captureStatus}</p>}<div>{backlinkPanel.loading ? <p>관련 노트를 찾는 중…</p> : backlinkPanel.error ? <p>{backlinkPanel.error}</p> : backlinkPanel.items.length ? backlinkPanel.items.map((item) => <button key={item.nodeId} onClick={() => void window.prism.openKnowledgeNodeInNotes(item.nodeId)}><span><small>{item.nodeType} · {item.relativePath}</small><strong>{item.title}</strong><p>{item.excerpt}</p></span><ExternalLink size={13} /></button>) : <p>이 PDF 위치를 참조하는 지식 노트가 없습니다.</p>}</div></section>}
+      {backlinkPanel && <section className="reader-evidence-backlinks" aria-label="PDF 근거 관련 노트"><header><div><BookOpen size={14} /><span><strong>{backlinkPanel.anchor.label} 관련 노트</strong><small>{backlinkPanel.anchor.paperTitle} · p.{backlinkPanel.anchor.page}</small></span></div><button aria-label="관련 노트 닫기" onClick={closeBacklinks}><X size={13} /></button></header>{backlinkPanel.anchor.type !== 'page' && backlinkPanel.anchor.source && <blockquote className="reader-capture-source">{backlinkPanel.anchor.source}</blockquote>}<form className="reader-capture" onSubmit={(event) => { event.preventDefault(); void captureAnchor() }}><input autoFocus aria-label="노트 메모" value={captureMemo} onChange={(event) => setCaptureMemo(event.target.value)} placeholder="한 줄 메모 (선택) · Enter로 논문 노트에 담기" /><div className="reader-capture-row"><input list="prism-concept-options" aria-label="정의하는 개념" value={captureConcept} onChange={(event) => setCaptureConcept(event.target.value)} placeholder="이 문장이 정의하는 개념 (선택)" /><datalist id="prism-concept-options">{conceptOptions.map((title) => <option key={title} value={title} />)}</datalist><button type="submit" aria-label="논문 노트에 담기" disabled={captureSaving}><Plus size={12} /> {captureSaving ? '저장 중…' : '노트에 담기'}</button></div></form>{captureStatus && <p className="reader-capture-status" role="status">{captureStatus}</p>}<div>{backlinkPanel.loading ? <p>관련 노트를 찾는 중…</p> : backlinkPanel.error ? <p>{backlinkPanel.error}</p> : backlinkPanel.items.length ? backlinkPanel.items.map((item) => <button key={item.nodeId} onClick={() => void window.prism.openKnowledgeNodeInNotes(item.nodeId)}><span><small>{item.nodeType} · {item.relativePath}</small><strong>{item.title}</strong><p>{item.excerpt}</p></span><ExternalLink size={13} /></button>) : <p>이 PDF 위치를 참조하는 지식 노트가 없습니다.</p>}</div></section>}
 
       {!loadStatus && allSegments.length === 0 && <p className="reader-notice" role="status">이 PDF에서 텍스트를 찾지 못했습니다. 원문 읽기와 피겨 캡처는 사용할 수 있습니다. 번역하려면 텍스트 인식(OCR)이 된 PDF를 가져와 주세요.</p>}
 
