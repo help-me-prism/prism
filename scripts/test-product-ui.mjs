@@ -138,12 +138,21 @@ try {
     await wait(`Boolean(document.querySelector('.paper-layout-page.rendered[data-render-scale="${value}"] .paper-layout-block.text'))`)
     await evaluate('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))')
   }
-  const translatedMetrics = () => evaluate('(() => { const page=document.querySelector(".paper-layout-page.rendered"), text=page.querySelector(".paper-layout-block.text:has(span[data-anchor])"), figure=page.querySelector("figure canvas"); return {width:page.getBoundingClientRect().width,font:parseFloat(getComputedStyle(text).fontSize),textHeight:text.getBoundingClientRect().height,figureWidth:figure.getBoundingClientRect().width}; })()')
+  const translatedMetrics = async () => {
+    let previous; let stable = 0
+    for (let attempt=0; attempt<60; attempt++) {
+      const metrics = await evaluate('(() => { const page=document.querySelector(".paper-layout-page.rendered"), text=page?.querySelector(".paper-layout-block.text:has(span[data-anchor])"), figure=page?.querySelector("figure canvas"); return text && figure ? {width:page.getBoundingClientRect().width,font:parseFloat(getComputedStyle(text).fontSize),textHeight:text.getBoundingClientRect().height,figureWidth:figure.getBoundingClientRect().width} : null; })()')
+      stable = metrics && JSON.stringify(metrics)===JSON.stringify(previous) ? stable+1 : 0
+      if (stable>=3) return metrics
+      previous=metrics; await sleep(50)
+    }
+    throw new Error(`Translated geometry did not settle: ${JSON.stringify(previous)}`)
+  }
   await setTranslationZoom('1')
   const at100 = await translatedMetrics()
   await setTranslationZoom('1.5')
   const at150 = await translatedMetrics()
-  for (const metric of ['width','font','figureWidth']) assert(Math.abs(at150[metric]/at100[metric]-1.5)<.02, `Paper zoom must scale ${metric} together`)
+  for (const metric of ['width','font','figureWidth']) assert(Math.abs(at150[metric]/at100[metric]-1.5)<.02, `Paper zoom must scale ${metric} together: ${JSON.stringify({at100,at150})}`)
   assert(Math.abs(at150.textHeight/at100.textHeight-1.5)<.08,`Paper zoom must preserve paragraph composition, not enlarge text inside a fixed page: ${JSON.stringify({at100,at150})}`)
   await evaluate('(() => { const select=document.querySelector(\'select[aria-label="번역 배율"]\'); select.value="fit"; select.dispatchEvent(new Event("change",{bubbles:true})); })()')
   await wait('(() => { const page=document.querySelector(".paper-layout-page.rendered"); if(!page) return false; const pane=page.closest(".document-scroll"); return page.getBoundingClientRect().width <= pane.clientWidth && page.scrollWidth <= page.clientWidth+2; })()')
