@@ -1454,11 +1454,14 @@ ipcMain.handle('knowledge:open-in-obsidian', async (_event, request: ObsidianOpe
   else await shell.openExternal(uri)
   return true
 })
-ipcMain.handle('knowledge:create', async (_event, request: KnowledgeCreateRequest) => {
+ipcMain.handle('knowledge:create', async (event, request: KnowledgeCreateRequest) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (!request || typeof request.title !== 'string' || request.title.length > 300 || typeof request.nodeType !== 'string' || (request.templateId !== undefined && typeof request.templateId !== 'string') || (request.variables !== undefined && (!request.variables || typeof request.variables !== 'object' || Array.isArray(request.variables))) || (request.status !== undefined && typeof request.status !== 'string')) throw new Error('지식 노트 정보가 올바르지 않습니다.')
-  return createKnowledgeNode(settings.libraryPath, request)
+  if (request.body !== undefined && (typeof request.body !== 'string' || request.body.length > 2_000_000)) throw new Error('지식 노트 본문이 올바르지 않습니다.')
+  const vaultPath = request.vaultId === undefined ? settings.libraryPath : noteVaults.get(event.sender)?.get(request.vaultId)
+  if (!vaultPath) throw new Error('노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
+  return createKnowledgeNode(vaultPath, request)
 })
 ipcMain.handle('knowledge:apply-template-sections', async (_event, request: ApplyTemplateSectionsRequest) => {
   const settings = await readSettings()
@@ -1547,9 +1550,12 @@ ipcMain.handle('knowledge:relations:list', async (_event, id: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   return listKnowledgeRelations(settings.libraryPath, String(id))
 })
-ipcMain.handle('knowledge:relations:create', async (_event, request: KnowledgeRelationCreateRequest) => {
+ipcMain.handle('knowledge:relations:create', async (event, request: KnowledgeRelationCreateRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  return createKnowledgeRelation(settings.libraryPath, request)
+  if (!request || typeof request !== 'object') throw new Error('노트 관계 정보가 올바르지 않습니다.')
+  const vaultPath = request.vaultId === undefined ? settings.libraryPath : noteVaults.get(event.sender)?.get(request.vaultId)
+  if (!vaultPath) throw new Error('노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
+  return createKnowledgeRelation(vaultPath, request)
 })
 ipcMain.handle('knowledge:relations:delete', async (_event, request: KnowledgeRelationDeleteRequest) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

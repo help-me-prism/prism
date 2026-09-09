@@ -10,6 +10,9 @@ const root=await fs.mkdtemp(path.join(os.tmpdir(),'prism-evidence-copy-'))
 try {
   const source=await createKnowledgeNode(root,{nodeType:'concept',title:'Source concept'})
   const target=await createKnowledgeNode(root,{nodeType:'claim',title:'Existing claim'})
+  const literalBody = '# Claim with quoted source\n\n> Source contains {{title}} and {{date}} literally.\n'
+  const literalClaim = await createKnowledgeNode(root,{nodeType:'claim',title:'Literal evidence',body:literalBody})
+  assert((await readKnowledgeNode(root,literalClaim.id)).content.includes(literalBody),'Explicit evidence body must not undergo template substitution')
   const first=await readKnowledgeNode(root,source.id),destination=await readKnowledgeNode(root,target.id)
   const card='> [!evidence] 문장 · Test paper · p.11\n> Newly inserted evidence must reach the target.\n> [PDF 원문 열기](prism://paper/test?anchor=sentence-p11&page=11)\n<!-- prism-evidence:%7B%22anchorId%22%3A%22sentence-p11%22%7D -->\n^evidence-test-p11'
   const draft=`${first.content.trimEnd()}\n\n${card}\n`

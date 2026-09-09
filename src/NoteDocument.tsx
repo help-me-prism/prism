@@ -42,6 +42,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [saved, setSaved] = useState(true)
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [picker, setPicker] = useState<Picker>()
+  const [creatingEvidenceClaim, setCreatingEvidenceClaim] = useState(false)
+  const evidenceClaimBusy = useRef(false)
+  const [createdEvidenceClaim, setCreatedEvidenceClaim] = useState<{ node: KnowledgeNodeRecord; sourceId: string; vaultId: string; evidenceKey: string; linked: boolean; error?: string }>()
+  const createdEvidenceClaims = useRef(new Map<string, KnowledgeNodeRecord>())
+  const claimOwner = useRef({ id: node.id, token: {} })
+  if (claimOwner.current.id !== node.id) claimOwner.current = { id: node.id, token: {} }
+  useEffect(() => () => { claimOwner.current = { id: '', token: {} } }, [])
+  useEffect(() => { setCreatingEvidenceClaim(false) }, [node.id])
   const [menuOpen, setMenuOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [deleteReady, setDeleteReady] = useState(false)
@@ -349,20 +357,66 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (linkedEvidence.some((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId)) { onNotify('이미 이 노트에 연결된 근거입니다.'); return }
     editorRef.current?.insertText(evidenceMarkdown(anchor)); setPicker(undefined)
   }
-  async function connectEvidenceClaim(evidence: EmbeddedEvidence, target: KnowledgeNodeRecord, type: 'supports' | 'contradicts' | 'extends', confirmed = false) {
+  async function connectEvidenceClaim(evidence: EmbeddedEvidence, target: KnowledgeNodeRecord, type: 'supports' | 'contradicts' | 'extends', confirmed = false): Promise<boolean> {
+    const owner = claimOwner.current.token, vaultId = vaultIdRef.current
+    const current = () => claimOwner.current.token === owner && vaultIdRef.current === vaultId
     const warning = type === 'contradicts' && !confirmed ? scopeConflict(node, target) : undefined
-    if (warning) { setPendingContradiction({ message: warning, run: () => connectEvidenceClaim(evidence, target, type, true) }); return }
-    if (dirtyRef.current && !(await save())) return
-    if (!revisionRef.current) return
+    if (warning) { setPendingContradiction({ message: warning, run: async () => { await connectEvidenceClaim(evidence, target, type, true) } }); return false }
+    if (dirtyRef.current && !(await save())) return false
+    if (!current() || dirtyRef.current || !revisionRef.current || !vaultId) return false
+    const sourceContent = contentRef.current
     const evidenceAnchor: RelationEvidenceAnchor = { paperId: evidence.paperId, anchorId: evidence.anchorId, type: evidence.type, page: evidence.page, label: evidence.label }
+    let relationSaved = false
     try {
-      const result = await window.prism.createKnowledgeRelation({ sourceId: node.id, targetId: target.id, type, creator: 'user', evidenceAnchor, expectedRevision: revisionRef.current })
-      if (!result.saved) { onNotify('노트가 외부에서 변경되어 근거 관계를 저장하지 않았습니다.', 'error'); return }
+      const result = await window.prism.createKnowledgeRelation({ sourceId: node.id, targetId: target.id, type, creator: 'user', evidenceAnchor, expectedRevision: revisionRef.current, vaultId })
+      if (!current()) return result.saved
+      if (!result.saved) { onNotify('노트가 외부에서 변경되어 근거 관계를 저장하지 않았습니다.', 'error'); return false }
+      relationSaved = true
+      if (contentRef.current !== sourceContent || dirtyRef.current) { await onReloadContext(); onNotify('관계를 저장했습니다. 연결 중 작성한 내용은 보존했습니다.'); return true }
       revisionRef.current = result.snapshot.revision; contentRef.current = result.snapshot.content
       setSnapshot(result.snapshot); setContent(result.snapshot.content); setSaved(true); setPicker(undefined)
       await onReloadContext()
       onNotify(`이 근거를 '${target.title}'에 '${relationLabels[type]}' 관계로 연결했습니다.`)
-    } catch (reason) { onNotify(String(reason), 'error') }
+      return true
+    } catch (reason) { if (current()) onNotify(relationSaved ? `관계는 저장됐지만 화면을 갱신하지 못했습니다: ${String(reason)}` : String(reason), 'error'); return relationSaved }
+  }
+  async function createEvidenceClaim() {
+    if (picker?.kind !== 'evidence-claim' || evidenceClaimBusy.current) return
+    const title = picker.query.replace(/\s+/g, ' ').trim(), evidence = picker.evidence, type = picker.type
+    const sourceId = node.id, owner = claimOwner.current.token, vaultId = vaultIdRef.current
+    if (!title || !vaultId) return
+    const current = () => claimOwner.current.token === owner && vaultIdRef.current === vaultId
+    evidenceClaimBusy.current = true; setCreatingEvidenceClaim(true)
+    const key = JSON.stringify([vaultId, sourceId, evidence.paperId, evidence.anchorId, title.toLocaleLowerCase()])
+    let target = createdEvidenceClaims.current.get(key)
+    try {
+      if (!(await save()) || !current() || dirtyRef.current) return
+      if (!target) {
+        const matches = nodes.filter(item => item.nodeType === 'claim' && item.title.toLocaleLowerCase() === title.toLocaleLowerCase())
+        if (matches.length > 1) throw new Error('같은 제목의 주장이 여러 개입니다. 위 목록에서 연결할 주장을 선택해 주세요.')
+        target = matches[0]
+      }
+      if (!target) {
+        const live = anchors.find(anchor => anchor.paperId === evidence.paperId && anchor.anchorId === evidence.anchorId && anchor.sourceHash === evidence.sourceHash)
+        const body = `# ${title}\n\n${evidenceMarkdown({ ...evidence, scientificSpans: live?.scientificSpans, availability: 'linked' })}\n`
+        const result = await window.prism.createKnowledgeNode({ nodeType: 'claim', title, body, vaultId })
+        target = result.nodes.find(item => item.id === result.id)
+        if (!target) throw new Error('만든 주장을 목록에서 확인하지 못했습니다. 노트 목록을 새로 확인해 주세요.')
+        createdEvidenceClaims.current.set(key, target)
+      }
+      if (!current()) return
+      setCreatedEvidenceClaim({ node: target, sourceId, vaultId, evidenceKey: JSON.stringify([evidence.paperId, evidence.anchorId, type]), linked: false })
+      await onReloadNodes()
+      if (!current()) return
+      const linked = await connectEvidenceClaim(evidence, target, type)
+      if (current()) setCreatedEvidenceClaim({ node: target, sourceId, vaultId, evidenceKey: JSON.stringify([evidence.paperId, evidence.anchorId, type]), linked, ...(!linked ? { error: '주장 노트는 준비됐습니다. 관계 연결은 완료되지 않았습니다. 같은 제목으로 다시 시도하면 이 노트를 사용합니다.' } : {}) })
+    } catch (reason) {
+      if (current()) {
+        const error = reason instanceof Error ? reason.message : String(reason)
+        if (target) setCreatedEvidenceClaim({ node: target, sourceId, vaultId, evidenceKey: JSON.stringify([evidence.paperId, evidence.anchorId, type]), linked: false, error: `주장 노트는 준비됐지만 연결을 완료하지 못했습니다: ${error}` })
+        onNotify(error, 'error')
+      }
+    } finally { evidenceClaimBusy.current = false; if (current()) setCreatingEvidenceClaim(false) }
   }
   async function copyEvidence(evidence: EmbeddedEvidence, target: KnowledgeNodeRecord) {
     const sourceId = node.id
@@ -621,10 +675,24 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           }}><small>{typeLabels[target.nodeType]} · {target.relativePath}</small><strong>{target.title}</strong></button>)
             : <p>조건에 맞는 노트가 없습니다.</p>}
       </div>
+      {picker.kind === 'evidence-claim' && <footer style={{ flexDirection: 'column' }}>
+        {createdEvidenceClaim?.sourceId === node.id && createdEvidenceClaim.vaultId === vaultIdRef.current && createdEvidenceClaim.evidenceKey === JSON.stringify([picker.evidence.paperId, picker.evidence.anchorId, picker.type]) && createdEvidenceClaim.node.title.toLocaleLowerCase() === picker.query.trim().toLocaleLowerCase()
+          ? createdEvidenceClaim.linked ? <p>이 주장은 연결했습니다. 아래 ‘주장 열기’에서 내용을 확인하세요.</p>
+            : <><p>이미 준비한 주장에 ‘{relationLabels[picker.type]}’ 관계 연결을 다시 시도합니다.</p><button disabled={creatingEvidenceClaim} onClick={() => void createEvidenceClaim()}>{creatingEvidenceClaim ? '주장 준비 및 연결 중…' : '준비한 주장에 연결 다시 시도'}</button></>
+          : nodes.some(item => item.nodeType === 'claim' && item.title.toLocaleLowerCase() === picker.query.trim().toLocaleLowerCase())
+            ? <p>같은 제목의 주장이 있습니다. 위 목록에서 연결할 주장을 선택해 주세요.</p>
+            : <><p>선택한 PDF 근거를 새 주장에 담고 ‘{relationLabels[picker.type]}’ 관계로 연결합니다. 주장 제목을 입력해 주세요.</p><button disabled={!picker.query.trim() || creatingEvidenceClaim} onClick={() => void createEvidenceClaim()}>{creatingEvidenceClaim ? '주장 준비 및 연결 중…' : '이 근거로 주장 만들고 연결'}</button></>}
+      </footer>}
       {picker.kind === 'link' && picker.query.trim() && !nodes.some((item) => item.title.toLocaleLowerCase() === picker.query.trim().toLocaleLowerCase()) && <footer>
         <button onClick={async () => { const option = await createLinkedNode('concept', picker.query.trim()); if (option) { editorRef.current?.insertWikiLink(option); setPicker(undefined) } }}>'{picker.query.trim()}' 개념으로 만들기</button>
         <button onClick={async () => { const option = await createLinkedNode('claim', picker.query.trim()); if (option) { editorRef.current?.insertWikiLink(option); setPicker(undefined) } }}>주장으로 만들기</button>
       </footer>}
+    </section>}
+
+    {createdEvidenceClaim?.sourceId === node.id && createdEvidenceClaim.vaultId === vaultIdRef.current && <section className="note-recovery-notice" aria-label="준비한 주장">
+      <p role="status">{createdEvidenceClaim.error ?? `주장 '${createdEvidenceClaim.node.title}'을 열어 근거와 본문을 검토할 수 있습니다.`}</p>
+      <button onClick={async () => { const target = createdEvidenceClaim; const owner = claimOwner.current.token; if (await save() && claimOwner.current.token === owner && !dirtyRef.current && vaultIdRef.current === target.vaultId) onOpenNode(target.node.id) }}>주장 열기 · {createdEvidenceClaim.node.title}</button>
+      <button aria-label="준비한 주장 안내 닫기" onClick={() => setCreatedEvidenceClaim(undefined)}>닫기</button>
     </section>}
 
     {pendingContradiction && <section className="note-scope-warning" role="alertdialog" aria-label="스코프 경고">

@@ -751,6 +751,54 @@ ${claimAfterRelation}`)
     }
   }
 
+  // Create a claim directly from an actual saved evidence card. The selected
+  // relation must survive creation, and synchronous duplicate activation must
+  // not create a second file while the first IPC is pending.
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-test.0001')`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'Evidence source paper did not reopen.')
+  if (!(await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-row')].some(row => row.textContent.includes('denoising score matching'))`))) {
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('근거')).click()`)
+    await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].some(button => button.textContent.includes('denoising score matching'))`), 'Claim setup evidence was not available.')
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('denoising score matching')).click()`)
+    await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.evidence-row')].some(row => row.textContent.includes('denoising score matching'))`), 'Claim setup evidence card was not saved.')
+  }
+  const evidenceClaimTitle = 'Evidence-derived claim regression'
+  const openEvidenceClaimPicker = async () => {
+    await notesConnection.evaluate(`(() => { const row = [...document.querySelectorAll('.evidence-row')].find(row => row.textContent.includes('denoising score matching')); row.closest('details').open = true; [...row.querySelectorAll('button')].find(button => button.textContent === '주장에 연결').click() })()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('section[aria-label="근거를 연결할 주장 선택"]'))`), 'Evidence-to-claim picker did not open.')
+    await setInput(notesConnection, '노트 및 근거 검색', evidenceClaimTitle)
+    await notesConnection.evaluate(`[...document.querySelectorAll('nav[aria-label="근거 관계 유형"] button')].find(button => button.textContent === '확장함').click()`)
+    assert(await notesConnection.evaluate(`[...document.querySelectorAll('nav[aria-label="근거 관계 유형"] button')].find(button => button.textContent === '확장함').getAttribute('aria-pressed') === 'true'`), 'Evidence relation selection was not retained.')
+  }
+  await openEvidenceClaimPicker()
+  await notesConnection.evaluate(`(() => { const button = [...document.querySelectorAll('.note-picker footer button')].find(button => button.textContent === '이 근거로 주장 만들고 연결'); button.click(); button.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('section[aria-label="근거를 연결할 주장 선택"]') && document.querySelector('section[aria-label="준비한 주장"]')?.textContent.includes(${JSON.stringify(evidenceClaimTitle)})`), 'Creating an evidence claim did not complete its relation.', 10000)
+  const evidenceClaim = await notesConnection.evaluate(`(async () => { const matches = (await window.prism.listKnowledgeNodes()).filter(node => node.nodeType === 'claim' && node.title === ${JSON.stringify(evidenceClaimTitle)}); if (matches.length !== 1) throw new Error('Duplicate evidence claims: ' + matches.length); return matches[0] })()`)
+  const evidenceClaimContent = await readPublishedNote(path.join(libraryPath, evidenceClaim.relativePath))
+  const originalEvidence = [...evidenceMarkup.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)].map(match => JSON.parse(decodeURIComponent(match[1]))).find(item => item.anchorId === 'sentence-p1-1')
+  const claimEvidence = [...evidenceClaimContent.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)].map(match => JSON.parse(decodeURIComponent(match[1]))).find(item => item.anchorId === 'sentence-p1-1')
+  assert(originalEvidence && claimEvidence && JSON.stringify(claimEvidence) === JSON.stringify(originalEvidence), 'The new claim changed the exact evidence source, hash, paper identity or location.')
+  assert(evidenceClaimContent.includes('# ' + evidenceClaimTitle) && evidenceClaimContent.includes('> ' + originalEvidence.source) && evidenceClaimContent.includes('prism://paper/test.0001?anchor=sentence-p1-1&page=1'), 'The claim body lacks the chosen title, literal source or clickable PDF origin.')
+  const checkEvidenceClaimRelation = async () => {
+    const links = await notesConnection.evaluate(`window.prism.listKnowledgeRelations('paper-test.0001')`)
+    const matching = links.filter(edge => edge.direction === 'outgoing' && edge.other.id === evidenceClaim.id && edge.type === 'extends')
+    assert(matching.length === 1 && matching[0].creator === 'user' && matching[0].reviewStatus === 'approved', 'The chosen extends relation was changed, omitted or duplicated.')
+    const anchor = matching[0].evidenceAnchor
+    assert(anchor?.paperId === 'test.0001' && anchor.anchorId === 'sentence-p1-1' && anchor.page === 1 && anchor.type === 'sentence', 'The saved relation lost the selected evidence anchor.')
+  }
+  await checkEvidenceClaimRelation()
+  // A successfully linked claim is available for review, not offered as a
+  // failed operation to retry. Existing targets remain explicitly selectable.
+  await openEvidenceClaimPicker()
+  assert(await notesConnection.evaluate(`document.querySelector('.note-picker footer')?.textContent.includes('이 주장은 연결했습니다') && !document.querySelector('.note-picker footer button')`), 'A successful claim still offered creation or failure retry.')
+  assert(await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button strong')].some(item => item.textContent === ${JSON.stringify(evidenceClaimTitle)})`), 'The created claim was missing from existing targets.')
+  assert(await notesConnection.evaluate(`(async () => (await window.prism.listKnowledgeNodes()).filter(node => node.nodeType === 'claim' && node.title === ${JSON.stringify(evidenceClaimTitle)}).length)()`) === 1, 'The completed claim was duplicated after reopening its picker.')
+  await checkEvidenceClaimRelation()
+  await notesConnection.evaluate(`document.querySelector('.note-picker button[aria-label="선택 닫기"]')?.click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('section[aria-label="준비한 주장"] button')].find(button => button.textContent.startsWith('주장 열기 ·')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === ${JSON.stringify(evidenceClaimTitle)}`), 'The prepared claim could not be opened for review.')
+  process.stdout.write('Evidence-to-claim UI passed: typed title, explicit extends relation, exact source/hash/PDF link, duplicate activation guard, completed-claim state and review navigation.\n')
+
   // Opposing indirect evidence paths must both survive, while their common
   // destination is drawn once. Set up real vault records, then use the graph UI.
   const diamond = await notesConnection.evaluate(`(async () => {

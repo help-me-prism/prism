@@ -315,6 +315,7 @@ try {
   const questionPrefix = '첫 문단.\n\n\n둘째 문단: 여기 '
   await send('Input.insertText', { text: questionPrefix + '뒤에 근거를 넣습니다.\n셋째 문단.' })
   await evaluate('(() => { const editor=document.querySelector(".composer-editor"), walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT); let node; while(node=walker.nextNode()) { const at=node.textContent.replaceAll(String.fromCharCode(160)," ").indexOf("둘째 문단: 여기 "); if(at<0) continue; const range=document.createRange(); range.setStart(node,at+"둘째 문단: 여기 ".length); range.collapse(true); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); editor.dispatchEvent(new KeyboardEvent("keyup",{bubbles:true,key:"ArrowRight"})); return; } throw new Error("Middle paragraph was lost: " + editor.innerHTML); })()')
+  await wait(`Boolean(document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]'))`)
   await evaluate(`document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]').click()`)
   await wait('Boolean(document.querySelector(".composer-anchor .type-figure"))')
   assert.equal(await evaluate('document.querySelector(".composer-editor").firstChild.textContent'), questionPrefix, 'A new figure anchor must stay at the middle-paragraph caret, including every blank line')
@@ -631,6 +632,16 @@ try {
   const saved = await evaluate(`window.prism.saveKnowledgeNode(${JSON.stringify(node.id)}, ${JSON.stringify({ content: snapshot.content + '\nSaved after vault switch.\n', expectedRevision: snapshot.revision, vaultId: snapshot.vaultId })})`)
   assert(saved.saved)
   assert((await fs.readFile(paper.notePath, 'utf8')).includes('Saved after vault switch.'))
+  const claimRequest = { title: 'Claim pinned to original vault', nodeType: 'claim', body: '# Claim pinned to original vault\n\nOriginal vault evidence.\n', vaultId: snapshot.vaultId }
+  const createdClaim = await evaluate(`window.prism.createKnowledgeNode(${JSON.stringify(claimRequest)})`)
+  const pinnedClaim = await evaluate(`window.prism.readKnowledgeNode(${JSON.stringify(createdClaim.id)}, ${JSON.stringify(snapshot.vaultId)})`)
+  assert(pinnedClaim.content.includes('Original vault evidence.'))
+  const relationRequest = { sourceId: node.id, targetId: createdClaim.id, type: 'supports', creator: 'user', expectedRevision: saved.snapshot.revision, vaultId: snapshot.vaultId }
+  assert((await evaluate(`window.prism.createKnowledgeRelation(${JSON.stringify(relationRequest)})`)).saved)
+  assert(!(await evaluate('window.prism.listKnowledgeNodes()')).some(item => item.id === createdClaim.id), 'Pinned claim must not appear in the newly selected vault')
+  assert(await evaluate(`window.prism.createKnowledgeNode(${JSON.stringify({ ...claimRequest, vaultId: 'unregistered-vault' })}).then(() => false, () => true)`), 'Invalid vault token must not fall back to current vault')
+  assert(await evaluate(`window.prism.createKnowledgeRelation(${JSON.stringify({ ...relationRequest, vaultId: '' })}).then(() => false, () => true)`), 'Empty vault token must not fall back to current vault')
+  assert(await evaluate(`window.prism.createKnowledgeNode(${JSON.stringify({ ...claimRequest, body: 7 })}).then(() => false, () => true)`), 'Malformed custom note body must be rejected before creating a file')
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 0)
   assert.deepEqual(exceptions, [])
   console.log('Product UI passed: first launch, real PDF import/rendering, deduplication, reflow, theme and print colors, separate storage, existing-path preservation, and invalid file rejection.')
