@@ -11,7 +11,7 @@ const vault = path.join(root, 'vault'); await fs.mkdir(vault)
 await fs.mkdir(path.join(root, 'profile')); await fs.writeFile(path.join(root, 'profile', 'settings.json'), JSON.stringify({ libraryPath: vault, autoTranslate: false }))
 const sample = path.join(root, 'Cell biology.pdf')
 // A deterministic two-column PDF with prose, a numeric table and a vector diagram.
-const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET'
+const content = 'BT /F1 18 Tf 48 740 Td (Cell biology: a reading fixture) Tj ET\nBT /F1 11 Tf 48 700 Td (Cells respond to changes in their environment.) Tj 0 -18 Td (This experiment compares two populations [1].) Tj 270 18 Td (The control group received no treatment.) Tj 0 -18 Td (Results should not imply causation.) Tj ET\nBT /F1 12 Tf 48 620 Td (x = y + 2) Tj ET\n48 500 200 80 re S\nBT /F1 10 Tf 56 555 Td (Group       N       Response) Tj 0 -20 Td (Control     12      0.25) Tj 0 -20 Td (Treatment   12      0.75) Tj ET\nBT /F1 10 Tf 48 480 Td (Table 1. Observations from the experiment.) Tj ET\n320 530 50 50 re S 420 530 50 50 re S 370 555 m 420 555 l S\nBT /F1 10 Tf 320 500 Td (Figure 1. A vector diagram.) Tj ET\nBT /F1 8 Tf 48 460 Td (https://doi.org/10.1371/journal.pone.0287690.t001) Tj ET'
 function fixturePdf(content) {
 const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`]
 objects.push(objects[2], objects[2])
@@ -181,6 +181,8 @@ try {
   assert(await evaluate('[...document.querySelectorAll(".reading-translation figure canvas")].every(canvas => canvas.width > 10 && canvas.height > 10)'))
   assert.equal(await evaluate('Boolean(document.querySelector(".paper-layout-page > .flow-page-heading, .paper-layout-page > .flow-original"))'), false)
   assert(await evaluate('[...document.querySelectorAll(".paper-layout-page.rendered > canvas")].every(canvas => canvas.width >= 1000)'))
+  await wait('document.querySelectorAll(".paper-layout-block.publication-link canvas").length >= 1')
+  assert(await evaluate('[...document.querySelectorAll(".paper-layout-block.publication-link canvas")].every(canvas => canvas.width > 10 && canvas.height > 2 && canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height).data.some((value,index,pixels) => index % 4 === 0 && pixels[index + 3] > 0 && value < 200))'), 'Excluded DOI print lines must retain their source pixels')
   await shot('product-translation-paper')
   const setTranslationZoom = async value => {
     await evaluate(`(() => { const select=document.querySelector('select[aria-label="번역 배율"]'); select.value=${JSON.stringify(value)}; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
@@ -207,6 +209,11 @@ try {
   await wait('(() => { const page=document.querySelector(".paper-layout-page.rendered"); if(!page) return false; const pane=page.closest(".document-scroll"); return page.getBoundingClientRect().width <= pane.clientWidth && page.scrollWidth <= page.clientWidth+2; })()')
   await evaluate(`document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]').click()`)
   await wait('Boolean(document.querySelector(".composer-anchor .type-figure"))')
+  const composerEvidence = await evaluate('(() => { const chip=document.querySelector(".composer-anchor-label"), editor=document.querySelector(".composer-editor"); return {location:chip.querySelector(".composer-anchor-location")?.textContent,excerpt:chip.querySelector(".composer-anchor-excerpt")?.textContent,text:chip.textContent,width:chip.getBoundingClientRect().width,available:editor.clientWidth}; })()')
+  assert.match(composerEvidence.location, /1쪽 · 피겨/)
+  assert(composerEvidence.excerpt?.trim(), 'The selected source must be visible without hovering')
+  assert(!composerEvidence.text.includes('local-'), 'Internal PDF IDs must not be the visible attachment description')
+  assert(composerEvidence.width <= composerEvidence.available + 2, 'Evidence must fit inside the question composer')
   await wait('Boolean(document.querySelector(".figure-attachment img"))')
   await evaluate('document.querySelector(".figure-attachment").click()')
   await wait('Boolean(document.querySelector(".figure-preview-dialog"))')
@@ -251,7 +258,8 @@ try {
   await wait('(() => { const marker = document.querySelector("[data-saved-figure]"); const pane = marker?.closest(".document-scroll"); if (!pane) return false; const a = marker.getBoundingClientRect(), b = pane.getBoundingClientRect(); const top=b.top+pane.clientTop, desired=pane.scrollTop+(a.top+a.bottom)/2-(top+pane.clientHeight/2), reachable=Math.max(0,Math.min(pane.scrollHeight-pane.clientHeight,desired)); return Math.abs(pane.scrollTop-reachable)<8 && a.top>=top-1 && a.bottom<=top+pane.clientHeight+1 })()')
   const userMessagesBeforeFailure = await evaluate('document.querySelectorAll(".message.user").length')
   await evaluate('document.querySelector(".composer-editor").focus()')
-  await send('Input.insertText', { text: '첨부 이미지 입력 전달 검사' })
+  await evaluate('(() => { const editor=document.querySelector(".composer-editor"), clipboardData=new DataTransfer(); clipboardData.setData("text/plain", "첨부 이미지 입력 전달 검사\\n" + "선택한 그림과 논문의 결과를 함께 설명해 주세요.\\n".repeat(12)); editor.dispatchEvent(new ClipboardEvent("paste", {bubbles:true,cancelable:true,clipboardData})); })()')
+  await wait('(() => { const editor=document.querySelector(".composer-editor"), selection=getSelection(); if(!selection?.rangeCount) return false; const caret=editor.querySelector(":scope > div:last-child").getBoundingClientRect(), viewport=editor.getBoundingClientRect(); return editor.scrollHeight>editor.clientHeight && caret.height>0 && caret.bottom<=viewport.top+editor.clientHeight+1 && caret.top>=viewport.top-1; })()')
   await evaluate('document.querySelector("button[aria-label=보내기]").click()')
   await wait('document.body.innerText.includes("Offline UI test prevents paid calls")')
   const dispatched = JSON.parse((await fs.readFile(path.join(root, 'unexpected-chat-call.txt'), 'utf8')).trim())

@@ -28,7 +28,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
 
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
-type ItemRect = { left: number; top: number; width: number; height: number; fontSize?: number }
+type ItemRect = { left: number; top: number; width: number; height: number; fontSize?: number; text?: string }
 /** Which windows this reader can draw. The structure map joins the list once it exists. */
 const readerKinds: PaneKind[] = ['original', 'translated', 'map']
 
@@ -205,7 +205,7 @@ function segmentRects(segment: TranslationSegment, itemRects: ItemRect[], scale 
     if (!rect) return undefined
     return { left: rect.left + rect.width * slice.start, top: rect.top, width: Math.max(2, rect.width * (slice.end - slice.start)), height: rect.height }
   }).filter(Boolean) as ItemRect[]
-  return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean)
+  return (segment.itemIndexes ?? []).map((index) => itemRects[index]).filter(Boolean).map(({ text: _text, ...rect }) => rect)
 }
 
 function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure, onCaptureError, focusedFigure }: {
@@ -261,7 +261,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
       if (!cancelled) setItemRects(items.map((item) => {
         const tx = pdfjs.Util.transform(viewport.transform, item.transform); const height = Math.max(5, Math.hypot(tx[2], tx[3])); const style = item.fontName ? styles[item.fontName] : undefined
         const ascent = typeof style?.ascent === 'number' ? style.ascent : typeof style?.descent === 'number' ? 1 + style.descent : .8
-        return { left: tx[4], top: tx[5] - height * ascent, width: Math.max(2, item.width * scale), height }
+        return { left: tx[4], top: tx[5] - height * ascent, width: Math.max(2, item.width * scale), height, text: item.str }
       }))
       try {
         const operators = await page.getOperatorList(); let transform = [1, 0, 0, 1, 0, 0]; const stack: number[][] = []; const figures: ItemRect[] = []; const vectors: ItemRect[] = []

@@ -6,6 +6,7 @@ import { clearCropBoundary, sourceParagraphIndent, sourceParagraphLineHeight } f
 import { groupReadingSegments } from './readingBlocks'
 import { excerptSlices, mixedProseParagraphs, alignedExcerptSlices, mayMaskExcerpt } from './excerptGeometry'
 import { unsafeParagraphIds } from '../../electron/translationScope'
+import { publicationDoiRects } from './publicationFurniture'
 
 type Rect = { left: number; top: number; width: number; height: number; fontSize?: number }
 export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, alignProse = false }: { source: HTMLCanvasElement; rect: Rect; label: string; padding?: number; clipRects?: Rect[]; alignProse?: boolean }) {
@@ -49,7 +50,7 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
 export default function ReadingTranslation({ segments, translation, source, ready, rectangles, figures, sourceRects = [], format = 'paper', fontScale = 1, highlighted, onHighlight, onTag, onFindNotes, onFigureRect }: {
   segments: TranslationSegment[]; translation: Map<string, string>; source: HTMLCanvasElement | null; ready: boolean;
   format?: 'paper' | 'flow'; fontScale?: number;
-  rectangles: (segment: TranslationSegment) => Rect[]; figures: Rect[]; sourceRects?: Rect[]; highlighted?: string;
+  rectangles: (segment: TranslationSegment) => Rect[]; figures: Rect[]; sourceRects?: Array<Rect & { text?: string }>; highlighted?: string;
   onFigureRect: (rect: Rect) => void; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void;
 }) {
   const mixedParagraphs = mixedProseParagraphs(segments)
@@ -107,7 +108,9 @@ export default function ReadingTranslation({ segments, translation, source, read
       { left: 0, top: 0, width: sourceWidth, height: top },
       { left: 0, top: bottom, width: sourceWidth, height: sourceHeight - bottom },
     ].filter(rect => rect.height > 1).map((rect, index) => ({ id: `furniture-${index}`, rect, kind: 'furniture', content: <OriginalExcerpt source={source} rect={rect} label='Original page header or footer' padding={0} /> })) : []
-    return <div className="reading-translation paper-format"><PaperTranslationLayout items={[...items, ...figureItems, ...furniture]} sourceWidth={sourceWidth} sourceHeight={sourceHeight} fontScale={fontScale} /></div>
+    const doiLines = publicationDoiRects(sourceRects, [...contentRects, ...furniture.map(item => item.rect)], sourceWidth, sourceHeight)
+      .map((rect, index) => ({ id: `doi-${index}`, rect, kind: 'publication-link', content: <OriginalExcerpt source={source} rect={rect} label="원문 DOI" padding={0} /> }))
+    return <div className="reading-translation paper-format"><PaperTranslationLayout items={[...items, ...figureItems, ...furniture, ...doiLines]} sourceWidth={sourceWidth} sourceHeight={sourceHeight} fontScale={fontScale} /></div>
   }
   if (format === 'paper') return null
   return <div className="reading-translation">

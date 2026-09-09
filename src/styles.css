@@ -264,6 +264,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .reader-capture button { height: 28px; display: flex; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid light-dark(#60aa94, #63ab96); border-radius: 7px; background: light-dark(#60aa94, #63ab96); color: light-dark(#fff, #1a1a1a); font-size: 8px; white-space: nowrap; cursor: pointer; }
 .reader-capture-status { margin: 0; padding: 5px 11px; color: light-dark(#5f7a4a, #97b382); font-size: 8px; background: light-dark(#f2f8ee, #212e19); border-bottom: 1px solid light-dark(#e0ebd8, #2f4123); }
 
+/* Evidence remains a single bounded line inside the scrolling composer. */
+.composer-anchor { max-width: calc(100% - 6px); }
+.composer-anchor .composer-anchor-label { min-width: 0; max-width: 100%; font-size: 10px; }
+.composer-anchor-label > span:not(.composer-anchor-excerpt) { flex-shrink: 0; }
+.composer-anchor .composer-anchor-label > .composer-anchor-location { flex: 0 0 auto; max-width: none; font-size: 10px; }
+.composer-anchor-label > .composer-anchor-excerpt { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; }
+.composer-anchor-label:focus-visible { outline: 2px solid var(--accent, #63ab96); outline-offset: 1px; }
+
 /* Chat answer → paper note */
 .message-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .message-actions button { height: 22px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid light-dark(#d9d5cc, #403f3c); border-radius: 11px; background: light-dark(#fff, #1a1a1a); color: light-dark(#6c675f, #9b9894); font-size: 9px; cursor: pointer; opacity: .75; }

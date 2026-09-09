@@ -1,4 +1,5 @@
 import { compactAnchorContext } from './paper/anchorContext'
+import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
 import { answerReferenceAnchors, answerReferences } from './paper/answerReferences'
 import FigureAttachments from './FigureAttachments'
 import { useDialogFocus } from './useDialogFocus'
@@ -198,6 +199,17 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     const range = document.createRange(); range.selectNodeContents(root); range.setEnd(selection.focusNode, selection.focusOffset)
     const wrapper = document.createElement('div'); wrapper.append(range.cloneContents()); wrapper.querySelectorAll('[data-placement-id]').forEach((node) => node.remove()); wrapper.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
     onCaretChange((wrapper.textContent ?? '').replaceAll(composerCaretSentinel, '').length)
+    if (selection.isCollapsed && document.activeElement === root) {
+      let caret = selection.getRangeAt(0).getBoundingClientRect()
+      // Chromium reports an empty Range rect on the blank line after a pasted
+      // trailing newline. Its empty block still provides the actual line box.
+      if (!caret.height && selection.focusNode instanceof HTMLElement && selection.focusNode !== root && !selection.focusNode.textContent) caret = selection.focusNode.getBoundingClientRect()
+      const viewport = root.getBoundingClientRect()
+      if (caret.height > 0) {
+        if (caret.bottom > viewport.top + root.clientHeight) root.scrollTop += caret.bottom - viewport.top - root.clientHeight
+        else if (caret.top < viewport.top) root.scrollTop -= viewport.top - caret.top
+      }
+    }
   }
 
   useEffect(() => {
@@ -209,11 +221,14 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
       for (const { anchor } of ordered) {
         const offset = Math.max(cursor, Math.min(text.length, anchor.textOffset ?? 0)); if (offset > cursor) root.append(document.createTextNode(text.slice(cursor, offset)))
         const wrapper = document.createElement('span'); wrapper.className = 'composer-anchor'; wrapper.dataset.placementId = placementKey(anchor); wrapper.contentEditable = 'false'
-        const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = anchor.source
+        const presentation = composerEvidenceLabel(anchor)
+        const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = presentation.description; chip.tabIndex = 0; chip.setAttribute('aria-label', presentation.description)
         const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
-        const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId
+        const label = document.createElement('span'); label.textContent = anchor.label
+        const paper = document.createElement('small'); paper.className = 'composer-anchor-location'; paper.textContent = presentation.location
+        const excerpt = document.createElement('span'); excerpt.className = 'composer-anchor-excerpt'; excerpt.textContent = presentation.excerpt
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
-        chip.append(symbol, label, paper); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
+        chip.append(symbol, label, paper, excerpt); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
       }
       if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
     }
@@ -227,7 +242,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     }
   }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
-  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')); requestAnimationFrame(caretOffset) }} onKeyDown={onKeyDown} />
 }
 
 function App() {
