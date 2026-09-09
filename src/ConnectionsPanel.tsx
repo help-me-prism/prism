@@ -3,6 +3,7 @@ import { ExternalLink, Maximize2, RefreshCw } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
 import MiniGraph, { type MiniEdge, type MiniNode } from './graph/MiniGraph'
 import { loadSecondHop, secondHopLimits, type SecondHopResult } from './graph/secondHop'
+import { connectedNoteRows, connectionDescription } from './connectedNotes'
 
 /**
  * The always-visible right stack: a local graph, backlinks, the automatic citation layer, and pending suggestions.
@@ -23,7 +24,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   const [showCitations, setShowCitations] = useState(false)
   // Link relations belong in the graph: they are what the researcher actually wrote in the note.
   const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
-  const connected = useMemo(() => [...new Map(approved.map(item => [item.other.id, item.other])).values()], [approved])
+  const connected = useMemo(() => connectedNoteRows(relations, backlinks), [relations, backlinks])
   // Identity includes the relation-list generation, not just edge IDs: endpoints and
   // review/type metadata can change while IDs remain the same.
   const hopScope = useMemo(() => ({ nodeId: node?.id, approved }), [node?.id, approved, hops])
@@ -92,7 +93,8 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
       <header><span>연결된 노트</span><small>{connected.length}</small></header>
       <div className="side-list">{connected.map(other => <button key={other.id} onClick={() => onOpenNode(other.id)}>
         <span className="side-row-title"><i className={`kind-dot kind-${other.nodeType}`} />{other.title}</span>
-        <small>{[...new Set(approved.filter(item => item.other.id === other.id).map(item => `${item.direction === 'outgoing' ? '→' : '←'} ${item.origin === 'link' ? '링크' : relationLabels[item.type]}`))].join(' · ')}</small>
+        <small>{other.relations.length ? [...new Set(other.relations.map(item => connectionDescription(item, relationLabels[item.type])))].join(' · ') : '이 노트를 언급'}</small>
+        {other.excerpt && <span className="connection-excerpt">{other.excerpt}</span>}
       </button>)}</div>
     </section>}
     {node && <section className="side-sec side-graph">
@@ -116,16 +118,6 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
         : currentHop.limited ? `일부 간접 연결을 표시합니다. 가까운 노트 ${secondHopLimits.neighbours}개, 간접 연결 ${secondHopLimits.entries}개까지 확인합니다.`
           : currentHop.entries.length === 0 ? '확인된 간접 연결이 없습니다.' : `간접 연결 ${currentHop.entries.length}개`}
         {currentHop && currentHop.failures > 0 ? ` 노트 ${currentHop.failures}개의 연결은 불러오지 못했습니다.` : ''}</p>}
-    </section>}
-
-    {node && backlinks.length > 0 && <section className="side-sec side-links">
-      <header><span>이 노트를 언급한 노트</span><small>{backlinks.length}</small></header>
-      <div className="side-list">
-        {backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>
-          <span className="side-row-title"><i className={`kind-dot kind-${item.nodeType}`} />{item.title}</span>
-          <small>{item.excerpt}</small>
-        </button>)}
-      </div>
     </section>}
 
     {node?.nodeType === 'paper' && <section className="side-sec side-citations">

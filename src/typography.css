@@ -62,6 +62,7 @@ input, select, textarea, button { font-family: var(--font-ui); }
 .side-connected .side-list { max-height: 240px; overflow-y: auto; }
 .side-connected .side-row-title { font-size: 13px; line-height: 1.5; }
 .side-connected .side-list small { font-size: 11px; }
+.connection-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 
 /* Reflow is a screen-reading view. Keep the source-like serif metrics confined
    to paper mode; source canvases retain their actual scientific glyphs. */

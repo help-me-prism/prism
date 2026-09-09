@@ -508,7 +508,8 @@ ${claimAfterRelation}`)
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-view.png'), Buffer.from(fullGraphShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('노트')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Score matching')).click()`)
-  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-links .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The backlink panel did not show the note that links here.', 8000)
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-connected .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The connected-note list did not show the note that links here.', 8000)
+  assert(await notesConnection.evaluate(`(() => { const rows = [...document.querySelectorAll('.side-connected button')].filter(row => row.textContent.includes('Editor fixture')); return rows.length === 1 && rows[0].textContent.includes('이 노트를 언급') && Boolean(rows[0].querySelector('.connection-excerpt')) && !document.querySelector('.side-links') })()`), 'The backlink was duplicated or lost its readable mention context.')
 
   // ---------- reading-time capture reaches the paper note ----------
   const captureResult = await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'evidence', paperId: 'test.0001', anchorId: 'equation-p2-3', memo: '노이즈 예측은 score matching이다 — 검증 필요' })`)
@@ -737,6 +738,23 @@ ${claimAfterRelation}`)
       await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'Connected-note navigation did not return to the paper.')
     }
   }
+
+  // Opposing indirect evidence paths must both survive, while their common
+  // destination is drawn once. Set up real vault records, then use the graph UI.
+  const diamond = await notesConnection.evaluate(`(async () => {
+    const made = [];
+    for (const title of ['Graph starting claim', 'Supporting path', 'Contradicting path', 'Shared conclusion']) made.push(await window.prism.createKnowledgeNode({nodeType:'claim', title}));
+    for (const [from,to,type] of [[0,1,'related'],[0,2,'related'],[1,3,'supports'],[2,3,'contradicts']]) {
+      const source = await window.prism.readKnowledgeNode(made[from].id);
+      const result = await window.prism.createKnowledgeRelation({sourceId:made[from].id,targetId:made[to].id,type,creator:'user',expectedRevision:source.revision});
+      if (!result.saved) throw new Error('Could not prepare graph relation');
+    }
+    return made.map(node => node.id);
+  })()`)
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes(${JSON.stringify(diamond[0])})`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Graph starting claim' && document.querySelectorAll('.side-graph .mini-node').length >= 3`), 'The graph fixture did not open.')
+  await notesConnection.evaluate(`(() => { const toggle = [...document.querySelectorAll('.side-chips button')].find(button => button.textContent === '간접 연결'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-edge[data-relation="supports"]').length === 1 && document.querySelectorAll('.side-graph .mini-edge[data-relation="contradicts"]').length === 1 && document.querySelectorAll('.side-graph .mini-node').length === 4`), 'The indirect graph lost an opposing path or duplicated its shared destination.')
 
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
