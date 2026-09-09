@@ -37,7 +37,7 @@ export async function suggestKnowledge(libraryPath: string, nodeId: string): Pro
     for (const other of nodes.filter((node) => node.nodeType === 'concept' && node.id !== active.id && node.status !== 'archived')) {
       if (relations.some((relation) => (relation.sourceId === active.id && relation.targetId === other.id) || (relation.sourceId === other.id && relation.targetId === active.id))) continue
       const match = matches.find((result) => result.node.id === other.id)
-      if (match && match.semanticScore >= .22) suggestions.push({ id: suggestionId('duplicate_concept', active.id, other.id), kind: 'duplicate_concept', source: active, target: other, proposedRelation: 'related', confidence: Math.min(.97, match.semanticScore), reason: `두 Concept의 제목과 본문 표현이 유사합니다(로컬 의미 점수 ${match.semanticScore.toFixed(2)}). 병합 여부를 검토하세요.` })
+      if (match && match.semanticScore >= .22) suggestions.push({ id: suggestionId('duplicate_concept', active.id, other.id), kind: 'duplicate_concept', source: active, target: other, proposedRelation: 'related', confidence: Math.min(.97, match.semanticScore), reason: `두 Concept의 제목과 본문 표현이 유사합니다(표현 유사도 ${match.semanticScore.toFixed(2)}). 병합 여부를 검토하세요.` })
     }
   }
 

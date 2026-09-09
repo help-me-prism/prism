@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpRight, Check, GitMerge, Inbox, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 
 import { relationLabels, typeLabels } from './knowledgeModel'
@@ -107,7 +107,13 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
       : <div className="curation-sections">
       {queue.pendingRelations.length > 0 && <article className="curation-section">
         <header><span><strong>AI 관계 제안</strong><small>승인해야 노트와 그래프에 반영됩니다</small></span><em>{queue.pendingRelations.length}</em></header>
-        {queue.pendingRelations.map((item) => <div key={item.relation.id} className="curation-item"><button className="curation-open" onClick={() => onOpenNode(item.source.id)}><small>{typeLabels[item.source.nodeType]} → {relationLabels[item.relation.type] ?? item.relation.type} → {typeLabels[item.target.nodeType]}</small><strong>{item.source.title} → {item.target.title}</strong>{item.relation.evidenceAnchor && <p>근거: {item.relation.evidenceAnchor.label} (p.{item.relation.evidenceAnchor.page})</p>}</button><div className="curation-actions"><button onClick={() => void reviewRelation(item, 'approved')}><Check size={11} /> 승인</button><button onClick={() => void reviewRelation(item, 'rejected')}><X size={11} /> 거절</button></div></div>)}
+        {queue.pendingRelations.map((item) => <div key={item.relation.id} className="curation-item">
+          <div className="curation-relation-detail">
+            <button type="button" className="curation-open" title="출발 노트 열기" onClick={() => onOpenNode(item.source.id)}><small>{typeLabels[item.source.nodeType]} → {relationLabels[item.relation.type] ?? item.relation.type} → {typeLabels[item.target.nodeType]}</small><strong>{item.source.title} → {item.target.title}</strong></button>
+            {item.relation.evidenceAnchor && <RelationEvidenceButton anchor={item.relation.evidenceAnchor} />}
+          </div>
+          <div className="curation-actions"><button onClick={() => void reviewRelation(item, 'approved')}><Check size={11} /> 승인</button><button onClick={() => void reviewRelation(item, 'rejected')}><X size={11} /> 거절</button></div>
+        </div>)}
       </article>}
       {queue.stubs.length > 0 && <article className="curation-section">
         <header><span><strong>링크만 있는 개념</strong><small>여러 노트에서 다시 등장한 개념부터 정의를 정리해 보세요</small></span><em>{queue.stubs.length}</em></header>
@@ -159,4 +165,24 @@ export default function CurationQueue({ onOpenNode, onChanged, onCount }: { onOp
       </article>}
     </div>)}
   </section>
+}
+
+function RelationEvidenceButton({ anchor }: { anchor: RelationEvidenceAnchor }) {
+  const busy = useRef(false)
+  const [opening, setOpening] = useState(false)
+  const [error, setError] = useState('')
+  async function openEvidence() {
+    if (busy.current) return
+    busy.current = true; setOpening(true); setError('')
+    try { await window.prism.openEvidenceAnchor(anchor) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : '원문 근거를 열지 못했습니다.') }
+    finally { busy.current = false; setOpening(false) }
+  }
+  return <div className="curation-relation-evidence">
+    <button type="button" disabled={opening} onClick={() => void openEvidence()} title={`${anchor.label} · p.${anchor.page} 원문 확인`}>
+      <ArrowUpRight size={13} aria-hidden="true" /><span>{opening ? '원문 여는 중…' : error ? '원문 근거 다시 열기' : '원문 근거 열기'} · {anchor.label} (p.{anchor.page})</span>
+    </button>
+    {opening && <span className="curation-evidence-status" role="status">논문 원문으로 이동하고 있습니다.</span>}
+    {error && <p className="curation-evidence-error" role="alert">{error} 위 버튼을 눌러 다시 시도할 수 있습니다.</p>}
+  </div>
 }

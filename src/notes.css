@@ -149,6 +149,14 @@
 .curation-item:last-child { border-bottom: 0; }
 .curation-item.is-ready { background: light-dark(#f6fbf9, #162823); }
 .curation-open { min-width: 0; flex: 1 1 220px; display: block; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.curation-relation-detail { min-width: 0; flex: 1 1 220px; }
+.curation-relation-detail > .curation-open { width: 100%; }
+.curation-relation-evidence { margin-top: 7px; }
+.curation-relation-evidence > button { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 28px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--accent); font-size: 11px; line-height: 1.4; text-align: left; }
+.curation-relation-evidence > button svg { flex-shrink: 0; }
+.curation-relation-evidence > button span { overflow-wrap: anywhere; }
+.curation-relation-evidence > button:disabled { opacity: .65; cursor: wait; }
+.curation-evidence-status, .curation-evidence-error { display: block; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .curation-open small { display: block; color: light-dark(#799f94, #739b8f); font-size: 7px; }
 .curation-open strong { display: block; margin-top: 2px; color: light-dark(#3f3a47, #b4aebd); font-size: 9px; line-height: 1.4; }
 .curation-open p { margin: 3px 0 0; overflow: hidden; color: light-dark(#857f8b, #87818d); font: 8px/1.4 Georgia, "Noto Serif KR Variable", serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

@@ -482,8 +482,28 @@ ${claimAfterRelation}`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-auto-read') && ![...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'Marking a note as read did not clear it.', 8000)
 
   // ---------- curation queue: promote a memo into a claim ----------
+  const pendingEvidence = { paperId: 'test.0001', anchorId: 'equation-p2-3', type: 'equation', page: 2, label: '수식1' }
+  await notesConnection.evaluate(`(async () => {
+    const snapshot = await window.prism.readKnowledgeNode('paper-test.0001')
+    await window.prism.createKnowledgeRelation({ sourceId: 'paper-test.0001', targetId: ${JSON.stringify(secondClaim)}, type: 'supports', creator: 'ai', evidenceAnchor: ${JSON.stringify(pendingEvidence)}, expectedRevision: snapshot.revision })
+  })()`)
+  await mainConnection.evaluate(`window.__curationEvidence = null; window.__stopCurationEvidence = window.prism.onOpenEvidenceAnchor(anchor => { window.__curationEvidence = anchor })`)
   await notesConnection.evaluate(`document.querySelector('.notes-rail button[aria-label="정리 대기열"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-queue')) && document.querySelector('.curation-queue')?.textContent.includes('검증 필요')`), 'The curation queue did not list the captured memo.', 10000)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-relation-evidence button'))`), 'The pending relation did not expose its PDF evidence button.')
+  assert(await notesConnection.evaluate(`(() => {
+    const evidence = document.querySelector('.curation-relation-evidence button')
+    const source = evidence.closest('.curation-relation-detail').querySelector('button[title="출발 노트 열기"]')
+    return source && source !== evidence && !source.contains(evidence) && !evidence.contains(source) && !evidence.parentElement.closest('button') && evidence.textContent.includes('원문 근거 열기')
+  })()`), 'PDF evidence and source-note navigation must be separate non-nested buttons.')
+  const evidencePoint = await notesConnection.evaluate(`(() => { const button = document.querySelector('.curation-relation-evidence button'); button.scrollIntoView({ block: 'center' }); const rect = button.getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } })()`)
+  await notesConnection.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...evidencePoint, button: 'left', clickCount: 1 })
+  await notesConnection.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...evidencePoint, button: 'left', clickCount: 1 })
+  await waitFor(() => mainConnection.evaluate(`Boolean(window.__curationEvidence)`), 'Clicking pending relation evidence did not reach the Reader event.')
+  const receivedEvidence = await mainConnection.evaluate('window.__curationEvidence')
+  assert(Object.keys(receivedEvidence).length === Object.keys(pendingEvidence).length && Object.entries(pendingEvidence).every(([key, value]) => receivedEvidence[key] === value), `The relation evidence click changed its PDF anchor identity or location: ${JSON.stringify(receivedEvidence)}`)
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.curation-queue'))`), 'The PDF evidence button opened a note instead of keeping the review queue available.')
+  await mainConnection.evaluate('window.__stopCurationEvidence(); delete window.__stopCurationEvidence; delete window.__curationEvidence')
   const queueShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-curation-queue.png'), Buffer.from(queueShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.curation-item')].find((item) => item.textContent.includes('검증 필요')).querySelector('.curation-actions button').click()`)
