@@ -3,6 +3,9 @@ import 'katex/dist/katex.min.css'
 import './notes.css'
 import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, PanelRight, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import NoteDocument from './NoteDocument'
+import NoteRecoveryNotice from './NoteRecoveryNotice'
+import ThemeControl from './ThemeControl'
+import { useDialogFocus } from './useDialogFocus'
 import ConnectionsPanel from './ConnectionsPanel'
 import CurationQueue from './CurationQueue'
 import GraphView from './GraphView'
@@ -26,6 +29,8 @@ const noteGuides: Record<KnowledgeNodeType, { hint: string; example: string }> =
  * is one click away in the tree.
  */
 export default function NotesWindow() {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  useDialogFocus(settingsOpen, '.note-settings-dialog', 'button[aria-label="노트 설정"]')
   const [libraryPath, setLibraryPath] = useState<string>()
   const [nodes, setNodes] = useState<KnowledgeNodeRecord[]>([])
   const [anchors, setAnchors] = useState<EvidenceAnchor[]>([])
@@ -251,7 +256,7 @@ export default function NotesWindow() {
       <span className="rail-spacer" />
       <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><PanelRight size={17} /><b>연결</b></button>
       <button aria-label="노트 양식" title="노트 양식" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={17} /><b>양식</b></button>
-      <button aria-label="라이브러리 폴더" title="라이브러리 폴더 선택" onClick={() => void chooseLibrary()}><Settings2 size={17} /><b>볼트</b></button>
+      <button aria-label="노트 설정" title="노트 설정" onClick={() => setSettingsOpen(true)}><Settings2 size={17} /><b>설정</b></button>
     </nav>
 
     <aside className="notes-tree" aria-label="볼트">
@@ -314,6 +319,7 @@ export default function NotesWindow() {
     </aside>
 
     <section className="notes-main">
+      {libraryPath && <NoteRecoveryNotice key={libraryPath} onRestored={reloadNodes} />}
       <div className="notes-tabs" role="tablist" aria-label="열린 노트">
         {openNodes.map((node) => <div key={node.id} className={`notes-tab${node.id === activeId && view === 'doc' ? ' on' : ''}`}>
           <button role="tab" aria-selected={node.id === activeId && view === 'doc'} onClick={() => { setView('doc'); setActiveId(node.id) }}>
@@ -337,7 +343,7 @@ export default function NotesWindow() {
         ? <CurationQueue onOpenNode={openNode} onChanged={async () => { await reloadNodes(); await reloadContext() }} onCount={() => void reloadCuration()} />
         : active
           ? <NoteDocument
-            key={active.id} node={active} nodes={nodes} anchors={anchors} relations={relations} templates={templates}
+            key={`${libraryPath}:${active.id}`} node={active} nodes={nodes} anchors={anchors} relations={relations} templates={templates}
             onReloadNodes={reloadNodes} onReloadContext={reloadContext} onOpenNode={openNode} onNotify={notify}
             onOpenCuration={() => { setView('curation'); void reloadCuration() }}
             autoUnread={unread[active.id]} onAutoUnreadChange={reloadUnread}
@@ -391,6 +397,15 @@ export default function NotesWindow() {
       <span>markdown</span>
     </footer>
 
+    {settingsOpen && <div className="note-history-backdrop" onClick={event => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+      <section className="note-history-dialog note-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="note-settings-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setSettingsOpen(false) } }}>
+        <header><h2 id="note-settings-title">노트 설정</h2><button aria-label="노트 설정 닫기" onClick={() => setSettingsOpen(false)}><X size={18} /></button></header>
+        <div className="note-settings-body"><ThemeControl /><p>리더와 노트에 함께 적용합니다. 원문 PDF는 인쇄 색상을 유지합니다.</p>
+          <button onClick={() => { setSettingsOpen(false); void chooseLibrary() }}><FolderOpen size={14} /> 노트 폴더 선택</button>
+          <p>같은 폴더를 Obsidian 볼트로 열 수 있습니다.</p>
+        </div>
+      </section>
+    </div>}
     {templatesOpen && <TemplateManager onClose={() => { setTemplatesOpen(false); void reloadNodes() }} />}
   </main>
 }

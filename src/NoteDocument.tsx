@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
+import NoteHistoryDialog from './NoteHistoryDialog'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 import {
   autoSectionLabels, claimOriginLabels, fileName, nodePath, primaryRelationTypes, readingStatusLabels,
@@ -39,8 +40,10 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [picker, setPicker] = useState<Picker>()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [deleteReady, setDeleteReady] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const [loadError, setLoadError] = useState('')
   // Properties are metadata about the note, not the note. They start closed so the writing is the first thing on screen.
   const [propsOpen, setPropsOpen] = useState(() => window.localStorage.getItem('prism.notes.propsOpen') === 'on')
   const [pendingContradiction, setPendingContradiction] = useState<{ message: string; run: () => Promise<void> }>()
@@ -77,13 +80,23 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   useEffect(() => { contentRef.current = content }, [content])
   useEffect(() => {
     let disposed = false
-    setSnapshot(undefined); setContent(''); setSaved(true); setConflict(undefined); setPicker(undefined); setMenuOpen(false); setDeleteReady(false)
+    setLoadError(''); setSnapshot(undefined); setContent(''); setSaved(true); setConflict(undefined); setPicker(undefined); setMenuOpen(false); setHistoryOpen(false); setDeleteReady(false)
     dirtyRef.current = false
-    window.prism.readKnowledgeNode(node.id).then((next) => {
-      if (disposed) return
+    // Finish the initial deterministic sections before exposing an editable snapshot.
+    // Otherwise the first keystroke races our own background write and looks external.
+    ;(async () => {
+      const openingKey = `${node.id}:${node.nodeType === 'paper' ? '' : contextKey}`
+      if (digestedRef.current !== openingKey) {
+        await window.prism.refreshPaperDigest(node.id, { useModel: false }).catch(() => undefined)
+        if (disposed) return
+        digestedRef.current = openingKey
+      }
+      return window.prism.readKnowledgeNode(node.id, vaultIdRef.current)
+    })().then((next) => {
+      if (disposed || !next) return
       vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content)
-    }).catch((reason) => { if (!disposed && loadAttempt === 0) onNotify(String(reason), 'error') })
+    }).catch((reason) => { if (!disposed) { setLoadError(String(reason)); if (loadAttempt === 0) onNotify(String(reason), 'error') } })
     return () => { disposed = true }
   }, [node.id, loadAttempt])
   /**
@@ -113,6 +126,20 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (nodeIdRef.current === id && contentRef.current === value) { dirtyRef.current = false; setSaved(true) }
       return true
     } catch (reason) { onNotify(String(reason), 'error'); return false }
+  }
+
+  async function restoreHistory(value: string) {
+    const id = node.id
+    if (!(await save())) throw new Error('현재 편집 내용의 저장 충돌을 먼저 해결해 주세요.')
+    if (nodeIdRef.current !== id || !revisionRef.current) throw new Error('노트를 다시 열어 주세요.')
+    const result = await window.prism.saveKnowledgeNode(id, { content: value, expectedRevision: revisionRef.current, vaultId: vaultIdRef.current })
+    if (nodeIdRef.current !== id) return
+    const next = result.saved ? result.snapshot : result.conflict
+    revisionRef.current = next.revision; contentRef.current = next.content; dirtyRef.current = false
+    setSnapshot(next); setContent(next.content); setSaved(true); setConflict(undefined)
+    if (!result.saved) throw new Error('외부 변경이 발견되어 복원하지 않았습니다. 현재 내용을 갱신했으니 확인 후 다시 선택해 주세요.')
+    await onReloadNodes(); await onReloadContext()
+    onNotify('선택한 버전으로 복원했습니다. 복원 전 내용도 저장 이력에 남아 있습니다.')
   }
 
   /** Links are free; the note behind one is written only once. Runs after editing settles, never on every keystroke. */
@@ -163,7 +190,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       if (checking || disposed) return
       checking = true
       try {
-        const next = await window.prism.readKnowledgeNode(node.id)
+        const next = await window.prism.readKnowledgeNode(node.id, vaultIdRef.current)
         if (disposed || next.revision === revisionRef.current) return
         if (dirtyRef.current) setConflict(next)
         else {
@@ -199,7 +226,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (dirtyRef.current && !(await save())) return
     try {
       // The properties render before the file finishes loading; fetch the revision rather than dropping the edit.
-      if (!revisionRef.current) revisionRef.current = (await window.prism.readKnowledgeNode(node.id)).revision
+      if (!revisionRef.current) revisionRef.current = (await window.prism.readKnowledgeNode(node.id, vaultIdRef.current)).revision
       const result = await window.prism.updateKnowledgeProperties(node.id, patch, revisionRef.current)
       if (!result.saved) { onNotify('파일이 외부에서 변경되어 속성을 저장하지 않았습니다.', 'error'); return }
       revisionRef.current = result.snapshot.revision; contentRef.current = result.snapshot.content
@@ -225,7 +252,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     try {
       const result = await window.prism.refreshPaperDigest(node.id, { useModel })
       if (result.updated) {
-        const next = await window.prism.readKnowledgeNode(node.id)
+        const next = await window.prism.readKnowledgeNode(node.id, vaultIdRef.current)
         if (nodeIdRef.current === node.id && !dirtyRef.current) {
           vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
           setSnapshot(next); setContent(next.content); setSaved(true)
@@ -388,7 +415,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     try {
       const result = await window.prism.pruneEmptySections(node.id)
       if (!result.removed.length) { onNotify('비어 있는 섹션이 없습니다.'); return }
-      const next = await window.prism.readKnowledgeNode(node.id)
+      const next = await window.prism.readKnowledgeNode(node.id, vaultIdRef.current)
       vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content; stubScanRef.current = next.content
       setSnapshot(next); setContent(next.content); setSaved(true)
       onNotify(`빈 섹션 ${result.removed.length}개를 지웠습니다: ${result.removed.join(', ')}`)
@@ -472,6 +499,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   }
 
   return <article className="note-doc" aria-label={`${node.title} 노트`}>
+    {historyOpen && <NoteHistoryDialog nodeId={node.id} vaultId={vaultIdRef.current} onClose={() => setHistoryOpen(false)} onRestore={restoreHistory} />}
     <header className="note-doc-head">
       <div className="note-doc-title">
         <span className={`node-kind kind-${node.nodeType}`}><i /> {typeLabels[node.nodeType]}</span>
@@ -491,6 +519,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <div className="note-doc-menu">
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
+            <button role="menuitem" onClick={() => { setMenuOpen(false); setHistoryOpen(true) }}>저장 이력</button>
             <button role="menuitem" onClick={() => { setMenuOpen(false); void window.prism.openKnowledgeNodeInObsidian({ nodeId: node.id }).catch((reason) => onNotify(String(reason), 'error')) }}><ExternalLink size={12} /> Obsidian에서 열기</button>
             <button role="menuitem" disabled={digesting || suggesting} title="선택한 AI 모델로 이 노트의 자동 구간만 갱신합니다. CLI 사용량이 소모됩니다." onClick={() => { setMenuOpen(false); void refreshDigest(true) }}><Sparkles size={12} /> {digesting ? '정리 중…' : 'AI로 다시 정리하기'}</button>
             <button role="menuitem" title="내용이 하나도 없는 제목만 지웁니다" onClick={() => { setMenuOpen(false); void pruneSections() }}><Trash2 size={12} /> 빈 양식 섹션 정리</button>
@@ -536,7 +565,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
             onCreateWikiLink={createLinkedNode} onOpenWikiLink={openWikiLink} slashActions={['link', 'evidence', 'relation', 'supports', 'contradicts']} onSlashAction={runSlashAction}
           />
           <p className="note-hint">{mineSections.map((section) => <button key={section} className="note-write-mine" title={`${minePrompts[section]} — 자동 기록이 절대 건드리지 않는 칸입니다`} onClick={() => void openMineSection(section)}><PenLine size={11} /> {mineHeadings[section]}</button>)}<button className="note-insert-block" onClick={() => editorRef.current?.openInsertMenu()}><Plus size={11} /> 블록 삽입</button><span><kbd>/</kbd> 블록 · <kbd>[[</kbd> 노트 링크(클릭하면 이동) · <kbd>@</kbd> PDF 근거</span><button className="note-digest-run" disabled={digesting || suggesting} title="선택한 AI 모델로 이 노트의 자동 구간만 갱신합니다. CLI 사용량이 소모됩니다." onClick={() => void refreshDigest(true)}><Sparkles size={11} /> {digesting ? '정리 중…' : 'AI로 이 노트 정리'}</button></p>
-        </div> : <p className="note-loading">노트를 불러오는 중…</p>}
+        </div> : <div className="note-loading" role={loadAttempt >= 3 ? "alert" : "status"}>{loadAttempt >= 3 ? <><p>노트를 불러오지 못했습니다. 저장 위치와 파일을 확인해 주세요.</p>{loadError && <p>{loadError}</p>}<button type="button" onClick={() => setLoadAttempt(0)}>다시 시도</button></> : "노트를 불러오는 중…"}</div>}
 
         {linkedEvidence.length > 0 && <details className="note-evidence" open>
           <summary>PDF 근거 {linkedEvidence.length}개</summary>

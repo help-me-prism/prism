@@ -156,7 +156,12 @@ interface Window {
     openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     applyTemplateSections: (request: { nodeId: string; templateId: string; expectedRevision: string }) => Promise<ApplyTemplateSectionsResult>
-    readKnowledgeNode: (id: string) => Promise<NoteSnapshot>
+    readKnowledgeNode: (id: string, vaultId?: string) => Promise<NoteSnapshot>
+    listPendingNoteRecoveries: () => Promise<Array<{ id: string; noteFile: string; relativePath: string; createdAt: number; kinds: Array<'draft' | 'before' | 'displaced'> }>>
+    readPendingNoteRecovery: (id: string, kind: 'draft' | 'before' | 'displaced') => Promise<string>
+    recoverPendingNote: (id: string, kind: 'draft' | 'before' | 'displaced') => Promise<void>
+    listNoteHistory: (id: string, vaultId?: string) => Promise<Array<{ id: string; createdAt: number; kind: 'before' | 'draft' | 'displaced'; size: number }>>
+    readNoteHistory: (id: string, entryId: string, vaultId?: string) => Promise<string>
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<{ nodes: KnowledgeNodeRecord[]; trashed: string; title: string }>

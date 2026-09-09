@@ -12,7 +12,7 @@ import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
-import { applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
+import { listKnowledgeRecoveries, readKnowledgeRecovery, recoverKnowledgeNote, listKnowledgeNoteHistory, readKnowledgeNoteHistory, applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
 import { listEvidenceAnchors, listEvidenceBacklinks } from './evidence.js'
 import { createKnowledgeRelation, deleteKnowledgeRelation, listKnowledgeRelations, reviewKnowledgeRelation, syncLinkRelations, type KnowledgeRelationCreateRequest, type KnowledgeRelationDeleteRequest, type KnowledgeRelationReviewRequest } from './relations.js'
 import { listKnowledgeGraph, listKnowledgeGraphInsights } from './knowledgeGraph.js'
@@ -551,7 +551,7 @@ function watchVault(libraryPath?: string) {
       if (typeof name !== 'string' || !name.toLowerCase().endsWith('.md')) return
       const relative = name.split(path.sep).join('/')
       // Derived state under `.prism/` is nobody's document; only the Markdown a person could be reading matters.
-      if (relative.startsWith('.prism/')) return
+      if (relative.startsWith('.prism/') || relative.split('/').includes('.prism-note-history')) return
       invalidateKnowledgeCache(libraryPath, path.join(libraryPath, name))
       vaultChanges.add(relative)
       if (vaultChangeTimer) clearTimeout(vaultChangeTimer)
@@ -1426,12 +1426,40 @@ ipcMain.handle('knowledge:apply-template-sections', async (_event, request: Appl
   return applyTemplateSections(settings.libraryPath, request)
 })
 const noteVaults = new WeakMap<WebContents, Map<string, string>>()
-ipcMain.handle('knowledge:read', async (event, id: string) => {
+ipcMain.handle('knowledge:recoveries', async () => {
+  const settings = await readSettings()
+  return settings.libraryPath ? listKnowledgeRecoveries(settings.libraryPath) : []
+})
+ipcMain.handle('knowledge:recovery-read', async (_event, id: string, kind: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 노트 폴더를 선택해 주세요.')
+  return readKnowledgeRecovery(settings.libraryPath, String(id), String(kind))
+})
+ipcMain.handle('knowledge:recovery-restore', async (_event, id: string, kind: string) => {
+  const settings = await readSettings()
+  if (!settings.libraryPath) throw new Error('먼저 노트 폴더를 선택해 주세요.')
+  await recoverKnowledgeNote(settings.libraryPath, String(id), String(kind))
+})
+ipcMain.handle('knowledge:history', async (event, id: string, vaultId?: string) => {
+  const settings = await readSettings()
+  const vaultPath = vaultId === undefined ? settings.libraryPath : noteVaults.get(event.sender)?.get(vaultId)
+  if (!vaultPath) throw new Error('노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
+  return listKnowledgeNoteHistory(vaultPath, String(id))
+})
+ipcMain.handle('knowledge:history-read', async (event, id: string, entryId: string, vaultId?: string) => {
+  const settings = await readSettings()
+  const vaultPath = vaultId === undefined ? settings.libraryPath : noteVaults.get(event.sender)?.get(vaultId)
+  if (!vaultPath) throw new Error('노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
+  return readKnowledgeNoteHistory(vaultPath, String(id), String(entryId))
+})
+ipcMain.handle('knowledge:read', async (event, id: string, requestedVaultId?: string) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  const snapshot = await readKnowledgeNode(settings.libraryPath, String(id))
-  const vaultId = createHash('sha256').update(settings.libraryPath).digest('hex')
-  const vaults = noteVaults.get(event.sender) ?? new Map<string, string>(); vaults.set(vaultId, settings.libraryPath); noteVaults.set(event.sender, vaults)
+  const vaultPath = requestedVaultId === undefined ? settings.libraryPath : noteVaults.get(event.sender)?.get(requestedVaultId)
+  if (!vaultPath) throw new Error('노트 저장 위치를 확인하지 못했습니다.')
+  const snapshot = await readKnowledgeNode(vaultPath, String(id))
+  const vaultId = createHash('sha256').update(vaultPath).digest('hex')
+  const vaults = noteVaults.get(event.sender) ?? new Map<string, string>(); vaults.set(vaultId, vaultPath); noteVaults.set(event.sender, vaults)
   return { ...snapshot, vaultId }
 })
 ipcMain.handle('knowledge:save', async (event, id: string, request: NoteSaveRequest) => {

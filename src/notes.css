@@ -679,3 +679,56 @@ button.cm-section-fold-summary:focus-visible { outline: 2px solid light-dark(#5f
 /* Source references stay ordinary Markdown in the vault and act as links here. */
 .cm-source-evidence-link { color: var(--accent, #6fae97); background: transparent; border: 0; padding: 0; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .cm-source-evidence-link:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }
+
+/* Saved note versions: a quiet, readable review surface before restoration. */
+.note-history-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / .42); }
+.note-history-dialog { width: min(920px, 100%); max-height: calc(100dvh - 48px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid light-dark(#d5d5cc, #46473f); border-radius: 10px; background: light-dark(#fafaf6, #252620); color: light-dark(#30352c, #e0e3d9); box-shadow: 0 18px 64px rgb(0 0 0 / .22); }
+.note-history-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px 8px; }
+.note-history-dialog h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.note-history-dialog button { min-height: 32px; border: 1px solid light-dark(#d3d7ca, #4c5344); border-radius: 5px; padding: 6px 12px; background: light-dark(#fff, #30342b); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.note-history-dialog button:hover:not(:disabled) { background: light-dark(#edf0e7, #3b4232); }
+.note-history-dialog button:disabled { opacity: .5; cursor: default; }
+.note-history-dialog :focus-visible { outline: 2px solid light-dark(#5f8054, #a3bf8f); outline-offset: 2px; }
+.note-history-dialog > header button { display: grid; place-items: center; padding: 6px; border-color: transparent; background: transparent; }
+.note-history-hint { margin: 0; padding: 0 20px 16px; color: light-dark(#646d5e, #b0baa5); font-size: 12px; line-height: 1.7; }
+.note-history-body { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 0; height: min(520px, 60dvh); border-block: 1px solid light-dark(#dde0d5, #42483b); }
+.note-history-list { overflow-y: auto; padding: 8px; border-right: 1px solid light-dark(#dde0d5, #42483b); }
+.note-history-list ul { list-style: none; margin: 0; padding: 0; }
+.note-history-list li + li { margin-top: 4px; }
+.note-history-list button { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 10px; text-align: left; border-color: transparent; background: transparent; line-height: 1.5; }
+.note-history-list button[aria-current="true"] { border-color: light-dark(#b8c9ab, #697e59); background: light-dark(#eaf0e2, #35402d); }
+.note-history-list time { font-size: 12px; font-variant-numeric: tabular-nums; }
+.note-history-list span { color: light-dark(#687560, #b7c6aa); font-size: 11px; }
+.note-history-preview { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 16px 20px; }
+.note-history-preview h3 { flex: none; margin: 0 0 12px; font-size: 12px; font-weight: 500; color: light-dark(#66745c, #b6c3a9); }
+.note-history-preview pre { flex: 1; min-height: 0; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.85; tab-size: 4; }
+.note-history-preview p, .note-history-message { font-size: 13px; line-height: 1.8; }
+.note-history-message { min-height: 120px; margin: 0; padding: 20px; }
+.note-history-error { margin: 0; padding: 12px 20px 0; font-size: 12px; line-height: 1.7; color: light-dark(#9e352b, #ffb4a8); }
+.note-history-dialog > footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 14px 20px; }
+.note-history-dialog > footer span { margin-right: auto; font-size: 12px; }
+.note-history-dialog .note-history-restore { background: light-dark(#385a32, #a5c18d); border-color: transparent; color: light-dark(#fff, #1d2b15); }
+.note-history-dialog .note-history-restore:hover:not(:disabled) { background: light-dark(#2b4826, #b5d09e); }
+@media (max-width: 620px) {
+  .note-history-backdrop { padding: 12px; }
+  .note-history-dialog { max-height: calc(100dvh - 24px); }
+  .note-history-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(80px, 135px) minmax(0, 1fr); height: 60dvh; }
+  .note-history-list { border-right: 0; border-bottom: 1px solid light-dark(#dde0d5, #42483b); }
+}
+
+/* Missing note recovery remains visible even when no document can be opened. */
+.note-recovery-notice { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 9px 14px; border-bottom: 1px solid light-dark(#d8dccc, #48503e); background: light-dark(#f0f2e9, #2c3325); color: light-dark(#4b593d, #c0cdae); font-size: 12px; line-height: 1.6; }
+.note-recovery-notice > span { flex: 1 1 260px; }
+.note-recovery-notice button { min-height: 30px; padding: 4px 10px; border: 1px solid light-dark(#c2ccb5, #647650); border-radius: 5px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.note-recovery-notice button:hover { background: light-dark(#e5ebda, #3b462f); }
+.note-recovery-notice button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.note-recovery-filename { font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
+.note-recovery-path { overflow-wrap: anywhere; }
+.note-recovery-version { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; font-size: 12px; }
+.note-recovery-version select { min-width: 0; max-width: 100%; min-height: 32px; border: 1px solid light-dark(#c8d1bc, #59674a); border-radius: 5px; padding: 5px 8px; background: light-dark(#fff, #30362a); color: inherit; font: inherit; }
+.note-settings-dialog { width: min(420px, 100%); }
+.note-settings-body { padding: 12px 20px 20px; overflow: auto; }
+.note-settings-body .theme-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.note-settings-body select { padding: 7px 10px; background: light-dark(#fff, #30362a); color: inherit; border: 1px solid light-dark(#c8d1bc, #59674a); border-radius: 5px; font: inherit; }
+.note-settings-body p { font-size: 12px; line-height: 1.7; color: light-dark(#646d5e, #b0baa5); }
+.note-settings-body > button { margin-top: 12px; display: inline-flex; gap: 7px; align-items: center; }

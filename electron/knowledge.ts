@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, waitForNoteWrite, waitForNoteDirectoryWrites, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
 import { atomicWriteFile } from './atomicFile.js'
+import { listNoteHistory, readNoteHistory, recoverNoteReplacements, listPendingNoteRecoveries, recoverPendingNote } from './noteReplacement.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 
 /**
@@ -45,6 +46,53 @@ export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?:
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
+
+export async function listKnowledgeRecoveries(libraryPath: string) {
+  const root = await fs.realpath(libraryPath)
+  const directories = new Set(Object.values(folderByType).map(folder => path.join(root, folder)))
+  const papers = path.join(root, 'papers')
+  directories.add(papers)
+  for (const entry of await fs.readdir(papers, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory()) directories.add(path.join(papers, entry.name))
+  }
+  const seen = new Set<string>()
+  const result = []
+  for (const directory of directories) {
+    const stat = await fs.lstat(directory).catch(() => undefined)
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) continue
+    const real = await fs.realpath(directory)
+    const relative = path.relative(root, real)
+    if (relative.startsWith('..') || path.isAbsolute(relative) || seen.has(fileKey(real))) continue
+    seen.add(fileKey(real))
+    for (const item of await listPendingNoteRecoveries(real)) {
+      const id = Buffer.from(JSON.stringify([root, relative, item.id])).toString('base64url')
+      result.push({ ...item, id, relativePath: path.join(relative, item.noteFile) })
+    }
+  }
+  return result
+}
+
+async function resolveKnowledgeRecovery(libraryPath: string, id: string) {
+  // Never resolve a renderer-supplied path; match against a fresh authoritative inventory.
+  const entry = (await listKnowledgeRecoveries(libraryPath)).find(item => item.id === id)
+  if (!entry) throw new Error('복구 항목이 바뀌었거나 노트가 이미 존재합니다. 목록을 다시 확인해 주세요.')
+  const [root, relative, transaction] = JSON.parse(Buffer.from(entry.id, 'base64url').toString('utf8')) as string[]
+  return { entry, directory: path.join(root, relative), transaction }
+}
+
+export async function readKnowledgeRecovery(libraryPath: string, id: string, kind: string) {
+  const { entry, directory, transaction } = await resolveKnowledgeRecovery(libraryPath, id)
+  if (!entry.kinds.some(value => value === kind)) throw new Error('복구할 버전을 확인해 주세요.')
+  return readNoteHistory(path.join(directory, entry.noteFile), `${transaction}-${kind}`)
+}
+
+export async function recoverKnowledgeNote(libraryPath: string, id: string, kind: string) {
+  const { entry, directory, transaction } = await resolveKnowledgeRecovery(libraryPath, id)
+  const validKind = entry.kinds.find(value => value === kind)
+  if (!validKind) throw new Error('복구할 버전을 확인해 주세요.')
+  await recoverPendingNote(directory, transaction, validKind)
+  invalidateKnowledgeCache(libraryPath)
+}
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'understood', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
@@ -182,6 +230,8 @@ async function markdownFiles(libraryPath: string) {
   const push = (filePath: string, paperFolder?: string) => { const key = fileKey(filePath); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
   const collect = async (directory: string, paperFolder?: string) => {
     let entries: Dirent[]
+    await waitForNoteDirectoryWrites(directory)
+    await recoverNoteReplacements(directory).catch(() => undefined)
     // A folder the researcher removed in Finder is simply empty, not a reason to fail every listing.
     try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return [] }
     for (const entry of entries) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), paperFolder)
@@ -197,6 +247,7 @@ async function markdownFiles(libraryPath: string) {
 }
 
 async function readEntry(libraryPath: string, filePath: string, paperFolder?: string) {
+  await waitForNoteWrite(filePath)
   const key = fileKey(filePath)
   const cache = vaultCache(libraryPath)
   let stat: Awaited<ReturnType<typeof fs.stat>>
@@ -274,6 +325,17 @@ function toRecord(libraryPath: string, entry: NodeEntry): KnowledgeNodeRecord {
 
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {
   return (await nodeEntries(libraryPath)).map((entry) => toRecord(libraryPath, entry)).sort((left, right) => right.modifiedAt - left.modifiedAt)
+}
+
+export async function listKnowledgeNoteHistory(libraryPath: string, id: string) {
+  const node = await findNode(libraryPath, id)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return listNoteHistory(node.filePath)
+}
+export async function readKnowledgeNoteHistory(libraryPath: string, id: string, entryId: string) {
+  const node = await findNode(libraryPath, id)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return readNoteHistory(node.filePath, entryId)
 }
 
 /**

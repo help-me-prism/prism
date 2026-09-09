@@ -126,9 +126,25 @@ async function connect(page) {
   return { socket, send, evaluate, exceptions }
 }
 function assert(condition, message) { if (!condition) throw new Error(message) }
+async function readPublishedNote(file) {
+  const deadline = Date.now() + 2000
+  while (true) {
+    try { return await fs.readFile(file, 'utf8') } catch (error) {
+      if (error?.code !== 'ENOENT' || Date.now() >= deadline) throw error
+      await sleep(40)
+    }
+  }
+}
 async function waitFor(check, message, timeout = 5000) {
   const deadline = Date.now() + timeout
-  while (Date.now() < deadline) { if (await check()) return; await sleep(80) }
+  while (Date.now() < deadline) {
+    try { if (await check()) return } catch (error) {
+      // The transactional writer briefly moves the old file before publishing its replacement.
+      // Retry only that observed filesystem gap; all other failures remain immediate.
+      if (error?.code !== 'ENOENT') throw error
+    }
+    await sleep(80)
+  }
   throw new Error(message)
 }
 
@@ -235,6 +251,18 @@ try {
   assert(shellState.status.includes('노드 2'), `The status bar did not count nodes: ${shell}`)
   assert(shellState.modes === 0, 'A retired mode bar or knowledge modal is still rendered.')
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-start-papers button')) && document.querySelector('.notes-start').textContent.includes('Obsidian')`), 'The note start screen did not offer a real paper note and vault guidance.')
+
+  await notesConnection.evaluate(`(() => { const trigger = document.querySelector('button[aria-label="노트 설정"]'); trigger.focus(); trigger.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-settings-dialog select'))`), 'Notes settings did not open inside the Notes window.')
+  for (const theme of ['dark', 'light']) {
+    await notesConnection.evaluate(`(() => { const select = document.querySelector('.note-settings-dialog select'); select.value = '${theme}'; select.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+    await waitFor(() => notesConnection.evaluate(`document.documentElement.dataset.theme === '${theme}'`), 'Notes theme did not update.')
+    await waitFor(() => mainConnection.evaluate(`document.documentElement.dataset.theme === '${theme}'`), 'Notes theme did not synchronize to Reader.')
+  }
+  await pressKey(notesConnection, 'Escape', 'Escape')
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-settings-dialog')`), 'Escape did not close Notes settings.')
+  assert(await notesConnection.evaluate(`document.activeElement?.getAttribute('aria-label') === '노트 설정'`), 'Notes settings did not return focus to its trigger.')
+  assert(await notesConnection.evaluate(`(async () => (await window.prism.getSettings()).libraryPath)()`) === libraryPath, 'Opening theme settings changed the note vault.')
 
   // ---------- opening a note ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
@@ -417,11 +445,11 @@ try {
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.rel-chip')].some((chip) => chip.textContent.includes('청크가 길면'))`), 'The confirmed contradiction did not appear as a relation chip.', 8000)
   // A relation is a sidecar and a line in a generated section, not a callout copied into the note: it used
   // to be written once per edge, at the bottom, and only into the note the edge started from.
-  const claimAfterRelation = await fs.readFile(claimPath, 'utf8')
+  const claimAfterRelation = await readPublishedNote(claimPath)
   assert(!claimAfterRelation.includes('> [!abstract] 관계') && !claimAfterRelation.includes('prism-relation:'), `A relation was copied into the note:
 ${claimAfterRelation}`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('<!-- prism:auto against -->'), 'The approved contradiction did not reach the generated section.', 10000)
-  assert((await fs.readFile(claimPath, 'utf8')).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
+  assert((await readPublishedNote(claimPath)).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
@@ -511,7 +539,7 @@ ${claimAfterRelation}`)
   await setInput(notesConnection, '승격 노트 제목', '노이즈 예측은 가중 score matching이다 (스모크)')
   await notesConnection.evaluate(`[...document.querySelectorAll('.curation-form-actions button')].find((button) => button.textContent.includes('노트로 만들기')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent.includes('(스모크)')`), 'Promoting a memo did not open the new claim.', 10000)
-  const promoted = await fs.readFile(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다 (스모크).md'), 'utf8')
+  const promoted = await readPublishedNote(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다 (스모크).md'))
   assert(promoted.includes('claim_origin: paper') && promoted.includes('^evidence-test-0001-equation-p2-3') && promoted.includes('> [[papers/test.0001/test.0001|Editor fixture]]'), `The promoted claim lost its evidence or source link:\n${promoted}`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('검증 필요 → [[Claims/노이즈 예측은 가중 score matching이다 (스모크)|'), 'The paper note was not marked with the promoted claim link.', 8000)
 
@@ -573,11 +601,101 @@ ${claimAfterRelation}`)
   await notesConnection.evaluate(`document.querySelector('button[aria-label="템플릿 닫기"]').click()`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
+  // ---------- persisted note history: preview and restore without losing the current version ----------
+  // Keep this last: restoring an older document intentionally changes the fixture used above.
+  await setInput(notesConnection, '노트 검색', '')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find(button => button.textContent.includes('Editor fixture')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'History fixture did not open.')
+  const historyOlder = 'HISTORY_OLDER_SENTINEL_9324'
+  const historyCurrent = 'HISTORY_CURRENT_SENTINEL_9324'
+  for (const sentinel of [historyOlder, historyCurrent]) {
+    await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
+    await notesConnection.send('Input.insertText', { text: `\n\n${sentinel}\n` })
+    await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes(sentinel) && await notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'History fixture edit did not finish saving.', 10000)
+  }
+  const historyEntries = await notesConnection.evaluate(`(async () => {
+    const entries = await window.prism.listNoteHistory('paper-test.0001')
+    return Promise.all(entries.map(async entry => ({ ...entry, content: await window.prism.readNoteHistory('paper-test.0001', entry.id) })))
+  })()`)
+  const restoreIndex = historyEntries.findIndex(entry => entry.content.includes(historyOlder) && !entry.content.includes(historyCurrent))
+  assert(restoreIndex >= 0, 'The actual editor saves did not retain a distinct older history snapshot.')
+  const restoreContent = historyEntries[restoreIndex].content
+  const openHistory = async () => {
+    await notesConnection.evaluate(`document.querySelector('.note-doc-actions button[aria-label="노트 메뉴"]').click()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-menu'))`), 'Note menu did not open for history.')
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-menu button')].find(button => button.textContent.trim() === '저장 이력').click()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-history-preview pre'))`), 'History dialog did not load its readonly preview.', 10000)
+  }
+  await openHistory()
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.note-history-list li button').length`) === historyEntries.length, 'History rows differ from the available persisted versions.')
+  assert(await notesConnection.evaluate(`document.querySelector('.note-history-preview pre').textContent`) === historyEntries[0].content, 'Default history preview differs from readNoteHistory.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-history-preview pre').isContentEditable && !document.querySelector('.note-history-dialog .cm-editor')`), 'History preview unexpectedly exposes an editable document.')
+  await pressKey(notesConnection, 'Escape', 'Escape')
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-history-dialog')`), 'Escape did not close the history dialog.')
+  await openHistory()
+  await notesConnection.evaluate(`document.querySelectorAll('.note-history-list li button')[${restoreIndex}].click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-history-preview pre')?.textContent === ${JSON.stringify(restoreContent)} && !document.querySelector('.note-history-restore').disabled`), 'Selected history preview did not match its exact stored contents.')
+  await notesConnection.evaluate(`document.querySelector('.note-history-restore').click()`)
+  await waitFor(async () => {
+    const restored = await fs.readFile(notePath, 'utf8')
+    return restored.includes(historyOlder) && !restored.includes(historyCurrent) && await notesConnection.evaluate(`!document.querySelector('.note-history-dialog')`)
+  }, 'Restoring the selected version did not replace the current document.', 10000)
+  assert(await notesConnection.evaluate(`(async () => {
+    for (const entry of await window.prism.listNoteHistory('paper-test.0001')) {
+      if ((await window.prism.readNoteHistory('paper-test.0001', entry.id)).includes(${JSON.stringify(historyCurrent)})) return true
+    }
+    return false
+  })()`), 'Restoration discarded the version that was current immediately before restoring.')
+  process.stdout.write('Persisted history UI passed: real editor versions, exact readonly preview, Escape, selected-version restore, and preservation of the displaced current version.\n')
+
+  // An interrupted publication has no live Markdown file or indexed note to open.
+  // Seed only the real transaction journal, then discover and recover it through the UI/IPC.
+  const orphanName = 'Unindexed recovery fixture.md'
+  const orphanPath = path.join(libraryPath, 'Claims', orphanName)
+  const orphanJournal = path.join(libraryPath, 'Claims', '.prism-note-history', 'b18bf099-ef76-472e-9cc4-842c5d192aa1')
+  const orphanDraft = '---\ntype: claim\nprism_id: "claim-orphan-history-test"\ntitle: "Unindexed recovery fixture"\n---\n\n# Recovered draft\n\nORPHAN_SELECTED_DRAFT_9324\n'
+  const orphanBefore = '# Previous external contents\n\nORPHAN_PREVIOUS_VERSION_9324\n'
+  await fs.mkdir(orphanJournal, { recursive: true })
+  await fs.writeFile(path.join(orphanJournal, 'metadata.json'), JSON.stringify({ version: 1, state: 'publishing', noteFile: orphanName, createdAt: new Date().toISOString() }))
+  await fs.writeFile(path.join(orphanJournal, 'draft.md'), orphanDraft)
+  await fs.writeFile(path.join(orphanJournal, 'before.md'), orphanBefore)
+  await fs.writeFile(path.join(orphanJournal, 'displaced.md'), orphanBefore)
+  assert(!(await fs.stat(orphanPath).then(() => true, () => false)), 'Orphan fixture unexpectedly has a live note before recovery.')
+  const pendingOrphan = await notesConnection.evaluate(`(async () => (await window.prism.listPendingNoteRecoveries()).find(entry => entry.noteFile === ${JSON.stringify(orphanName)}))()`)
+  assert(pendingOrphan?.kinds.includes('draft'), 'Real IPC did not discover the publishing journal without an existing note.')
+  assert(await notesConnection.evaluate(`window.prism.readPendingNoteRecovery(${JSON.stringify(pendingOrphan.id)}, 'draft')`) === orphanDraft, 'Orphan draft IPC preview changed the preserved text.')
+  await notesConnection.evaluate('window.__beforeOrphanReload = true')
+  await notesConnection.send('Page.reload')
+  await waitFor(() => notesConnection.evaluate(`!window.__beforeOrphanReload && Boolean(document.querySelector('.note-recovery-notice button'))`), 'Missing-note recovery notice did not appear without an open document.', 10000)
+  assert(!(await fs.stat(orphanPath).then(() => true, () => false)), 'Startup silently restored a publishing-gap note before explicit approval.')
+  await notesConnection.evaluate(`document.querySelector('.note-recovery-notice button').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-recovery-dialog pre'))`), 'Orphan recovery dialog failed to load.')
+  await notesConnection.evaluate(`(() => {
+    const row = [...document.querySelectorAll('.note-recovery-dialog .note-history-list button')].find(button => button.textContent.includes(${JSON.stringify(orphanName)}))
+    row.click()
+    const select = document.querySelector('.note-recovery-version select')
+    select.value = 'draft'; select.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-recovery-dialog pre')?.textContent === ${JSON.stringify(orphanDraft)} && !document.querySelector('.note-recovery-dialog .note-history-restore').disabled`), 'Selected orphan draft preview did not match the actual journal.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-recovery-dialog pre').isContentEditable`), 'Recovery preview must be readonly.')
+  await notesConnection.evaluate(`document.querySelector('.note-recovery-dialog .note-history-restore').click()`)
+  await waitFor(async () => (await readPublishedNote(orphanPath)) === orphanDraft && await notesConnection.evaluate(`!document.querySelector('.note-recovery-dialog')`), 'Explicit orphan recovery did not restore the exact selected draft.', 10000)
+  assert(await fs.readFile(path.join(orphanJournal, 'draft.md'), 'utf8') === orphanDraft && await fs.readFile(path.join(orphanJournal, 'before.md'), 'utf8') === orphanBefore, 'Recovery modified the preserved journal versions.')
+  assert(!(await notesConnection.evaluate(`(async () => (await window.prism.listPendingNoteRecoveries()).some(entry => entry.id === ${JSON.stringify(pendingOrphan.id)}))()`)), 'Recovered note remained listed as missing.')
+  process.stdout.write('Orphan recovery UI passed: absent unindexed target, publishing journal discovery, exact readonly draft preview, explicit restore, and preserved history.\n')
+
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
 } catch (error) {
+  process.stderr.write(`Notes host output: ${processOutput.slice(-6000)}\n`)
+  const historyRoot = path.join(paperPath, '.prism-note-history')
+  const historyDiagnostic = await fs.readdir(historyRoot).then(async names => Promise.all(names.slice(-8).map(async name => ({ name, files: await fs.readdir(path.join(historyRoot, name)), metadata: await fs.readFile(path.join(historyRoot, name, 'metadata.json'), 'utf8').catch(String) })))).catch(String)
+  process.stderr.write(`Notes history diagnostic: ${JSON.stringify(historyDiagnostic)}\n`)
+  const saveDiagnostic = await fs.readdir(historyRoot).then(async names => Promise.all(names.slice(-8).map(async name => ({ name, versions: await Promise.all(['before', 'draft', 'displaced'].map(async kind => ({ kind, containsEdit: (await fs.readFile(path.join(historyRoot, name, `${kind}.md`), 'utf8').catch(() => '')).includes('연구 메모 한 줄.') }))) })))).catch(String)
+  process.stderr.write(`Notes save-content diagnostic: ${JSON.stringify({ history: saveDiagnostic, disk: await fs.readFile(notePath, 'utf8').catch(String) })}\n`)
   if (notesConnection) {
+    process.stderr.write(`Notes notification diagnostic: ${JSON.stringify(await notesConnection.evaluate("[...document.querySelectorAll('[role=alert], .notes-toast, .note-notice, .notes-notice, .notes-conflict-backdrop')].map(el => el.textContent)").catch(String))}\n`)
     const diagnostic = await notesConnection.evaluate(`(() => ({ title: document.querySelector('.note-doc-title')?.textContent, actions: document.querySelector('.note-doc-actions')?.textContent, body: document.querySelector('.note-body')?.innerText, scroll: [...document.querySelectorAll('.cm-scroller, .note-doc-scroll')].map(el => ({ className: el.className, top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight })) }))()`).catch(String)
     process.stderr.write(`Notes failure diagnostic: ${JSON.stringify(diagnostic)}\n`)
   }
