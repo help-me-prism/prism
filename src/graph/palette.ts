@@ -45,19 +45,20 @@ export const edgeLegend: Array<{ label: string; color: string; dash: boolean }> 
   { label: '본문 링크', color: '#d3ccc1', dash: true },
 ]
 
-let cache: { nodes: Record<KnowledgeNodeType, string> } | undefined
+let cache: { theme: string; nodes: Record<KnowledgeNodeType, string> } | undefined
 
 function readVariables(): Record<KnowledgeNodeType, string> {
-  if (cache) return cache.nodes
+  const theme = document.documentElement.style.colorScheme + window.matchMedia('(prefers-color-scheme: dark)').matches
+  if (cache?.theme === theme) return cache.nodes
   const nodes = { ...fallbackNodeColors }
   if (typeof window !== 'undefined') {
     const style = window.getComputedStyle(document.documentElement)
     for (const type of Object.keys(nodes) as KnowledgeNodeType[]) {
       const value = style.getPropertyValue(`--kind-${type}`).trim()
-      if (value) nodes[type] = value
+      if (value) { const probe = document.createElement('span'); probe.style.color = value; document.body.append(probe); nodes[type] = getComputedStyle(probe).color; probe.remove() }
     }
   }
-  cache = { nodes }
+  cache = { nodes, theme }
   return nodes
 }
 

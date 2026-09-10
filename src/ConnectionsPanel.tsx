@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Maximize2, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Maximize2, RefreshCw } from 'lucide-react'
 import { relationLabels, typeLabels } from './knowledgeModel'
 import MiniGraph, { type MiniEdge, type MiniNode } from './graph/MiniGraph'
-
-type Hop2 = { parentId: string; relation: KnowledgeRelationView }
+import { loadSecondHop, secondHopLimits, type SecondHopResult } from './graph/secondHop'
+import { connectedNoteRows, connectionDescription } from './connectedNotes'
 
 /**
  * The always-visible right stack: a local graph, backlinks, the automatic citation layer, and pending suggestions.
  * The manual graph and the citation layer are drawn separately on purpose — approved edges must never be
  * buried under thousands of citations.
  */
-export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, onOpenNode, onRefreshCitations, onAddCitationRelation, onOpenFullGraph }: {
+export default function ConnectionsPanel({ node, relations, backlinks, citations, citationsLoading, onOpenNode, onRefreshCitations, onOpenFullGraph }: {
   node?: KnowledgeNodeRecord
   relations: KnowledgeRelationView[]
   backlinks: KnowledgeBacklink[]
@@ -18,38 +18,34 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   citationsLoading: boolean
   onOpenNode: (id: string) => void
   onRefreshCitations: () => void
-  onAddCitationRelation: (entry: CitationEntry, direction: 'references' | 'citations') => void
   onOpenFullGraph: () => void
 }) {
   const [hops, setHops] = useState<1 | 2>(1)
+  const [graphExpanded, setGraphExpanded] = useState(() => window.localStorage.getItem('prism.notes.graph-expanded') === 'true')
+  useEffect(() => { window.localStorage.setItem('prism.notes.graph-expanded', String(graphExpanded)) }, [graphExpanded])
   const [showCitations, setShowCitations] = useState(false)
-  const [secondHop, setSecondHop] = useState<Hop2[]>([])
   // Link relations belong in the graph: they are what the researcher actually wrote in the note.
   const approved = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved' && item.type !== 'mentions'), [relations])
-  const edgeKey = approved.map((item) => item.id).join(',')
+  const connected = useMemo(() => connectedNoteRows(relations, backlinks), [relations, backlinks])
+  // Identity includes the relation-list generation, not just edge IDs: endpoints and
+  // review/type metadata can change while IDs remain the same.
+  const hopScope = useMemo(() => ({ nodeId: node?.id, approved }), [node?.id, approved, hops])
+  const [hopResult, setHopResult] = useState<{ scope: typeof hopScope; result: SecondHopResult }>()
+  const currentHop = hops === 2 && hopResult?.scope === hopScope ? hopResult.result : undefined
+  const secondHop = currentHop?.entries ?? []
 
   useEffect(() => {
-    if (hops !== 2 || !node) { setSecondHop([]); return }
+    if (!graphExpanded || hops !== 2 || !hopScope.nodeId) { setHopResult(undefined); return }
     let disposed = false
-    void (async () => {
-      const seen = new Set<string>([node.id, ...approved.map((item) => item.other.id)])
-      const results: Hop2[] = []
-      for (const edge of approved) {
-        try {
-          for (const relation of await window.prism.listKnowledgeRelations(edge.other.id)) {
-            if (seen.has(relation.other.id) || relation.reviewStatus !== 'approved' || relation.type === 'mentions') continue
-            seen.add(relation.other.id); results.push({ parentId: edge.other.id, relation })
-          }
-        } catch { /* a neighbour may have been deleted meanwhile */ }
-      }
-      if (!disposed) setSecondHop(results.slice(0, 24))
-    })()
+    setHopResult(undefined)
+    void loadSecondHop(hopScope.nodeId, hopScope.approved, id => window.prism.listKnowledgeRelations(id), () => disposed)
+      .then(result => { if (!disposed && result) setHopResult({ scope: hopScope, result }) })
     return () => { disposed = true }
-  }, [hops, node?.id, edgeKey])
+  }, [graphExpanded, hops, hopScope])
 
   const citationNeighbours = useMemo(() => {
     if (!showCitations || !citations) return []
-    return [...citations.references.filter((item) => item.inLibrary), ...citations.citations.filter((item) => item.inLibrary)]
+    return [...citations.references.filter((item) => item.inLibrary).map(item => ({ ...item, direction: 'outgoing' as const })), ...citations.citations.filter((item) => item.inLibrary).map(item => ({ ...item, direction: 'incoming' as const }))]
       .filter((item) => item.nodeId && item.nodeId !== node?.id && !approved.some((edge) => edge.other.id === item.nodeId))
       .slice(0, 10)
   }, [showCitations, citations, approved, node?.id])
@@ -86,7 +82,7 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
     }
     for (const entry of citationNeighbours) {
       add({ id: entry.nodeId!, title: entry.title, nodeType: 'paper', kind: 'citation' })
-      graphEdges.push({ id: `citation-${entry.nodeId}`, sourceId: node.id, targetId: entry.nodeId!, type: 'mentions', origin: 'manual', approved: false, label: `인용 관계 · ${entry.title}` })
+      graphEdges.push({ id: `citation-${entry.direction}-${entry.nodeId}`, sourceId: entry.direction === 'outgoing' ? node.id : entry.nodeId!, targetId: entry.direction === 'outgoing' ? entry.nodeId! : node.id, type: 'mentions', origin: 'manual', approved: false, label: `${entry.direction === 'outgoing' ? '인용한 논문' : '나를 인용한 논문'} · ${entry.title}` })
     }
     return { nodes: graphNodes, edges: graphEdges }
   }, [node, approved, secondHop, citationNeighbours])
@@ -95,16 +91,24 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
   // something to show; with nothing open the panel is a single line instead of four hollow ones.
   return <aside className="notes-side" aria-label="연결">
     {!node && <p className="side-idle">노트를 열면 연결·백링크가 여기에 표시됩니다.</p>}
+    {node && connected.length > 0 && <section className="side-sec side-connected">
+      <header><span>연결된 노트</span><small>{connected.length}</small></header>
+      <div className="side-list">{connected.map(other => <button key={other.id} onClick={() => onOpenNode(other.id)}>
+        <span className="side-row-title"><i className={`kind-dot kind-${other.nodeType}`} />{other.title}</span>
+        <small>{other.relations.length ? [...new Set(other.relations.map(item => connectionDescription(item, relationLabels[item.type])))].join(' · ') : '이 노트를 언급'}</small>
+        {other.excerpt && <span className="connection-excerpt">{other.excerpt}</span>}
+      </button>)}</div>
+    </section>}
     {node && <section className="side-sec side-graph">
       <header>
-        <span>연결 그래프{hops === 2 ? ' · 2홉' : ''}</span>
+        <button className="side-graph-toggle" aria-label={graphExpanded ? '연결 그래프 접기' : '연결 그래프 펼치기'} aria-expanded={graphExpanded} aria-controls="note-connections-graph" onClick={() => setGraphExpanded(value => !value)}>{graphExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}연결 그래프</button>
         <div className="side-chips">
-          <button className={hops === 2 ? 'on' : ''} aria-pressed={hops === 2} onClick={() => setHops(hops === 2 ? 1 : 2)}>2홉</button>
-          <button className={showCitations ? 'on' : ''} aria-pressed={showCitations} title="라이브러리에 있는 인용 논문을 회색 점선으로 겹쳐 봅니다" onClick={() => setShowCitations((value) => !value)}>인용</button>
+          {graphExpanded && <><button className={hops === 2 ? 'on' : ''} aria-pressed={hops === 2} onClick={() => setHops(hops === 2 ? 1 : 2)}>간접 연결</button>
+          <button className={showCitations ? 'on' : ''} aria-pressed={showCitations} title="라이브러리에 있는 인용 논문을 회색 점선으로 겹쳐 봅니다" onClick={() => setShowCitations((value) => !value)}>인용</button></>}
           <button title="볼트 전체 그래프 열기" aria-label="볼트 전체 그래프 열기" onClick={onOpenFullGraph}><Maximize2 size={11} /></button>
         </div>
       </header>
-      <div className="graph-canvas">
+      {graphExpanded && <div id="note-connections-graph"><div className="graph-canvas">
         <MiniGraph nodes={mini.nodes} edges={mini.edges} onOpenNode={onOpenNode} />
         {mini.edges.length === 0 && <p className="graph-empty">아직 연결이 없습니다. 본문에서 <kbd>[[</kbd>로 링크하거나 속성의 <b>관계 추가</b>를 쓰세요.</p>}
       </div>
@@ -112,25 +116,21 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
         {(['paper', 'concept', 'claim', 'question'] as KnowledgeNodeType[]).map((type) => <span key={type}><i className={`kind-dot kind-${type}`} />{typeLabels[type]}</span>)}
         <span><i className="kind-dot is-contra" />반박</span>
       </div>
-    </section>}
-
-    {node && backlinks.length > 0 && <section className="side-sec side-links">
-      <header><span>백링크</span><small>{backlinks.length}</small></header>
-      <div className="side-list">
-        {backlinks.map((item) => <button key={item.nodeId} onClick={() => onOpenNode(item.nodeId)}>
-          <span className="side-row-title"><i className={`kind-dot kind-${item.nodeType}`} />{item.title}</span>
-          <small>{item.excerpt}</small>
-        </button>)}
-      </div>
+      {hops === 2 && <p className="side-empty" role="status">{!currentHop ? '간접 연결을 불러오는 중…'
+        : currentHop.limited ? `일부 간접 연결을 표시합니다. 가까운 노트 ${secondHopLimits.neighbours}개, 간접 연결 ${secondHopLimits.entries}개까지 확인합니다.`
+          : currentHop.entries.length === 0 ? '확인된 간접 연결이 없습니다.' : `간접 연결 ${currentHop.entries.length}개`}
+        {currentHop && currentHop.failures > 0 ? ` 노트 ${currentHop.failures}개의 연결은 불러오지 못했습니다.` : ''}</p>}</div>}
     </section>}
 
     {node?.nodeType === 'paper' && <section className="side-sec side-citations">
       <header>
         <span>인용 (자동)</span>
-        <small>{citations?.fetchedAt ? `${citations.references.length} / ${citations.citations.length}` : ''}</small>
+        {citations?.references.length || citations?.citations.length ? <small>{citations.references.length} / {citations.citations.length}</small>
+          : <span className="citation-empty-summary" role="status" title={citations?.error || '인용은 출처 정보이며 지지·반박 관계는 직접 확인해야 합니다.'}>{citationsLoading ? '불러오는 중…' : citations?.error ? '조회하지 못함' : citations?.fetchedAt ? '등록된 인용 없음' : '아직 조회하지 않음'}</span>}
         <button className="side-refresh" aria-label="Semantic Scholar에서 인용 새로고침" disabled={citationsLoading} onClick={onRefreshCitations}><RefreshCw size={12} /></button>
       </header>
-      <div className="side-list">
+      {Boolean(citations?.references.length || citations?.citations.length) && <div className="side-list">
+        <p className="side-empty">인용은 출처 정보입니다. 지지·반박·확장 관계는 내용을 확인한 뒤 노트에서 지정하세요.</p>
         {citationsLoading ? <p className="side-empty">Semantic Scholar에서 불러오는 중…</p>
           : !citations?.fetchedAt ? (citations?.error ? <p className="side-empty">{citations.error}</p> : null)
             : <>
@@ -139,15 +139,14 @@ export default function ConnectionsPanel({ node, relations, backlinks, citations
                 {citations[key].slice(0, 30).map((item, index) => <div key={`${item.arxivId ?? item.title}-${index}`} className={`citation-row${item.inLibrary ? ' in-library' : ''}`}>
                   <span><strong>{item.title}</strong><small>{[item.year, item.authors.slice(0, 2).join(', '), item.citationCount !== undefined ? `인용 ${item.citationCount}` : ''].filter(Boolean).join(' · ')}</small></span>
                   {item.inLibrary && item.nodeId
-                    ? relations.some((relation) => relation.other.id === item.nodeId && relation.type === 'extends' && relation.reviewStatus === 'approved')
-                      ? <em>확장함</em>
-                      : <button title="자동 인용을 직접 승인한 확장함 관계로 올립니다" onClick={() => onAddCitationRelation(item, key)}>관계로</button>
+                    ? <button title="인용 논문 노트 열기" onClick={() => onOpenNode(item.nodeId!)}>노트 열기</button>
+                    : item.doi ? <a href={`https://doi.org/${item.doi}`} aria-label={`${item.title} 출판사에서 열기`} onClick={(event) => { event.preventDefault(); void window.prism.openDoi(item.doi!) }}><ExternalLink size={11} /></a>
                     : item.arxivId ? <a href={`https://arxiv.org/abs/${item.arxivId}`} aria-label={`${item.title} arXiv에서 열기`} onClick={(event) => { event.preventDefault(); void window.prism.openArxiv(item.arxivId!) }}><ExternalLink size={11} /></a> : null}
                 </div>)}
               </details>)}
               <small className="citation-meta">{new Date(citations.fetchedAt).toLocaleDateString()} 기준{citations.stale ? ' · 오래됨' : ''}</small>
             </>}
-      </div>
+      </div>}
     </section>}
   </aside>
 }

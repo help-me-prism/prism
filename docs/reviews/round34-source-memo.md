@@ -1,0 +1,17 @@
+# From a question's source to a reading memo
+
+The previous round made verified progress on source-owned drafts and partial saves. The independent reader review still found sentence-level memo capture difficult to discover: the toolbar's page memo did not capture the sentence just added to a question, and the sentence action depended on knowing the context menu.
+
+Non-figure source chips in the question composer now show a **메모** button alongside the excerpt. It opens the source paper, locates the exact current anchor, and then opens its memo panel. The question text and source placements remain in the composer. Page memo continues to mean the current page. Missing papers or anchors report an error instead of opening a memo with unverified source metadata. Figure capture continues through its existing controls.
+
+An independent Windows reviewer used biology page 2 sentence 31, wrote an unsent question, and opened its memo from the chip. After switching to engineering, the same button returned to biology and opened the same sentence memo. The reviewer confirmed that the question and source chip remained and the memo and remove controls did not overlap in the roughly 360 px chat panel. The [screen capture](images/round34-chip-memo.png) includes an older explicitly labeled synthetic chat fixture; it is not evidence of live AI answer quality. No live model was called in this round.
+
+The final missing-source guard was added after this native normal-flow review. Its presence is not proof that every unavailable-source scenario was exercised natively.
+
+Keyboard review exposed a separate defect. Directly focusing the memo button passed after the automated Enter event included its character data, but the real Tab sequence reached the remove control first: DOM order was excerpt, remove, memo while the visual order was excerpt, memo, remove. Enter on the remove control could bubble to the question sender. The DOM order now matches the visual order, internal button keys are excluded from the editor's send handler, and both action buttons have a visible focus outline. Direct-focus checks alone were insufficient; the regression now follows Tab navigation and checks removal without chat dispatch.
+
+The final integrated build, full core suite, and Product UI passed. Product UI verifies the actual editor → Tab → source label → Tab → memo sequence, Enter activation, unchanged question and source placements, and removal with Enter without dispatching chat. The existing Product UI capture/storage regressions also pass. Notes editor code was unchanged; this round does not claim a fresh standalone Notes UI run. The native test host blocked the erroneous pre-fix send, so no model inference occurred.
+
+After reloading the final build, the independent Windows reviewer used engineering sentence 88: Tab twice visibly focused **메모**, and Return [opened that sentence's memo](images/round34-keyboard-memo.png). After closing it, Tab three times focused X; Return [removed only the chip while retaining the question](images/round34-keyboard-delete.png). No new chat or error appeared. The parent reviewer opened the resulting captures.
+
+The long chip can leave only the question's first character on the same line, making the composer feel dense. This remains a layout concern. Opening chat also still shrinks fitted PDF pages: the proposed next improvement is a temporary way to retain the pre-chat reading size without overwriting the comparison layout. Neither concern is claimed solved by adding the memo action.

@@ -38,10 +38,10 @@ const expression = `(async () => {
     const deadline = Date.now() + 4000
     while (page && !page.classList.contains('rendered') && Date.now() < deadline) { await wait(80); page = document.querySelector('[data-page=translated-' + pageNumber + ']') }
     if (!page) { results.push({ page: pageNumber, missing: true }); continue }
-    const pageRect = page.getBoundingClientRect(); const structures = [...page.querySelectorAll('.structure-anchor-layer > *')].map((element) => {
+    const pageRect = page.getBoundingClientRect(); const structures = [...page.querySelectorAll('.original-excerpt canvas, .reading-translation figure canvas')].map((element) => {
       const rect = element.getBoundingClientRect(); return { type: element.className, x: rect.left - pageRect.left, y: rect.top - pageRect.top, width: rect.width, height: rect.height }
     })
-    const blocks = [...page.querySelectorAll('.translated-block')].map((element, index) => {
+    const blocks = [...page.querySelectorAll('.reading-block:not(.equation):not(.table):not(.artifact)')].map((element, index) => {
       const rect = element.getBoundingClientRect(); const style = getComputedStyle(element); const text = element.innerText ?? ''
       const local = { x: rect.left - pageRect.left, y: rect.top - pageRect.top, width: rect.width, height: rect.height }
       const overlaps = structures.filter((structure) => {
@@ -50,7 +50,7 @@ const expression = `(async () => {
         return width * height > Math.min(local.width * local.height, structure.width * structure.height) * .08
       }).map((structure) => structure.type)
       return {
-        index, kind: [...element.classList].find((name) => name !== 'translated-block'), text: text.slice(0, 240), ...local,
+        index, kind: [...element.classList].find((name) => name !== 'reading-block'), text: text.slice(0, 240), ...local,
         fontSize: Number.parseFloat(style.fontSize), scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight,
         rawLatexArtifact: /<latexit|sha1_base64|AA[A-Z0-9+/]{20,}|\\u0000|\u0000!/.test(text),
         overflow: element.scrollHeight > element.clientHeight + 2 || element.scrollWidth > element.clientWidth + 2,

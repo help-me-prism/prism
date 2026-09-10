@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
-import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
+import { onNoteWritten, readNoteSnapshot, saveNoteSnapshot, waitForNoteWrite, waitForNoteDirectoryWrites, type NoteSaveRequest, type NoteSnapshot } from './notes.js'
 import { atomicWriteFile } from './atomicFile.js'
+import { listNoteHistory, readNoteHistory, recoverNoteReplacements, listPendingNoteRecoveries, recoverPendingNote } from './noteReplacement.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
+import { wikiTargetResolver } from './wikiTargets.js'
 
 /**
  * `understood` is the one status nobody has to set. A note earns it the moment it holds a sentence only the
@@ -18,6 +20,7 @@ export type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
 export type KnowledgeNodeRecord = {
   id: string
   title: string
+  aliases?: string[]
   nodeType: KnowledgeNodeType
   status: KnowledgeStatus
   readingStatus?: KnowledgeReadingStatus
@@ -38,13 +41,60 @@ export type KnowledgeNodeRecord = {
   projects?: string[]
 }
 /** `body` writes the note directly; a caller that already knows what the note says has no use for a template. */
-export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus; body?: string }
+export type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus; body?: string; vaultId?: string }
 export type ApplyTemplateSectionsRequest = { nodeId: string; templateId: string; expectedRevision: string }
 export type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 export type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 export type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 
 const folderByType: Record<KnowledgeNodeType, string> = { paper: 'Papers', concept: 'Concepts', claim: 'Claims', insight: 'Insights', question: 'Questions', project: 'Projects' }
+
+export async function listKnowledgeRecoveries(libraryPath: string) {
+  const root = await fs.realpath(libraryPath)
+  const directories = new Set(Object.values(folderByType).map(folder => path.join(root, folder)))
+  const papers = path.join(root, 'papers')
+  directories.add(papers)
+  for (const entry of await fs.readdir(papers, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory()) directories.add(path.join(papers, entry.name))
+  }
+  const seen = new Set<string>()
+  const result = []
+  for (const directory of directories) {
+    const stat = await fs.lstat(directory).catch(() => undefined)
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) continue
+    const real = await fs.realpath(directory)
+    const relative = path.relative(root, real)
+    if (relative.startsWith('..') || path.isAbsolute(relative) || seen.has(fileKey(real))) continue
+    seen.add(fileKey(real))
+    for (const item of await listPendingNoteRecoveries(real)) {
+      const id = Buffer.from(JSON.stringify([root, relative, item.id])).toString('base64url')
+      result.push({ ...item, id, relativePath: path.join(relative, item.noteFile) })
+    }
+  }
+  return result
+}
+
+async function resolveKnowledgeRecovery(libraryPath: string, id: string) {
+  // Never resolve a renderer-supplied path; match against a fresh authoritative inventory.
+  const entry = (await listKnowledgeRecoveries(libraryPath)).find(item => item.id === id)
+  if (!entry) throw new Error('복구 항목이 바뀌었거나 노트가 이미 존재합니다. 목록을 다시 확인해 주세요.')
+  const [root, relative, transaction] = JSON.parse(Buffer.from(entry.id, 'base64url').toString('utf8')) as string[]
+  return { entry, directory: path.join(root, relative), transaction }
+}
+
+export async function readKnowledgeRecovery(libraryPath: string, id: string, kind: string) {
+  const { entry, directory, transaction } = await resolveKnowledgeRecovery(libraryPath, id)
+  if (!entry.kinds.some(value => value === kind)) throw new Error('복구할 버전을 확인해 주세요.')
+  return readNoteHistory(path.join(directory, entry.noteFile), `${transaction}-${kind}`)
+}
+
+export async function recoverKnowledgeNote(libraryPath: string, id: string, kind: string) {
+  const { entry, directory, transaction } = await resolveKnowledgeRecovery(libraryPath, id)
+  const validKind = entry.kinds.find(value => value === kind)
+  if (!validKind) throw new Error('복구할 버전을 확인해 주세요.')
+  await recoverPendingNote(directory, transaction, validKind)
+  invalidateKnowledgeCache(libraryPath)
+}
 const nodeTypes = new Set<KnowledgeNodeType>(Object.keys(folderByType) as KnowledgeNodeType[])
 const statuses = new Set<KnowledgeStatus>(['inbox', 'developing', 'understood', 'established', 'archived'])
 const readingStatuses = new Set<KnowledgeReadingStatus>(['to_read', 'reading', 'read', 'paused'])
@@ -55,7 +105,11 @@ const templateVariables = new Set(['authors', 'year', 'arxiv_id', 'doi', 'paper_
 const nodeIdPattern = /^[a-z]+-[a-zA-Z0-9._-]{6,80}$/
 const blockIdPattern = /^evidence-[a-zA-Z0-9_-]{1,100}$/
 
-function safeName(value: string) { return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Untitled' }
+function safeName(value: string) {
+  let name = value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140).replace(/[. ]+$/, '') || 'Untitled'
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `_${name}`
+  return name
+}
 function field(source: string, key: string) {
   const raw = source.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim()
   if (!raw) return undefined
@@ -68,7 +122,10 @@ function listField(source: string, key: string) {
   const index = lines.findIndex((line) => line.startsWith(`${key}:`))
   if (index < 0) return undefined
   const rest = lines[index].slice(key.length + 1).trim()
-  if (rest.startsWith('[')) return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  if (rest.startsWith('[')) {
+    try { const values: unknown = JSON.parse(rest); if (Array.isArray(values)) return values.filter((value): value is string => typeof value === 'string' && !!value.trim()) } catch { /* Unquoted YAML flow list. */ }
+    return rest.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean)
+  }
   if (rest) return [unquote(rest)]
   const items: string[] = []
   for (let cursor = index + 1; cursor < lines.length; cursor += 1) { const match = lines[cursor].match(/^\s+-\s*(.*)$/); if (!match) break; items.push(unquote(match[1])) }
@@ -100,6 +157,7 @@ function parseNode(source: string, fallbackPaperId?: string) {
   const claimOrigin = field(frontmatter[1], 'claim_origin') as ClaimOrigin
   const evidenceKind = field(frontmatter[1], 'evidence_kind') as EvidenceKind
   return {
+    aliases: listField(frontmatter[1], 'aliases'),
     claimOrigin: nodeType === 'claim' ? claimOrigins.has(claimOrigin) ? claimOrigin : 'paper' : undefined,
     evidenceKind: evidenceKinds.has(evidenceKind) ? evidenceKind : undefined,
     scopeDomain: field(frontmatter[1], 'scope_domain'), scopeRegime: field(frontmatter[1], 'scope_regime'),
@@ -178,6 +236,8 @@ async function markdownFiles(libraryPath: string) {
   const push = (filePath: string, paperFolder?: string) => { const key = fileKey(filePath); if (!seen.has(key)) { seen.add(key); files.push({ filePath, paperFolder }) } }
   const collect = async (directory: string, paperFolder?: string) => {
     let entries: Dirent[]
+    await waitForNoteDirectoryWrites(directory)
+    await recoverNoteReplacements(directory).catch(() => undefined)
     // A folder the researcher removed in Finder is simply empty, not a reason to fail every listing.
     try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return [] }
     for (const entry of entries) if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) push(path.join(directory, entry.name), paperFolder)
@@ -193,6 +253,7 @@ async function markdownFiles(libraryPath: string) {
 }
 
 async function readEntry(libraryPath: string, filePath: string, paperFolder?: string) {
+  await waitForNoteWrite(filePath)
   const key = fileKey(filePath)
   const cache = vaultCache(libraryPath)
   let stat: Awaited<ReturnType<typeof fs.stat>>
@@ -272,6 +333,17 @@ export async function listKnowledgeNodes(libraryPath: string): Promise<Knowledge
   return (await nodeEntries(libraryPath)).map((entry) => toRecord(libraryPath, entry)).sort((left, right) => right.modifiedAt - left.modifiedAt)
 }
 
+export async function listKnowledgeNoteHistory(libraryPath: string, id: string) {
+  const node = await findNode(libraryPath, id)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return listNoteHistory(node.filePath)
+}
+export async function readKnowledgeNoteHistory(libraryPath: string, id: string, entryId: string) {
+  const node = await findNode(libraryPath, id)
+  if (!node) throw new Error('지식 노트를 찾을 수 없습니다.')
+  return readNoteHistory(node.filePath, entryId)
+}
+
 /**
  * Everything the vault knows about itself, read once. Listing, backlinks and the digest each used to walk the
  * whole library on their own — and the digest walked it once per note, which is the same file read N³ times
@@ -284,24 +356,18 @@ export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnaps
   const records = entries.map((entry) => toRecord(libraryPath, entry))
   const contents = new Map<string, string>()
   const backlinks = new Map<string, KnowledgeBacklink[]>()
-  const byPath = new Map<string, string>()
-  const byBase = new Map<string, string[]>()
+  const resolveTarget = wikiTargetResolver(records)
   records.forEach((record, index) => {
     contents.set(record.id, entries[index].snapshot.content)
     backlinks.set(record.id, [])
-    const route = record.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-    byPath.set(route, record.id)
-    const base = route.split('/').at(-1)!
-    byBase.set(base, [...(byBase.get(base) ?? []), record.id])
   })
   records.forEach((source, index) => {
     const content = entries[index].snapshot.content
     // One entry per source-target pair: the first link is the one whose line gets quoted, as before.
     const claimed = new Set<string>()
     for (const link of linkTargets(content)) {
-      const normalized = link.target.toLocaleLowerCase()
-      const exact = byPath.get(normalized)
-      const targets = exact ? [exact] : normalized.includes('/') ? [] : byBase.get(normalized) ?? []
+      const target = resolveTarget(link.target)
+      const targets = target ? [target.id] : []
       for (const targetId of targets) {
         if (targetId === source.id || claimed.has(targetId)) continue
         claimed.add(targetId)
@@ -318,7 +384,7 @@ export async function readVaultSnapshot(libraryPath: string): Promise<VaultSnaps
 
 export function evidenceBlock(source: string, blockId: string) {
   const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n\\r?\\n|$)`))
+  const match = source.match(new RegExp(`(?:^|\\r?\\n\\r?\\n)(> \\[!evidence\\][^\\r\\n]*(?:\\r?\\n>[^\\r\\n]*)*\\r?\\n<!--\\s*prism-evidence:[^\\s]+\\s*-->\\r?\\n\\^${escaped})(?=\\r?\\n(?:\\r?\\n|$)|$)`))
   return match?.[1]
 }
 
@@ -357,7 +423,8 @@ export async function listKnowledgeBacklinks(libraryPath: string, targetId: stri
 
 export async function createKnowledgeNode(libraryPath: string, request: KnowledgeCreateRequest) {
   if (!nodeTypes.has(request.nodeType)) throw new Error('지식 노트 유형이 올바르지 않습니다.')
-  const title = safeName(request.title)
+  const title = request.title.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) || 'Untitled'
+  const fileName = safeName(title)
   const templates = await listTemplates(libraryPath)
   const template = request.body ? undefined
     : templates.find((item) => item.id === request.templateId && item.nodeType === request.nodeType)
@@ -365,14 +432,14 @@ export async function createKnowledgeNode(libraryPath: string, request: Knowledg
     ?? templates.find((item) => item.nodeType === request.nodeType)
   const id = `${request.nodeType}-${randomUUID().slice(0, 12)}`
   const directory = path.join(libraryPath, folderByType[request.nodeType])
-  let filePath = path.join(directory, `${title}.md`); let suffix = 2
-  while (true) { try { await fs.access(filePath); filePath = path.join(directory, `${title} ${suffix}.md`); suffix += 1 } catch { break } }
+  let filePath = path.join(directory, `${fileName}.md`); let suffix = 2
+  while (true) { try { await fs.access(filePath); filePath = path.join(directory, `${fileName} ${suffix}.md`); suffix += 1 } catch { break } }
   const values: Record<string, string> = { title, date: new Date().toISOString().slice(0, 10) }
   for (const [key, value] of Object.entries(request.variables ?? {})) {
     if (!templateVariables.has(key) || typeof value !== 'string' || value.length > 2_000) throw new Error('지원하지 않는 템플릿 변수이거나 값이 너무 깁니다.')
     values[key] = value
   }
-  const body = (request.body ?? template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
+  const body = request.body ?? (template?.content ?? '# {{title}}\n\n').replace(/\{\{([a-z_]+)\}\}/g, (token, key: string) => values[key] ?? token)
   if (request.status !== undefined && !statuses.has(request.status)) throw new Error('상태 값이 올바르지 않습니다.')
   const content = nodeMarkdown({ id, title, nodeType: request.nodeType, templateId: template?.id, templateVersion: template?.revision, body, status: request.status })
   await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' })

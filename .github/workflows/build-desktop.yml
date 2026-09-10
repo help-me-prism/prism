@@ -2,10 +2,16 @@ name: Build desktop apps
 
 on:
   push:
-    branches: [kys_enhanced]
+    # Feature branches are checked through pull_request; running both events
+    # cancels duplicate checks on the same commit and leaves a red PR status.
+    branches: [main]
   pull_request:
-    branches: [kys_enhanced]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   package:
@@ -37,6 +43,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:core
+      - run: node scripts/test-product-ui.mjs
+      - run: node scripts/smoke-electron-ui.mjs
       - run: npm run ${{ matrix.command }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -46,3 +55,10 @@ jobs:
           path: ${{ matrix.files }}
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: ${{ matrix.artifact }}-failure-screens
+          path: tmp/ui/*.png
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2,18 +2,19 @@ import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
+import { searchExcerpt } from './searchExcerpt.js'
+import { researchPassages, researchPassagesVersion } from './researchPassages.js'
 import { knowledgePlainText, listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 
-const indexVersion = 1
-const vectorSize = 384
-const indexRelativePath = '.prism/index/research-search-v1.json'
+const indexVersion = 3
+const indexRelativePath = '.prism/index/research-lexical-v3.json'
 
-type IndexEntry = { nodeId: string; revision: string; title: string; relativePath: string; plain: string; terms: Record<string, number>; vector: number[] }
-type ResearchIndex = { version: 1; signature: string; generatedAt: string; idf: Record<string, number>; entries: IndexEntry[] }
-export type ResearchSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number; textScore: number; semanticScore: number }
+type IndexEntry = { nodeId: string; revision: string; title: string; relativePath: string; plain: string; prose: string; terms: Record<string, number> }
+type ResearchIndex = { version: 3; signature: string; generatedAt: string; idf: Record<string, number>; entries: IndexEntry[] }
+export type ResearchSearchResult = { node: KnowledgeNodeRecord; excerpt: string; score: number; textScore: number; semanticScore: number; matchKind?: 'text' | 'semantic' | 'both' }
 
 function indexPath(libraryPath: string) { return path.join(libraryPath, ...indexRelativePath.split('/')) }
-function signature(nodes: KnowledgeNodeRecord[]) { return createHash('sha256').update(nodes.map((node) => `${node.id}:${node.revision}`).sort().join('\n')).digest('hex') }
+function signature(nodes: KnowledgeNodeRecord[]) { return createHash('sha256').update(`passages:${researchPassagesVersion}\n${nodes.map((node) => `${node.id}:${node.revision}`).sort().join('\n')}`).digest('hex') }
 function normalized(value: string) { return value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim() }
 function features(value: string) {
   const result: string[] = []
@@ -34,16 +35,6 @@ function features(value: string) {
   return result
 }
 function termCounts(value: string) { const counts: Record<string, number> = {}; for (const feature of features(value)) counts[feature] = (counts[feature] ?? 0) + 1; return counts }
-function featureHash(value: string) { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619) } return hash >>> 0 }
-function vector(terms: Record<string, number>, idf: Record<string, number>) {
-  const result = Array<number>(vectorSize).fill(0)
-  for (const [term, count] of Object.entries(terms)) {
-    const hash = featureHash(term); const weight = (1 + Math.log(count)) * (idf[term] ?? 1)
-    result[hash % vectorSize] += (hash & 0x80000000) === 0 ? weight : -weight
-  }
-  const magnitude = Math.sqrt(result.reduce((sum, value) => sum + value * value, 0))
-  return magnitude ? result.map((value) => value / magnitude) : result
-}
 async function atomicJson(filePath: string, value: unknown) {
   await atomicWriteFile(filePath, JSON.stringify(value))
 }
@@ -53,21 +44,20 @@ function validIndex(value: unknown, expectedSignature: string): value is Researc
   return index.version === indexVersion && index.signature === expectedSignature && Boolean(index.idf) && typeof index.idf === 'object' && !Array.isArray(index.idf)
     && Object.values(index.idf).every((weight) => typeof weight === 'number' && Number.isFinite(weight)) && Array.isArray(index.entries)
     && index.entries.every((entry) => typeof entry?.nodeId === 'string' && typeof entry.revision === 'string' && typeof entry.title === 'string' && typeof entry.relativePath === 'string'
-      && typeof entry.plain === 'string' && Boolean(entry.terms) && typeof entry.terms === 'object' && !Array.isArray(entry.terms)
-      && Object.values(entry.terms).every((count) => typeof count === 'number' && Number.isFinite(count) && count > 0)
-      && Array.isArray(entry.vector) && entry.vector.length === vectorSize && entry.vector.every((component) => typeof component === 'number' && Number.isFinite(component)))
+      && typeof entry.plain === 'string' && typeof entry.prose === 'string' && Boolean(entry.terms) && typeof entry.terms === 'object' && !Array.isArray(entry.terms)
+      && Object.values(entry.terms).every((count) => typeof count === 'number' && Number.isFinite(count) && count > 0))
 }
 async function buildIndex(libraryPath: string, nodes: KnowledgeNodeRecord[]) {
-  const drafts: Array<Omit<IndexEntry, 'vector'>> = []
+  const drafts: IndexEntry[] = []
   const documentFrequency: Record<string, number> = {}
   for (const node of nodes) {
     const snapshot = await readKnowledgeNode(libraryPath, node.id)
     const plain = knowledgePlainText(snapshot.content); const terms = termCounts(`${node.title} ${node.title} ${node.title} ${node.nodeType} ${node.relativePath} ${plain}`)
     for (const term of Object.keys(terms)) documentFrequency[term] = (documentFrequency[term] ?? 0) + 1
-    drafts.push({ nodeId: node.id, revision: node.revision, title: node.title, relativePath: node.relativePath, plain, terms })
+    drafts.push({ nodeId: node.id, revision: node.revision, title: node.title, relativePath: node.relativePath, plain, prose: researchPassages(snapshot.content).map(passage => passage.text).join('\n\n'), terms })
   }
   const idf = Object.fromEntries(Object.entries(documentFrequency).map(([term, frequency]) => [term, Math.log((nodes.length + 1) / (frequency + 1)) + 1]))
-  const index: ResearchIndex = { version: indexVersion, signature: signature(nodes), generatedAt: new Date().toISOString(), idf, entries: drafts.map((entry) => ({ ...entry, vector: vector(entry.terms, idf) })) }
+  const index: ResearchIndex = { version: indexVersion, signature: signature(nodes), generatedAt: new Date().toISOString(), idf, entries: drafts }
   await atomicJson(indexPath(libraryPath), index)
   return index
 }
@@ -76,28 +66,21 @@ async function currentIndex(libraryPath: string, force = false) {
   if (!force) try { const value = JSON.parse(await fs.readFile(indexPath(libraryPath), 'utf8')); if (validIndex(value, expectedSignature)) return { index: value, nodes, rebuilt: false } } catch { /* Rebuild missing or malformed derived data. */ }
   return { index: await buildIndex(libraryPath, nodes), nodes, rebuilt: true }
 }
-function excerpt(plain: string, query: string) {
-  const body = normalized(plain); const phrase = normalized(query); let match = body.indexOf(phrase)
-  if (match < 0) for (const word of phrase.split(' ').sort((left, right) => right.length - left.length)) { match = body.indexOf(word); if (match >= 0) break }
-  const start = match < 0 ? 0 : Math.max(0, match - 70); const end = match < 0 ? Math.min(plain.length, 190) : Math.min(plain.length, match + phrase.length + 120)
-  return `${start ? '…' : ''}${plain.slice(start, end)}${end < plain.length ? '…' : ''}`
-}
-
 export async function searchResearchKnowledge(libraryPath: string, input: string, limit = 30): Promise<ResearchSearchResult[]> {
   const query = input.trim(); if (!query || query.length > 200) throw new Error('검색어는 1자 이상 200자 이하로 입력해 주세요.')
-  const { index, nodes } = await currentIndex(libraryPath); const byId = new Map(nodes.map((node) => [node.id, node])); const queryTerms = termCounts(query); const queryWords = Object.keys(queryTerms).filter((term) => term.startsWith('w:')); const queryVector = vector(queryTerms, index.idf); const phrase = normalized(query)
+  const { index, nodes } = await currentIndex(libraryPath); const byId = new Map(nodes.map((node) => [node.id, node])); const queryTerms = termCounts(query); const queryWords = Object.keys(queryTerms).filter((term) => term.startsWith('w:')); const phrase = normalized(query)
   const results: ResearchSearchResult[] = []
   for (const entry of index.entries) {
     const node = byId.get(entry.nodeId); if (!node) continue
     const title = normalized(entry.title); const body = normalized(entry.plain); let textScore = title === phrase ? 1000 : title.startsWith(phrase) ? 620 : title.includes(phrase) ? 380 : body.includes(phrase) ? 180 : 0
     for (const [term, count] of Object.entries(queryTerms)) if (entry.terms[term]) textScore += Math.min(entry.terms[term], 6) * Math.min(count, 3) * (index.idf[term] ?? 1) * (term.startsWith('w:') ? 16 : 2)
     if (queryWords.length) { const coverage = queryWords.filter((term) => entry.terms[term]).length / queryWords.length; textScore += coverage * 80 + (coverage === 1 ? 140 : 0) }
-    const semanticScore = Math.max(0, entry.vector.reduce((sum, value, indexValue) => sum + value * queryVector[indexValue], 0))
-    const score = textScore + semanticScore * 220
-    if (textScore > 0 || semanticScore >= .04) results.push({ node, excerpt: excerpt(entry.plain, query), score, textScore, semanticScore })
+    const meaningful = queryWords.filter(term => !['w:the','w:a','w:an','w:of','w:to','w:and','w:in','w:is','w:for','w:that','w:with','w:how','w:why','w:does','w:do','w:can','w:my','w:i','w:what','w:are'].includes(term))
+    const matches = meaningful.filter(term => entry.terms[term]).length
+    if (title.includes(phrase) || body.includes(phrase) || (matches > 0 && (meaningful.length < 3 || matches / meaningful.length >= .35))) results.push({ node, excerpt: '', score: textScore, textScore, semanticScore: 0, matchKind: 'text' })
   }
-  return results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt).slice(0, Math.max(1, Math.min(limit, 100)))
+  const lexical = results.sort((left, right) => right.score - left.score || right.node.modifiedAt - left.node.modifiedAt)
+  const selected = lexical.slice(0, Math.max(1, Math.min(limit, 100)))
+  const plainById = new Map(index.entries.map(entry => [entry.nodeId, entry.prose]))
+  return selected.map(item => item.matchKind === 'text' ? { ...item, excerpt: searchExcerpt(plainById.get(item.node.id) ?? '', query) } : item)
 }
-
-
-

@@ -1,0 +1,92 @@
+/* Pretendard is bundled locally, including Korean and Latin glyphs.
+   UI type must not change PDF pixels, translated-paper metrics, math, or code. */
+:root {
+  --font-ui: "Pretendard Variable", Pretendard, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+  font-family: var(--font-ui);
+}
+
+input, select, textarea, button { font-family: var(--font-ui); }
+.brand, .repository-card strong, .paper-tree strong, .session-copy strong,
+.session-provider, .paper-title-mini strong, .reader-empty h1,
+.chat-welcome h2, .fatal-error h1, .template-manager > header h2,
+.paper-context-menu strong, .anchor-token, .anchor-popover strong,
+.slash-command-menu, .wiki-link-menu, .evidence-link-menu, .wiki-link-preview,
+.notes-rail button b { font-family: var(--font-ui); }
+
+.repository-card strong, .paper-tree strong, .session-copy strong {
+  font-size: 12px; line-height: 1.45; font-weight: 500;
+}
+.repository-card small, .nav-label, .paper-tree small,
+.paper-tree > small, .session-copy small {
+  font-size: 11px; line-height: 1.4; letter-spacing: 0;
+}
+.nav-label { font-weight: 550; color: var(--muted); }
+.nav-item { font-size: 13px; }
+.document-title { font-size: 12px; }
+.chat-welcome h2, .reader-empty h1 { font-weight: 600; letter-spacing: -.025em; }
+
+.paper-toolbar button, .translation-control button,
+.translation-scope, .translation-format, .model-bar select {
+  font-size: 12px;
+}
+.page-nav > span, .zoom-control select, .pane-note,
+.translation-meter strong, .model-bar label > span,
+.paper-context-bar > button, .paper-context-menu small,
+.usage-label, .usage-value, .usage-meter small {
+  font-size: 11px; letter-spacing: 0;
+}
+.paper-context-menu strong { font-size: 12px; line-height: 1.4; }
+.paper-context-bar > button { min-height: 28px; }
+.usage-label { font-weight: 500; }
+
+.suggestions button { font-size: 12px; line-height: 1.5; padding-block: 9px; }
+.message-label { font-size: 11px; font-weight: 550; letter-spacing: .02em; }
+.message-body { font-family: var(--font-ui); font-size: 14px; line-height: 1.75; }
+.message-body h1, .message-body h2, .message-body h3, .message-body h4 {
+  font-family: var(--font-ui); font-weight: 650; letter-spacing: -.015em;
+}
+.message-body h3, .message-body h4 { font-size: 14px; }
+.message-body table { font-size: 12px; }
+.anchor-token { font-size: 11px; }
+.paper-context-menu header { font-size: 12px; letter-spacing: 0; color: var(--ink); }
+.paper-context-hint { margin: 0; padding: 0 7px 7px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.message-actions button { min-height: 28px; border-radius: 5px; font-size: 11px; }
+.message-actions span { font-size: 11px; }
+
+.note-picker input { font-size: 13px; min-height: 32px; }
+.picker-types button { height: 28px; font-size: 12px; }
+.picker-list strong { font-size: 13px; line-height: 1.55; }
+.picker-list small { font-size: 11px; line-height: 1.5; }
+.picker-list p { font-size: 12px; line-height: 1.65; }
+.note-picker > footer button { height: auto; min-height: 32px; font-size: 12px; }
+.side-connected .side-list { max-height: 240px; overflow-y: auto; }
+.side-connected .side-row-title { font-size: 13px; line-height: 1.5; }
+.side-connected .side-list small { font-size: 11px; }
+.connection-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+/* Reflow is a screen-reading view. Keep the source-like serif metrics confined
+   to paper mode; source canvases retain their actual scientific glyphs. */
+.reading-translation.paper-format { font-weight: 500; }
+.reading-translation:not(.paper-format) {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  line-height: 1.8;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.reading-translation:not(.paper-format) .reading-block.heading {
+  font-family: var(--font-ui);
+  font-weight: 650;
+  line-height: 1.5;
+  letter-spacing: -.015em;
+}
+.reading-translation:not(.paper-format) .reading-block.caption {
+  font-size: .9em;
+  line-height: 1.65;
+}
+
+/* Notes are editable screen prose, with the same locally bundled type as UI. */
+.markdown-editor .cm-live-edit { font-family: var(--font-ui); font-size: 14px; line-height: 1.8; }
+.cm-live-edit .cm-md-heading { font-family: var(--font-ui); font-weight: 600; line-height: 1.45; letter-spacing: -.02em; }
+.cm-live-edit .cm-md-h1 { font-size: 24px; }
+.cm-live-edit .cm-md-h2 { font-size: 19px; }

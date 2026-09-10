@@ -1,3 +1,5 @@
+> 2026-09-10 감사: 아래 역사적 완료 표시는 당시 회귀/화면 검사 범위입니다. 다국어 의미 검색, 실제 모델의 과학적 제안 정확성, Obsidian과의 장시간 동시 쓰기 보존은 아직 완료로 입증되지 않았습니다.
+
 # 연구 지식 시스템 구현 상태
 
 이 문서는 `RESEARCH_KNOWLEDGE_SYSTEM.md`의 요구사항을 실제 코드와 회귀 테스트에 연결하는 작업표다. 완료 표시는 자동 테스트뿐 아니라 비단순 UI의 Electron 화면 확인까지 끝난 경우에만 붙인다.
@@ -17,7 +19,7 @@
 | Claim / Insight / Question 승격과 근거 보존 | 완료 | `notes-evidence-promotion.png` |
 | 로컬 관계 그래프와 연구 현황 데이터 보기 | 완료 | `notes-local-graph.png`, `notes-knowledge-data-views.png` |
 | Obsidian 파일·제목·block 이동과 경로 호환 | 완료 | `npm run test:notes-ui`, `notes-obsidian-navigation.png` |
-| 전문·로컬 임베딩·그래프 근거 검색 | 완료 | `notes-full-text-search.png` |
+| 전문·문자 유사도·그래프 근거 검색 | 기반 구현, 다국어 의미 회수 미검증 | `researchSearch.ts`는 단어/문자 n-gram feature hash이며 학습된 임베딩 모델이 아님 |
 | AI 중복·관계·공백 제안과 승인/거절 | 완료 | `notes-ai-suggestions.png`, `notes-ai-relation-review.png` |
 | 로컬 MCP 일곱 도구와 Reader 앵커 이동 | 완료 | `npm run test:mcp` |
 

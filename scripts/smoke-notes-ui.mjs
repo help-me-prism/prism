@@ -20,6 +20,7 @@ type: paper
 prism_id: "paper-2401.01234"
 arxiv_id: "2401.01234"
 title: "Linked Paper Fixture"
+aliases: ["Former linked title"]
 reading_status: to_read
 ---
 
@@ -54,7 +55,7 @@ await fs.writeFile(notePath, initialNote, 'utf8')
 await fs.writeFile(linkedNotePath, linkedNote, 'utf8')
 await fs.writeFile(path.join(libraryPath, '.prism', 'anchors', 'test.0001.json'), JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [
   { id: 'heading-p1-introduction', type: 'heading', page: 1, source: 'Introduction' },
-  { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+  { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching. The input is $x_t$.' },
   { id: 'equation-p2-3', type: 'equation', page: 2, source: 'L_simple = E[||epsilon - epsilon_theta(x_t,t)||^2]' },
   { id: 'table-p3-1', type: 'table', page: 3, source: 'Model | FID\nDDPM | 3.17' },
 ] }, null, 2), 'utf8')
@@ -126,9 +127,25 @@ async function connect(page) {
   return { socket, send, evaluate, exceptions }
 }
 function assert(condition, message) { if (!condition) throw new Error(message) }
+async function readPublishedNote(file) {
+  const deadline = Date.now() + 2000
+  while (true) {
+    try { return await fs.readFile(file, 'utf8') } catch (error) {
+      if (error?.code !== 'ENOENT' || Date.now() >= deadline) throw error
+      await sleep(40)
+    }
+  }
+}
 async function waitFor(check, message, timeout = 5000) {
   const deadline = Date.now() + timeout
-  while (Date.now() < deadline) { if (await check()) return; await sleep(80) }
+  while (Date.now() < deadline) {
+    try { if (await check()) return } catch (error) {
+      // The transactional writer briefly moves the old file before publishing its replacement.
+      // Retry only that observed filesystem gap; all other failures remain immediate.
+      if (error?.code !== 'ENOENT') throw error
+    }
+    await sleep(80)
+  }
   throw new Error(message)
 }
 
@@ -140,7 +157,7 @@ async function replaceEditor(connection, content, selector = '.cm-content') {
 }
 
 async function pressKey(connection, key, code, modifiers = 0) {
-  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'Tab' ? 9 : key === 'End' ? 35 : 0
+  const windowsVirtualKeyCode = key.length === 1 ? key.toUpperCase().charCodeAt(0) : key === 'Enter' ? 13 : key === 'Tab' ? 9 : key === 'End' ? 35 : key === 'Backspace' ? 8 : 0
   const eventKey = key.length === 1 && (modifiers & 8) ? key.toUpperCase() : key
   await connection.send('Input.dispatchKeyEvent', { type: 'keyDown', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
   await connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: eventKey, code, windowsVirtualKeyCode, nativeVirtualKeyCode: windowsVirtualKeyCode, modifiers })
@@ -201,17 +218,30 @@ async function setPropertyText(connection, label, value) {
   await openProperties(connection)
   await connection.evaluate(`(() => {
     const field = document.querySelector('.prop-text[aria-label="' + ${JSON.stringify(label)} + '"]');
-    if (!field) throw new Error('missing property field');
+    if (!field || field.disabled) throw new Error('missing or disabled property field');
     field.focus();
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.blur();
+    field.select();
   })()`)
+  // Real input and blur occur in separate browser tasks. Synthetic input + blur
+  // in one evaluate can call onBlur before React commits the new draft closure.
+  await connection.send('Input.insertText', { text: value })
+  await waitFor(() => connection.evaluate(`document.activeElement?.getAttribute('aria-label') === ${JSON.stringify(label)} && document.activeElement.value === ${JSON.stringify(value)}`), 'Property typing did not reach the focused field.')
+  await connection.evaluate(`document.activeElement.blur()`)
 }
 const chooseSelect = (connection, label, value) => setField(connection, 'select', label, value, 'change')
 
 try {
   mainConnection = await connect(await waitForPage('Prism'))
+  // Regression: request a source note while its window does not exist yet. The
+  // request must survive both preload→React handoff and initial vault loading.
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-test.0001')`)
+  notesConnection = await connect(await waitForPage('Prism Notes'))
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture'`), 'First-window source-note navigation was lost during startup.', 15000)
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-2401.01234')`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'An existing Notes window did not navigate to the next requested source note.')
+  await notesConnection.evaluate(`(() => { setTimeout(() => window.close(), 0); return true })()`)
+  notesConnection.socket.close()
+  await waitFor(async () => !(await pages()).some(page => page.title === 'Prism Notes'), 'Notes test window did not close.')
   await mainConnection.evaluate('window.prism.openNotes()')
   notesConnection = await connect(await waitForPage('Prism Notes'))
   await notesConnection.evaluate(`(() => { window.__vaultEvents = []; window.prism.onVaultChanged((event) => window.__vaultEvents.push(event)) })()`)
@@ -230,15 +260,32 @@ try {
   })`)
   const shellState = JSON.parse(shell)
   assert(shellState.rail.includes('논문 리더') && shellState.rail.includes('정리 대기열') && shellState.rail.includes('검색'), `The activity rail is incomplete: ${shell}`)
-  assert(shellState.folders.includes('papers'), `The tree did not group nodes by folder: ${shell}`)
+  assert(shellState.folders.includes('논문'), `The tree did not group nodes by folder: ${shell}`)
   assert(shellState.side, 'The connections panel is not visible by default.')
   assert(shellState.status.includes('노드 2'), `The status bar did not count nodes: ${shell}`)
   assert(shellState.modes === 0, 'A retired mode bar or knowledge modal is still rendered.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-start-papers button')) && document.querySelector('.notes-start').textContent.includes('Obsidian')`), 'The note start screen did not offer a real paper note and vault guidance.')
+
+  await notesConnection.evaluate(`(() => { const trigger = document.querySelector('button[aria-label="노트 설정"]'); trigger.focus(); trigger.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-settings-dialog select'))`), 'Notes settings did not open inside the Notes window.')
+  assert(await notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-settings-dialog button')].find(button => button.textContent.includes('보관함 전체 정리') && !button.disabled))`), 'Free vault refresh must be discoverable in Notes settings.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-settings-dialog button')].find(button => button.textContent.includes('보관함 전체 정리')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.body.innerText.includes('AI는 사용하지 않았습니다')`), 'Free vault refresh did not finish with a visible result.')
+  for (const theme of ['dark', 'light']) {
+    await notesConnection.evaluate(`(() => { const select = document.querySelector('.note-settings-dialog select'); select.value = '${theme}'; select.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+    await waitFor(() => notesConnection.evaluate(`document.documentElement.dataset.theme === '${theme}'`), 'Notes theme did not update.')
+    await waitFor(() => mainConnection.evaluate(`document.documentElement.dataset.theme === '${theme}'`), 'Notes theme did not synchronize to Reader.')
+  }
+  await pressKey(notesConnection, 'Escape', 'Escape')
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-settings-dialog')`), 'Escape did not close Notes settings.')
+  assert(await notesConnection.evaluate(`document.activeElement?.getAttribute('aria-label') === '노트 설정'`), 'Notes settings did not return focus to its trigger.')
+  assert(await notesConnection.evaluate(`(async () => (await window.prism.getSettings()).libraryPath)()`) === libraryPath, 'Opening theme settings changed the note vault.')
 
   // ---------- opening a note ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture'`), 'Clicking a tree row did not open the note.')
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-body .cm-md-h1'))`), 'The document did not render Markdown as a live document.')
+  assert(!await notesConnection.evaluate(`Array.from(document.querySelectorAll('.note-body .cm-md-h1 span')).some(span => getComputedStyle(span).textDecorationLine.includes('underline'))`), 'Live headings must not inherit syntax-editor underlines after mode reconfiguration.')
   const opened = await notesConnection.evaluate(`JSON.stringify({
     tabs: [...document.querySelectorAll('.notes-tab')].map((tab) => tab.textContent.replace(/\\s+/g, ' ').trim()),
     props: [...document.querySelectorAll('.note-props td:first-child')].map((cell) => cell.textContent),
@@ -255,12 +302,30 @@ try {
   await notesConnection.send('Page.captureScreenshot', { format: 'png' }).then(async (shot) => { await fs.mkdir(path.resolve('tmp/ui'), { recursive: true }); await fs.writeFile(path.resolve('tmp/ui/notes-shell.png'), Buffer.from(shot.data, 'base64')) })
 
   // ---------- editing round-trips exact Markdown and autosaves ----------
+  // A first toolbar insertion must preserve the title and show the link alias,
+  // even though the researcher has never placed a caret in this note's body.
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.trim() === '링크').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('Linked Paper Fixture')))`), 'The toolbar link picker did not offer the other paper.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('Linked Paper Fixture')).click()`)
+  await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('|Linked Paper Fixture]]'), 'Toolbar link was not saved.')
+  const firstLink = await fs.readFile(notePath, 'utf8')
+  assert(firstLink.indexOf('# Research note') < firstLink.indexOf('|Linked Paper Fixture]]') && firstLink.includes('# Research note\n'), 'Toolbar link damaged or preceded the note title.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.innerText.includes('Linked Paper Fixture') && !document.querySelector('.note-body .cm-content')?.innerText.includes('[[papers/2401.01234')`), 'The newly inserted link exposed its internal path instead of its alias.')
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
-  await notesConnection.send('Input.insertText', { text: '\n\n연구 메모 한 줄.' })
+  await notesConnection.send('Input.insertText', { text: '\n\n연구 메모 한 줄.\n\n[[Former linked title|Historical label]]' })
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('연구 메모 한 줄.'), 'Autosave did not write the edit to disk.', 8000)
   const roundTrip = await fs.readFile(notePath, 'utf8')
   assert(roundTrip.startsWith('---\ntype: paper') && roundTrip.includes('> [!note] Evidence') && roundTrip.includes('| Item | Value |') && roundTrip.includes('<!-- keep-this-comment -->'), `Editing rewrote untouched Markdown:\n${roundTrip}`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-save')?.textContent.includes('저장됨')`), 'The save indicator stayed busy after autosave.', 8000)
+
+  // A visible label is not the link target. The old title resolves through the
+  // target note's aliases to its current title for both hover and navigation.
+  await notesConnection.evaluate(`document.querySelector('.note-doc-title h1').focus(); document.querySelector('[data-wiki-target="Former linked title"]').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.wiki-link-preview strong')?.textContent === 'Linked Paper Fixture'`), 'An old-title alias did not show the current note in its hover preview.')
+  await notesConnection.evaluate(`document.querySelector('[data-wiki-target="Former linked title"]').dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}))`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'An old-title alias with a different visible label did not open its existing note.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.notes-tab [role=tab]')].find(button=>button.textContent.includes('Editor fixture')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'The original note did not reopen after alias navigation.')
 
   // Unresolved [[links]] become inbox concept stubs once editing settles.
   // Wait for what is being asserted, not for the file to exist: a stub is created and then given its
@@ -340,7 +405,9 @@ try {
   await notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.getAttribute('aria-expanded') === 'false'`), 'The section fold control did not collapse.')
   assert(await fs.readFile(notePath, 'utf8') === beforeFold, 'Folding a section changed the stored Markdown.')
-  await notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.click()`)
+  await notesConnection.evaluate(`document.querySelector('button.cm-section-fold-summary').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.cm-section-fold-toggle')?.getAttribute('aria-expanded') === 'true'`), 'Clicking the visible folded summary did not reveal the content.')
+  assert(await fs.readFile(notePath, 'utf8') === beforeFold, 'Expanding the summary changed the stored Markdown.')
 
   // ---------- inline link and evidence autocomplete ----------
   await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
@@ -355,11 +422,18 @@ try {
   // ---------- evidence cards from the toolbar picker ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.textContent.includes('근거')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-picker .picker-list button').length >= 4`), 'The evidence picker did not list stored anchors.')
+  await notesConnection.evaluate(`document.querySelector('.note-picker input').focus()`)
+  await notesConnection.send('Input.insertText', { text: 'no-such-evidence-round25' })
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-picker [role="status"]')?.textContent.includes('검색어와 일치하는')`), 'A failed evidence search was confused with an empty library.')
+  await notesConnection.evaluate(`document.querySelector('.note-picker input').select()`)
+  await pressKey(notesConnection, 'Backspace', 'Backspace')
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-picker .picker-list button').length >= 4`), 'Clearing the query did not restore existing evidence.')
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find((button) => button.textContent.includes('denoising score matching')).click()`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('^evidence-test-0001-sentence-p1-1'), 'Choosing an anchor did not insert an evidence card.', 8000)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.note-evidence .evidence-row').length >= 1`), 'The evidence list did not show the inserted card.')
   const evidenceMarkup = await fs.readFile(notePath, 'utf8')
   assert(evidenceMarkup.includes('> [!evidence] 문장 · Editor fixture · p.1 · 문장1') && evidenceMarkup.includes('prism://paper/test.0001?anchor=sentence-p1-1'), 'The evidence card lost its Obsidian-readable form.')
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.cm-rendered-evidence .katex math'))`), 'The saved evidence card displayed inline math delimiters instead of a rendered expression.')
 
   // ---------- properties write frontmatter ----------
   await chooseSelect(notesConnection, '논문 읽기 상태', 'read')
@@ -401,10 +475,10 @@ try {
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('청크가 길면'))`), 'A note created outside the window did not appear in the tree.', 8000)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('노이즈 예측')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent.includes('노이즈 예측')`), 'The first claim did not reopen.')
-  await notesConnection.evaluate(`document.querySelector('.prop-add button').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.trim() === '관계').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-picker .picker-types'))`), 'The relation picker did not open.')
   const relationChoices = await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-types button')].map((button) => button.textContent)`)
-  assert(JSON.stringify(relationChoices) === JSON.stringify(['사용함', '지지함', '반박함', '확장함', '질문 제기', '답함']), `The claim relation picker offered the wrong model: ${JSON.stringify(relationChoices)}`)
+  assert(JSON.stringify(relationChoices) === JSON.stringify(['관련', '사용함', '지지함', '반박함', '확장함', '질문 제기', '답함']), `The claim relation picker offered the wrong model: ${JSON.stringify(relationChoices)}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-types button')].find((button) => button.textContent === '반박함').click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find((button) => button.textContent.includes('청크가 길면')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-scope-warning')?.textContent.includes('도메인이 다릅니다')`), 'Contradicting claims with different scope did not warn.')
@@ -414,15 +488,19 @@ try {
   await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.rel-chip')].some((chip) => chip.textContent.includes('청크가 길면'))`), 'The confirmed contradiction did not appear as a relation chip.', 8000)
   // A relation is a sidecar and a line in a generated section, not a callout copied into the note: it used
   // to be written once per edge, at the bottom, and only into the note the edge started from.
-  const claimAfterRelation = await fs.readFile(claimPath, 'utf8')
+  const claimAfterRelation = await readPublishedNote(claimPath)
   assert(!claimAfterRelation.includes('> [!abstract] 관계') && !claimAfterRelation.includes('prism-relation:'), `A relation was copied into the note:
 ${claimAfterRelation}`)
   await waitFor(async () => (await fs.readFile(claimPath, 'utf8')).includes('<!-- prism:auto against -->'), 'The approved contradiction did not reach the generated section.', 10000)
-  assert((await fs.readFile(claimPath, 'utf8')).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
+  assert((await readPublishedNote(claimPath)).includes('청크가 길면'), 'The generated section does not name what the claim is contradicted by.')
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-body .cm-content').innerText.includes('scope_domain:')`), 'Updating note properties moved the editor into raw YAML metadata.')
+
   // ---------- graph and backlinks in the standing panel ----------
+  assert(await notesConnection.evaluate(`document.querySelector('.side-graph-toggle')?.getAttribute('aria-expanded') === 'false' && !document.querySelector('.side-graph .graph-canvas')`), 'The graph occupied the connection list area before the user requested it.')
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
   // The layout has to put the note the panel is about in the middle, whatever else it decides.
@@ -431,7 +509,7 @@ ${claimAfterRelation}`)
     return circle ? Math.hypot(Number(circle.getAttribute('cx')) - 160, Number(circle.getAttribute('cy')) - 125) : -1
   })()`)
   assert(centreOffset >= 0 && centreOffset < 1, `The open note is not at the centre of its own graph: ${centreOffset}`)
-  await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '2홉').click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.side-chips button')].find((button) => button.textContent === '간접 연결').click()`)
   await sleep(400)
   const graphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-panel.png'), Buffer.from(graphShot.data, 'base64'))
@@ -450,20 +528,22 @@ ${claimAfterRelation}`)
   await fs.writeFile(path.resolve('tmp/ui/notes-graph-view.png'), Buffer.from(fullGraphShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('노트')).click()`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Score matching')).click()`)
-  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-links .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The backlink panel did not show the note that links here.', 8000)
+  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.side-connected .side-row-title')].some((row) => row.textContent.includes('Editor fixture'))`), 'The connected-note list did not show the note that links here.', 8000)
+  assert(await notesConnection.evaluate(`(() => { const rows = [...document.querySelectorAll('.side-connected button')].filter(row => row.textContent.includes('Editor fixture')); return rows.length === 1 && rows[0].textContent.includes('이 노트를 언급') && Boolean(rows[0].querySelector('.connection-excerpt')) && !document.querySelector('.side-links') })()`), 'The backlink was duplicated or lost its readable mention context.')
 
   // ---------- reading-time capture reaches the paper note ----------
   const captureResult = await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'evidence', paperId: 'test.0001', anchorId: 'equation-p2-3', memo: '노이즈 예측은 score matching이다 — 검증 필요' })`)
   assert(captureResult.blockId === 'evidence-test-0001-equation-p2-3', `Reader capture did not return the evidence block id: ${JSON.stringify(captureResult)}`)
-  await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'chat', paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\\n\\n둘째 줄', provider: 'codex', model: 'smoke-model' })`)
+  await notesConnection.evaluate(`window.prism.capturePaperNote({ kind: 'chat', libraryPath: ${JSON.stringify(libraryPath)}, paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\\n\\n둘째 줄', provider: 'codex', model: 'smoke-model' })`)
   const captured = await fs.readFile(notePath, 'utf8')
   assert(captured.includes('검증 필요') && captured.includes('> [!ai]- AI 답변') && captured.includes('<!-- prism-ai-answer:'), `Capture did not land in the paper note:\n${captured}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find((button) => button.textContent.includes('Editor fixture')).click()`)
-  // CodeMirror renders only the slice it believes is visible, and setting the container's scrollTop does not
-  // make it look further. Scrolling to the last line it has rendered does, and repeating that walks the
-  // viewport to the end of the document a screen at a time.
+  // The document scrolls in its outer note pane, while CodeMirror virtualizes its lines. Scrolling the
+  // last currently mounted line can stall at a viewport boundary before Notes. Use the same section
+  // navigation a reader uses; this also verifies that the newly captured section reached React state.
+  await waitFor(() => notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('메모 보기')))`), 'The captured Notes section did not become available in the open note.', 10000)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('메모 보기')).click()`)
   await waitFor(async () => {
-    await notesConnection.evaluate(`(() => { const lines = document.querySelectorAll('.note-body .cm-line'); lines[lines.length - 1]?.scrollIntoView({ block: 'end' }) })()`)
     await sleep(120)
     return notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('검증 필요')`)
   }, 'The open note did not reload the externally captured memo.', 20000)
@@ -476,16 +556,36 @@ ${claimAfterRelation}`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-auto-read') && ![...document.querySelectorAll('.tree-file')].some((button) => button.textContent.includes('Editor fixture') && button.querySelector('.tree-unread'))`), 'Marking a note as read did not clear it.', 8000)
 
   // ---------- curation queue: promote a memo into a claim ----------
+  const pendingEvidence = { paperId: 'test.0001', anchorId: 'equation-p2-3', type: 'equation', page: 2, label: '수식1' }
+  await notesConnection.evaluate(`(async () => {
+    const snapshot = await window.prism.readKnowledgeNode('paper-test.0001')
+    await window.prism.createKnowledgeRelation({ sourceId: 'paper-test.0001', targetId: ${JSON.stringify(secondClaim)}, type: 'supports', creator: 'ai', evidenceAnchor: ${JSON.stringify(pendingEvidence)}, expectedRevision: snapshot.revision })
+  })()`)
+  await mainConnection.evaluate(`window.__curationEvidence = null; window.__stopCurationEvidence = window.prism.onOpenEvidenceAnchor(anchor => { window.__curationEvidence = anchor })`)
   await notesConnection.evaluate(`document.querySelector('.notes-rail button[aria-label="정리 대기열"]').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-queue')) && document.querySelector('.curation-queue')?.textContent.includes('검증 필요')`), 'The curation queue did not list the captured memo.', 10000)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-relation-evidence button'))`), 'The pending relation did not expose its PDF evidence button.')
+  assert(await notesConnection.evaluate(`(() => {
+    const evidence = document.querySelector('.curation-relation-evidence button')
+    const source = evidence.closest('.curation-relation-detail').querySelector('button[title="출발 노트 열기"]')
+    return source && source !== evidence && !source.contains(evidence) && !evidence.contains(source) && !evidence.parentElement.closest('button') && evidence.textContent.includes('원문 근거 열기')
+  })()`), 'PDF evidence and source-note navigation must be separate non-nested buttons.')
+  const evidencePoint = await notesConnection.evaluate(`(() => { const button = document.querySelector('.curation-relation-evidence button'); button.scrollIntoView({ block: 'center' }); const rect = button.getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } })()`)
+  await notesConnection.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...evidencePoint, button: 'left', clickCount: 1 })
+  await notesConnection.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...evidencePoint, button: 'left', clickCount: 1 })
+  await waitFor(() => mainConnection.evaluate(`Boolean(window.__curationEvidence)`), 'Clicking pending relation evidence did not reach the Reader event.')
+  const receivedEvidence = await mainConnection.evaluate('window.__curationEvidence')
+  assert(Object.keys(receivedEvidence).length === Object.keys(pendingEvidence).length && Object.entries(pendingEvidence).every(([key, value]) => receivedEvidence[key] === value), `The relation evidence click changed its PDF anchor identity or location: ${JSON.stringify(receivedEvidence)}`)
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.curation-queue'))`), 'The PDF evidence button opened a note instead of keeping the review queue available.')
+  await mainConnection.evaluate('window.__stopCurationEvidence(); delete window.__stopCurationEvidence; delete window.__curationEvidence')
   const queueShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
   await fs.writeFile(path.resolve('tmp/ui/notes-curation-queue.png'), Buffer.from(queueShot.data, 'base64'))
   await notesConnection.evaluate(`[...document.querySelectorAll('.curation-item')].find((item) => item.textContent.includes('검증 필요')).querySelector('.curation-actions button').click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.curation-form input[aria-label="승격 노트 제목"]'))`), 'Choosing promotion did not open the title form.')
   await setInput(notesConnection, '승격 노트 제목', '노이즈 예측은 가중 score matching이다 (스모크)')
-  await notesConnection.evaluate(`[...document.querySelectorAll('.curation-form-actions button')].find((button) => button.textContent.includes('승격하기')).click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('.curation-form-actions button')].find((button) => button.textContent.includes('노트로 만들기')).click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent.includes('(스모크)')`), 'Promoting a memo did not open the new claim.', 10000)
-  const promoted = await fs.readFile(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다 (스모크).md'), 'utf8')
+  const promoted = await readPublishedNote(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다 (스모크).md'))
   assert(promoted.includes('claim_origin: paper') && promoted.includes('^evidence-test-0001-equation-p2-3') && promoted.includes('> [[papers/test.0001/test.0001|Editor fixture]]'), `The promoted claim lost its evidence or source link:\n${promoted}`)
   await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes('검증 필요 → [[Claims/노이즈 예측은 가중 score matching이다 (스모크)|'), 'The paper note was not marked with the promoted claim link.', 8000)
 
@@ -498,6 +598,7 @@ ${claimAfterRelation}`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.side-citations'))`), 'A paper note did not show the citation layer.', 8000)
   // Nothing fetched means nothing rendered: the header and its refresh button are the whole section.
   assert(await notesConnection.evaluate(`document.querySelectorAll('.side-citations .citation-row').length === 0 && !document.querySelector('.side-citations .citation-meta')`), 'The citation layer fetched without an explicit refresh.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.side-citations .side-list') && Boolean(document.querySelector('.side-citations .citation-empty-summary')) && Boolean(document.querySelector('.side-citations .side-refresh')) && document.querySelector('.side-citations').getBoundingClientRect().height < 65`), 'Empty citations occupied more than a compact status row or lost explicit refresh.')
 
   // ---------- Obsidian navigation keeps native paths ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.getAttribute('aria-label') === '노트 메뉴').click()`)
@@ -511,9 +612,13 @@ ${claimAfterRelation}`)
   // Prism used to find this out by re-reading the file on a timer; now the main process names the file that
   // moved, so this is what proves an open note still notices Obsidian writing underneath it.
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'The note never reached a saved state before the external write.', 8000)
+  // Inspect the end where this external edit will arrive. CodeMirror may omit
+  // off-screen lines from the DOM even after its document has updated correctly.
+  await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
+  await pressKey(notesConnection, 'End', 'End', undoModifier)
   const followLine = '외부 편집기가 조용히 추가한 줄.'
   await fs.writeFile(notePath, `${await fs.readFile(notePath, 'utf8')}\n\n${followLine}\n`, 'utf8')
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content').textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes(${JSON.stringify(followLine)})`), 'An external change to a clean note never reached the open editor.', 10000)
   assert(!(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-conflict'))`)), 'A note with nothing unsaved raised a conflict instead of following the disk.')
 
   // ---------- external change and conflict resolution ----------
@@ -535,10 +640,12 @@ ${claimAfterRelation}`)
 
   // ---------- search ----------
   await setInput(notesConnection, '노트 검색', '역확산')
-  await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].length === 1 && document.querySelector('.tree-file').textContent.includes('역확산')`), 'Typing did not filter the tree.')
+  // Contextual creation also mentions the concept in the connected paper's
+  // preview, so both are legitimate matches. Unrelated notes must disappear.
+  await waitFor(() => notesConnection.evaluate(`(() => { const rows = [...document.querySelectorAll('.tree-file')]; return rows.some(row => row.textContent.includes('역확산')) && rows.every(row => row.textContent.includes('역확산')) })()`), 'Typing did not filter the tree to matching titles or previews.')
   await notesConnection.evaluate(`(() => { const input = document.querySelector('input[aria-label="노트 검색"]'); input.focus(); })()`)
   await pressKey(notesConnection, 'Enter', 'Enter')
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.tree-folder.is-static')?.textContent.includes('의미 검색')`), 'Enter did not run the semantic search.', 8000)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.tree-folder.is-static')?.textContent.includes('본문 검색')`), 'Enter did not run the semantic search.', 8000)
   await pressKey(notesConnection, 'Escape', 'Escape')
 
   // ---------- templates remain reachable ----------
@@ -547,9 +654,217 @@ ${claimAfterRelation}`)
   await notesConnection.evaluate(`document.querySelector('button[aria-label="템플릿 닫기"]').click()`)
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.template-manager')`), 'The template manager did not close.')
 
+  // ---------- persisted note history: preview and restore without losing the current version ----------
+  // Keep this last: restoring an older document intentionally changes the fixture used above.
+  await setInput(notesConnection, '노트 검색', '')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.tree-file')].find(button => button.textContent.includes('Editor fixture')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'History fixture did not open.')
+  const historyOlder = 'HISTORY_OLDER_SENTINEL_9324'
+  const historyCurrent = 'HISTORY_CURRENT_SENTINEL_9324'
+  for (const sentinel of [historyOlder, historyCurrent]) {
+    await notesConnection.evaluate(`document.querySelector('.note-body .cm-content').focus()`)
+    await notesConnection.send('Input.insertText', { text: `\n\n${sentinel}\n` })
+    await waitFor(async () => (await fs.readFile(notePath, 'utf8')).includes(sentinel) && await notesConnection.evaluate(`Boolean(document.querySelector('.note-save.is-saved'))`), 'History fixture edit did not finish saving.', 10000)
+  }
+  const historyEntries = await notesConnection.evaluate(`(async () => {
+    const entries = await window.prism.listNoteHistory('paper-test.0001')
+    return Promise.all(entries.map(async entry => ({ ...entry, content: await window.prism.readNoteHistory('paper-test.0001', entry.id) })))
+  })()`)
+  const restoreIndex = historyEntries.findIndex(entry => entry.content.includes(historyOlder) && !entry.content.includes(historyCurrent))
+  assert(restoreIndex >= 0, 'The actual editor saves did not retain a distinct older history snapshot.')
+  const restoreContent = historyEntries[restoreIndex].content
+  const openHistory = async () => {
+    await notesConnection.evaluate(`document.querySelector('.note-doc-actions button[aria-label="노트 메뉴"]').click()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-menu'))`), 'Note menu did not open for history.')
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-menu button')].find(button => button.textContent.trim() === '저장 이력').click()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-history-preview pre'))`), 'History dialog did not load its readonly preview.', 10000)
+  }
+  await openHistory()
+  assert(await notesConnection.evaluate(`document.querySelectorAll('.note-history-list li button').length`) === historyEntries.length, 'History rows differ from the available persisted versions.')
+  assert(await notesConnection.evaluate(`document.querySelector('.note-history-preview pre').textContent`) === historyEntries[0].content, 'Default history preview differs from readNoteHistory.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-history-preview pre').isContentEditable && !document.querySelector('.note-history-dialog .cm-editor')`), 'History preview unexpectedly exposes an editable document.')
+  await pressKey(notesConnection, 'Escape', 'Escape')
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-history-dialog')`), 'Escape did not close the history dialog.')
+  await openHistory()
+  await notesConnection.evaluate(`document.querySelectorAll('.note-history-list li button')[${restoreIndex}].click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-history-preview pre')?.textContent === ${JSON.stringify(restoreContent)} && !document.querySelector('.note-history-restore').disabled`), 'Selected history preview did not match its exact stored contents.')
+  await notesConnection.evaluate(`document.querySelector('.note-history-restore').click()`)
+  await waitFor(async () => {
+    const restored = await fs.readFile(notePath, 'utf8')
+    return restored.includes(historyOlder) && !restored.includes(historyCurrent) && await notesConnection.evaluate(`!document.querySelector('.note-history-dialog')`)
+  }, 'Restoring the selected version did not replace the current document.', 10000)
+  assert(await notesConnection.evaluate(`(async () => {
+    for (const entry of await window.prism.listNoteHistory('paper-test.0001')) {
+      if ((await window.prism.readNoteHistory('paper-test.0001', entry.id)).includes(${JSON.stringify(historyCurrent)})) return true
+    }
+    return false
+  })()`), 'Restoration discarded the version that was current immediately before restoring.')
+  process.stdout.write('Persisted history UI passed: real editor versions, exact readonly preview, Escape, selected-version restore, and preservation of the displaced current version.\n')
+
+  // An interrupted publication has no live Markdown file or indexed note to open.
+  // Seed only the real transaction journal, then discover and recover it through the UI/IPC.
+  const orphanName = 'Unindexed recovery fixture.md'
+  const orphanPath = path.join(libraryPath, 'Claims', orphanName)
+  const orphanJournal = path.join(libraryPath, 'Claims', '.prism-note-history', 'b18bf099-ef76-472e-9cc4-842c5d192aa1')
+  const orphanDraft = '---\ntype: claim\nprism_id: "claim-orphan-history-test"\ntitle: "Unindexed recovery fixture"\n---\n\n# Recovered draft\n\nORPHAN_SELECTED_DRAFT_9324\n'
+  const orphanBefore = '# Previous external contents\n\nORPHAN_PREVIOUS_VERSION_9324\n'
+  await fs.mkdir(orphanJournal, { recursive: true })
+  await fs.writeFile(path.join(orphanJournal, 'metadata.json'), JSON.stringify({ version: 1, state: 'publishing', noteFile: orphanName, createdAt: new Date().toISOString() }))
+  await fs.writeFile(path.join(orphanJournal, 'draft.md'), orphanDraft)
+  await fs.writeFile(path.join(orphanJournal, 'before.md'), orphanBefore)
+  await fs.writeFile(path.join(orphanJournal, 'displaced.md'), orphanBefore)
+  assert(!(await fs.stat(orphanPath).then(() => true, () => false)), 'Orphan fixture unexpectedly has a live note before recovery.')
+  const pendingOrphan = await notesConnection.evaluate(`(async () => (await window.prism.listPendingNoteRecoveries()).find(entry => entry.noteFile === ${JSON.stringify(orphanName)}))()`)
+  assert(pendingOrphan?.kinds.includes('draft'), 'Real IPC did not discover the publishing journal without an existing note.')
+  assert(await notesConnection.evaluate(`window.prism.readPendingNoteRecovery(${JSON.stringify(pendingOrphan.id)}, 'draft')`) === orphanDraft, 'Orphan draft IPC preview changed the preserved text.')
+  await notesConnection.evaluate('window.__beforeOrphanReload = true')
+  await notesConnection.send('Page.reload')
+  await waitFor(() => notesConnection.evaluate(`!window.__beforeOrphanReload && Boolean(document.querySelector('.note-recovery-notice button'))`), 'Missing-note recovery notice did not appear without an open document.', 10000)
+  assert(!(await fs.stat(orphanPath).then(() => true, () => false)), 'Startup silently restored a publishing-gap note before explicit approval.')
+  await notesConnection.evaluate(`document.querySelector('.note-recovery-notice button').click()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-recovery-dialog pre'))`), 'Orphan recovery dialog failed to load.')
+  await notesConnection.evaluate(`(() => {
+    const row = [...document.querySelectorAll('.note-recovery-dialog .note-history-list button')].find(button => button.textContent.includes(${JSON.stringify(orphanName)}))
+    row.click()
+    const select = document.querySelector('.note-recovery-version select')
+    select.value = 'draft'; select.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-recovery-dialog pre')?.textContent === ${JSON.stringify(orphanDraft)} && !document.querySelector('.note-recovery-dialog .note-history-restore').disabled`), 'Selected orphan draft preview did not match the actual journal.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-recovery-dialog pre').isContentEditable`), 'Recovery preview must be readonly.')
+  await notesConnection.evaluate(`document.querySelector('.note-recovery-dialog .note-history-restore').click()`)
+  await waitFor(async () => (await readPublishedNote(orphanPath)) === orphanDraft && await notesConnection.evaluate(`!document.querySelector('.note-recovery-dialog')`), 'Explicit orphan recovery did not restore the exact selected draft.', 10000)
+  assert(await fs.readFile(path.join(orphanJournal, 'draft.md'), 'utf8') === orphanDraft && await fs.readFile(path.join(orphanJournal, 'before.md'), 'utf8') === orphanBefore, 'Recovery modified the preserved journal versions.')
+  assert(!(await notesConnection.evaluate(`(async () => (await window.prism.listPendingNoteRecoveries()).some(entry => entry.id === ${JSON.stringify(pendingOrphan.id)}))()`)), 'Recovered note remained listed as missing.')
+  process.stdout.write('Orphan recovery UI passed: absent unindexed target, publishing journal discovery, exact readonly draft preview, explicit restore, and preserved history.\n')
+
+  // Creating a thought from a paper offers an explicit, reversible association.
+  for (const connectPaper of [true, false]) {
+    await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-2401.01234')`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'Context paper did not open.')
+    const paperBeforeCreation = await fs.readFile(linkedNotePath, 'utf8')
+    await notesConnection.evaluate(`document.querySelector('.tree-new').click()`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.create-paper-link input')?.checked === true && document.querySelector('.create-paper-link')?.textContent.includes('Linked Paper Fixture')`), 'Creation did not show the specific paper association.')
+    if (!connectPaper) await notesConnection.evaluate(`document.querySelector('.create-paper-link input').click()`)
+    const title = connectPaper ? 'Contextual concept regression' : 'Independent concept regression'
+    await notesConnection.evaluate(`document.querySelector('input[aria-label="새 노트 제목"]').select()`)
+    await notesConnection.send('Input.insertText', { text: title })
+    await notesConnection.evaluate(`document.querySelector('.create-actions .primary').click()`)
+    await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === ${JSON.stringify(title)} && !document.querySelector('.tree-create')`), 'Created note did not open.')
+    const edges = await notesConnection.evaluate(`(async () => { const node = (await window.prism.listKnowledgeNodes()).find(node => node.title === ${JSON.stringify(title)}); return window.prism.listKnowledgeRelations(node.id) })()`)
+    assert(edges.some(edge => edge.type === 'related' && edge.direction === 'outgoing' && edge.other.id === 'paper-2401.01234') === connectPaper, 'Creation ignored the paper association choice.')
+    assert(await fs.readFile(linkedNotePath, 'utf8') === paperBeforeCreation, 'Creating a connected thought modified the source paper Markdown.')
+    if (connectPaper) {
+      await waitFor(() => notesConnection.evaluate(`document.querySelector('.side-connected')?.textContent.includes('Linked Paper Fixture')`), 'The new note did not offer a readable route back to its paper.')
+      await notesConnection.evaluate(`document.querySelector('.side-connected button').click()`)
+      await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Linked Paper Fixture'`), 'Connected-note navigation did not return to the paper.')
+    }
+  }
+
+  // Create a claim directly from an actual saved evidence card. The selected
+  // relation must survive creation, and synchronous duplicate activation must
+  // not create a second file while the first IPC is pending.
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes('paper-test.0001')`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Editor fixture' && Boolean(document.querySelector('.note-body .cm-content'))`), 'Evidence source paper did not reopen.')
+  if (!(await notesConnection.evaluate(`[...document.querySelectorAll('.evidence-row')].some(row => row.textContent.includes('denoising score matching'))`))) {
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find(button => button.textContent.includes('근거')).click()`)
+    await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].some(button => button.textContent.includes('denoising score matching'))`), 'Claim setup evidence was not available.')
+    await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button')].find(button => button.textContent.includes('denoising score matching')).click()`)
+    await waitFor(() => notesConnection.evaluate(`[...document.querySelectorAll('.evidence-row')].some(row => row.textContent.includes('denoising score matching'))`), 'Claim setup evidence card was not saved.')
+  }
+  const evidenceClaimTitle = 'Evidence-derived claim regression'
+  const openEvidenceClaimPicker = async () => {
+    await notesConnection.evaluate(`(() => { const row = [...document.querySelectorAll('.evidence-row')].find(row => row.textContent.includes('denoising score matching')); row.closest('details').open = true; [...row.querySelectorAll('button')].find(button => button.textContent === '주장에 연결').click() })()`)
+    await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('section[aria-label="근거를 연결할 주장 선택"]'))`), 'Evidence-to-claim picker did not open.')
+    await setInput(notesConnection, '노트 및 근거 검색', evidenceClaimTitle)
+    await notesConnection.evaluate(`[...document.querySelectorAll('nav[aria-label="근거 관계 유형"] button')].find(button => button.textContent === '확장함').click()`)
+    assert(await notesConnection.evaluate(`[...document.querySelectorAll('nav[aria-label="근거 관계 유형"] button')].find(button => button.textContent === '확장함').getAttribute('aria-pressed') === 'true'`), 'Evidence relation selection was not retained.')
+  }
+  await openEvidenceClaimPicker()
+  await notesConnection.evaluate(`(() => { const button = [...document.querySelectorAll('.note-picker footer button')].find(button => button.textContent === '이 근거로 주장 만들고 연결'); button.click(); button.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('section[aria-label="근거를 연결할 주장 선택"]') && document.querySelector('section[aria-label="준비한 주장"]')?.textContent.includes(${JSON.stringify(evidenceClaimTitle)})`), 'Creating an evidence claim did not complete its relation.', 10000)
+  const evidenceClaim = await notesConnection.evaluate(`(async () => { const matches = (await window.prism.listKnowledgeNodes()).filter(node => node.nodeType === 'claim' && node.title === ${JSON.stringify(evidenceClaimTitle)}); if (matches.length !== 1) throw new Error('Duplicate evidence claims: ' + matches.length); return matches[0] })()`)
+  const evidenceClaimContent = await readPublishedNote(path.join(libraryPath, evidenceClaim.relativePath))
+  const originalEvidence = [...evidenceMarkup.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)].map(match => JSON.parse(decodeURIComponent(match[1]))).find(item => item.anchorId === 'sentence-p1-1')
+  const claimEvidence = [...evidenceClaimContent.matchAll(/<!--\s*prism-evidence:([^\s]+)\s*-->/g)].map(match => JSON.parse(decodeURIComponent(match[1]))).find(item => item.anchorId === 'sentence-p1-1')
+  assert(originalEvidence && claimEvidence && JSON.stringify(claimEvidence) === JSON.stringify(originalEvidence), 'The new claim changed the exact evidence source, hash, paper identity or location.')
+  assert(evidenceClaimContent.includes('# ' + evidenceClaimTitle) && evidenceClaimContent.includes('> ' + originalEvidence.source) && evidenceClaimContent.includes('prism://paper/test.0001?anchor=sentence-p1-1&page=1'), 'The claim body lacks the chosen title, literal source or clickable PDF origin.')
+  const checkEvidenceClaimRelation = async () => {
+    const links = await notesConnection.evaluate(`window.prism.listKnowledgeRelations('paper-test.0001')`)
+    const matching = links.filter(edge => edge.direction === 'outgoing' && edge.other.id === evidenceClaim.id && edge.type === 'extends')
+    assert(matching.length === 1 && matching[0].creator === 'user' && matching[0].reviewStatus === 'approved', 'The chosen extends relation was changed, omitted or duplicated.')
+    const anchor = matching[0].evidenceAnchor
+    assert(anchor?.paperId === 'test.0001' && anchor.anchorId === 'sentence-p1-1' && anchor.page === 1 && anchor.type === 'sentence', 'The saved relation lost the selected evidence anchor.')
+  }
+  await checkEvidenceClaimRelation()
+  // A successfully linked claim is available for review, not offered as a
+  // failed operation to retry. Existing targets remain explicitly selectable.
+  await openEvidenceClaimPicker()
+  assert(await notesConnection.evaluate(`document.querySelector('.note-picker footer')?.textContent.includes('이 주장은 연결했습니다') && !document.querySelector('.note-picker footer button')`), 'A successful claim still offered creation or failure retry.')
+  assert(await notesConnection.evaluate(`[...document.querySelectorAll('.note-picker .picker-list button strong')].some(item => item.textContent === ${JSON.stringify(evidenceClaimTitle)})`), 'The created claim was missing from existing targets.')
+  assert(await notesConnection.evaluate(`(async () => (await window.prism.listKnowledgeNodes()).filter(node => node.nodeType === 'claim' && node.title === ${JSON.stringify(evidenceClaimTitle)}).length)()`) === 1, 'The completed claim was duplicated after reopening its picker.')
+  await checkEvidenceClaimRelation()
+  await notesConnection.evaluate(`document.querySelector('.note-picker button[aria-label="선택 닫기"]')?.click()`)
+  await notesConnection.evaluate(`[...document.querySelectorAll('section[aria-label="준비한 주장"] button')].find(button => button.textContent.startsWith('주장 열기 ·')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === ${JSON.stringify(evidenceClaimTitle)}`), 'The prepared claim could not be opened for review.')
+  process.stdout.write('Evidence-to-claim UI passed: typed title, explicit extends relation, exact source/hash/PDF link, duplicate activation guard, completed-claim state and review navigation.\n')
+
+  // Opposing indirect evidence paths must both survive, while their common
+  // destination is drawn once. Set up real vault records, then use the graph UI.
+  const diamond = await notesConnection.evaluate(`(async () => {
+    const made = [];
+    for (const title of ['Graph starting claim', 'Supporting path', 'Contradicting path', 'Shared conclusion']) made.push(await window.prism.createKnowledgeNode({nodeType:'claim', title}));
+    for (const [from,to,type] of [[0,1,'related'],[0,2,'related'],[1,3,'supports'],[2,3,'contradicts']]) {
+      const source = await window.prism.readKnowledgeNode(made[from].id);
+      const result = await window.prism.createKnowledgeRelation({sourceId:made[from].id,targetId:made[to].id,type,creator:'user',expectedRevision:source.revision});
+      if (!result.saved) throw new Error('Could not prepare graph relation');
+    }
+    return made.map(node => node.id);
+  })()`)
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes(${JSON.stringify(diamond[0])})`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Graph starting claim' && document.querySelectorAll('.side-graph .mini-node').length >= 3`), 'The graph fixture did not open.')
+  await notesConnection.evaluate(`(() => { const toggle = [...document.querySelectorAll('.side-chips button')].find(button => button.textContent === '간접 연결'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.click() })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-edge[data-relation="supports"]').length === 1 && document.querySelectorAll('.side-graph .mini-edge[data-relation="contradicts"]').length === 1 && document.querySelectorAll('.side-graph .mini-node').length === 4`), 'The indirect graph lost an opposing path or duplicated its shared destination.')
+
+  // Real high-degree notes use the panel's scroll, not a second 240px viewport.
+  await notesConnection.evaluate(`(async () => {
+    for (let index = 0; index < 8; index++) {
+      const target = await window.prism.createKnowledgeNode({nodeType:'concept',title:'Connected research finding ' + index});
+      const source = await window.prism.readKnowledgeNode(${JSON.stringify(diamond[0])});
+      const result = await window.prism.createKnowledgeRelation({sourceId:${JSON.stringify(diamond[0])},targetId:target.id,type:'related',creator:'user',expectedRevision:source.revision});
+      if (!result.saved) throw new Error('Could not prepare connection list');
+    }
+  })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-connected .side-list > button').length === 10`), 'The complete connected-note list did not refresh.')
+  const connectionGeometry = await notesConnection.evaluate(`(() => { const list = document.querySelector('.side-connected .side-list'); return {height:list.getBoundingClientRect().height,client:list.clientHeight,scroll:list.scrollHeight} })()`)
+  assert(connectionGeometry.height > 240 && Math.abs(connectionGeometry.client - connectionGeometry.scroll) <= 1, `Connections were trapped in a nested short viewport: ${JSON.stringify(connectionGeometry)}`)
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.side-graph .graph-canvas') && localStorage.getItem('prism.notes.graph-expanded') === 'false'`), 'Collapsing the graph did not remove its canvas and remember the preference.')
+  await notesConnection.evaluate(`location.reload()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(window.prism && document.querySelector('.notes-rail'))`), 'Notes did not reload for the saved graph preference.')
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes(${JSON.stringify(diamond[0])})`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Graph starting claim' && document.querySelectorAll('.side-connected .side-list > button').length === 10`), 'The connected note did not reopen after reload.')
+  assert(await notesConnection.evaluate(`document.querySelector('.side-graph-toggle')?.getAttribute('aria-expanded') === 'false' && !document.querySelector('.side-graph .graph-canvas')`), 'The graph preference was lost on renderer reload.')
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 11`), 'The collapsed graph could not be reopened with its current connections.')
+
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
+} catch (error) {
+  process.stderr.write(`Notes host output: ${processOutput.slice(-6000)}\n`)
+  const historyRoot = path.join(paperPath, '.prism-note-history')
+  const historyDiagnostic = await fs.readdir(historyRoot).then(async names => Promise.all(names.slice(-8).map(async name => ({ name, files: await fs.readdir(path.join(historyRoot, name)), metadata: await fs.readFile(path.join(historyRoot, name, 'metadata.json'), 'utf8').catch(String) })))).catch(String)
+  process.stderr.write(`Notes history diagnostic: ${JSON.stringify(historyDiagnostic)}\n`)
+  const saveDiagnostic = await fs.readdir(historyRoot).then(async names => Promise.all(names.slice(-8).map(async name => ({ name, versions: await Promise.all(['before', 'draft', 'displaced'].map(async kind => ({ kind, containsEdit: (await fs.readFile(path.join(historyRoot, name, `${kind}.md`), 'utf8').catch(() => '')).includes('연구 메모 한 줄.') }))) })))).catch(String)
+  process.stderr.write(`Notes save-content diagnostic: ${JSON.stringify({ history: saveDiagnostic, disk: await fs.readFile(notePath, 'utf8').catch(String) })}\n`)
+  if (notesConnection) {
+    process.stderr.write(`Notes property diagnostic: ${JSON.stringify(await notesConnection.evaluate("[...document.querySelectorAll('.prop-text')].map(el => ({label:el.getAttribute('aria-label'),value:el.value,disabled:el.disabled,focused:el===document.activeElement}))").catch(String))}\n`)
+    process.stderr.write(`Claim disk diagnostic: ${await fs.readFile(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다.md'), 'utf8').catch(String)}\n`)
+    process.stderr.write(`Notes notification diagnostic: ${JSON.stringify(await notesConnection.evaluate("[...document.querySelectorAll('[role=alert], .notes-toast, .note-notice, .notes-notice, .notes-conflict-backdrop')].map(el => el.textContent)").catch(String))}\n`)
+    const diagnostic = await notesConnection.evaluate(`(() => ({ title: document.querySelector('.note-doc-title')?.textContent, actions: document.querySelector('.note-doc-actions')?.textContent, body: document.querySelector('.note-body')?.innerText, scroll: [...document.querySelectorAll('.cm-scroller, .note-doc-scroll')].map(el => ({ className: el.className, top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight })) }))()`).catch(String)
+    process.stderr.write(`Notes failure diagnostic: ${JSON.stringify(diagnostic)}\n`)
+  }
+  throw error
 } finally {
   if (previousClipboard !== undefined) await writeSystemClipboard(previousClipboard).catch(() => undefined)
   notesConnection?.socket.close()

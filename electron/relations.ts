@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteFile } from './atomicFile.js'
 import { listKnowledgeNodes, readKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
+import { wikiTargetResolver } from './wikiTargets.js'
 
 export type KnowledgeRelationType = 'defines' | 'uses' | 'supports' | 'contradicts' | 'extends' | 'raises' | 'answers' | 'link' | 'mentions' | 'discusses' | 'presents' | 'explains' | 'evidence_for' | 'derived_from' | 'related'
 export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
@@ -13,7 +14,7 @@ export type RelationEvidenceAnchor = { paperId: string; anchorId: string; type: 
 export type RelationOrigin = 'manual' | 'link'
 export type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; origin?: RelationOrigin; createdAt: string }
 export type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
-export type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
+export type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string; vaultId?: string }
 export type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 export type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 
@@ -58,16 +59,12 @@ export async function listKnowledgeRelationRecords(libraryPath: string) { return
 function linkTargetIds(content: string, nodes: KnowledgeNodeRecord[], sourceId: string) {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
   const targets = new Set<string>()
+  const resolveTarget = wikiTargetResolver(nodes)
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
-    const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim().toLocaleLowerCase()
+    const raw = match[1]
     if (!raw) continue
-    const base = raw.split('/').at(-1)
-    const node = nodes.find((item) => {
-      if (item.id === sourceId) return false
-      const nodePath = item.relativePath.replace(/\.md$/i, '').toLocaleLowerCase()
-      return nodePath === raw || (!raw.includes('/') && nodePath.split('/').at(-1) === base) || item.title.toLocaleLowerCase() === raw
-    })
-    if (node) targets.add(node.id)
+    const node = resolveTarget(raw)
+    if (node && node.id !== sourceId) targets.add(node.id)
   }
   return targets
 }
@@ -128,14 +125,15 @@ export async function createKnowledgeRelation(libraryPath: string, request: Know
   const existing = await records(libraryPath)
   if (existing.some((item) => item.sourceId === request.sourceId && item.targetId === request.targetId && item.type === request.type && sameEvidence(item.evidenceAnchor, request.evidenceAnchor) && item.reviewStatus !== 'rejected')) throw new Error('이미 같은 관계가 있습니다.')
   const relation: KnowledgeRelationRecord = { id: `relation-${randomUUID()}`, sourceId: request.sourceId, targetId: request.targetId, type: request.type, creator: request.creator, reviewStatus: request.creator === 'user' ? 'approved' : 'pending', evidenceAnchor: request.evidenceAnchor, origin: 'manual', createdAt: new Date().toISOString() }
-  // A typed relation says more than the plain link that may already exist for this pair.
-  for (const previous of existing.filter((item) => item.origin === 'link' && item.sourceId === request.sourceId && item.targetId === request.targetId)) {
-    await fs.unlink(path.join(directory(libraryPath), `${previous.id}.json`)).catch(() => undefined)
-  }
   const snapshot = await readKnowledgeNode(libraryPath, source.id)
   if (snapshot.revision !== request.expectedRevision) return { saved: false as const, conflict: snapshot }
   await fs.mkdir(directory(libraryPath), { recursive: true })
   await fs.writeFile(path.join(directory(libraryPath), `${relation.id}.json`), JSON.stringify(relation, null, 2), { encoding: 'utf8', flag: 'wx' })
+  // Retire the derived edge only after validation and successful publication.
+  // A stale revision or failed write must leave the researcher's existing link visible.
+  for (const previous of existing.filter((item) => item.origin === 'link' && item.sourceId === request.sourceId && item.targetId === request.targetId)) {
+    await fs.unlink(path.join(directory(libraryPath), `${previous.id}.json`)).catch(() => undefined)
+  }
   return { saved: true as const, relation, snapshot, relations: await listKnowledgeRelations(libraryPath, source.id) }
 }
 

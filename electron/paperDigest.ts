@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import { readPaperBody, type PaperBody } from './paperBody.js'
 import path from 'node:path'
-import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
+import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
-import { assertOnlyAutoChanged, autoHeadings, autoMarkers, hasOwnWriting, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, autoBaseline, stripAutoBaseline, protectedAutoSection, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
 import { claimedByChat, listChatMemory, type ChatMemoryMap } from './chatMemory.js'
 
 export { noteAutomation, type NoteSectionRule } from './noteContract.js'
@@ -197,9 +197,11 @@ const markers = autoMarkers
  * researcher's own sections, so their writing always stays at the bottom where they left it.
  */
 export function writeAutoSection(content: string, section: PaperDigestSection, body: string, order: PaperDigestSection[] = []) {
+  if (protectedAutoSection(content, section)) return content
   const { open, close } = markers(section)
-  const block = `${open}\n${body.trim() || '_아직 없음_'}\n${close}`
-  const normalized = content.replace(/\r\n/g, '\n')
+  const text = body.trim() || '_아직 없음_'
+  const block = `${open}\n${text}\n${close}\n${autoBaseline(section, text)}`
+  const normalized = stripAutoBaseline(content.replace(/\r\n/g, '\n'), section)
   const start = normalized.indexOf(open)
   if (start >= 0) {
     const end = normalized.indexOf(close, start)
@@ -224,7 +226,7 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
     if (at >= 0) return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
   }
   // A summary is only useful at the top. Sections stack under each other, below the abstract, above everything else.
-  const lastClose = [...normalized.matchAll(/<!-- \/prism:auto [a-z]+ -->/g)].at(-1)
+  const lastClose = [...normalized.matchAll(/<!-- \/prism:auto [a-z]+ -->(?:\n<!-- prism:baseline [a-z]+ [a-f0-9]{16} -->)?/g)].at(-1)
   if (lastClose?.index !== undefined) {
     const at = lastClose.index + lastClose[0].length
     return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
@@ -343,12 +345,14 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   const paper = context.vault.records.find((node) => node.id === paperNodeId && node.nodeType === 'paper')
   if (!paper?.arxivId) throw new Error('논문 노트를 찾을 수 없습니다.')
   const snapshot = { content: context.vault.contents.get(paper.id) ?? '', revision: paper.revision }
-  const abstract = abstractOf(snapshot.content)
+  const body = await readPaperBody(libraryPath, paper.arxivId)
+  // Local PDFs often have no imported abstract metadata. Use only an explicitly
+  // identified abstract section, never arbitrary opening text as an abstract.
+  const abstract = abstractOf(snapshot.content) || body.sections.filter(section => /^(?:abstract|초록)$/i.test(section.title.trim())).flatMap(section => section.lines).join(' ')
   const paperMessages = messagesForPaper(messages, paper.arxivId)
   const focus = focusFromChat(paperMessages, paper.arxivId)
   const topics = topicsOf(paper.title, abstract, ...focus.map((item) => `${item.label} ${item.source ?? ''}`))
   const confusion = confusionFromChat(paperMessages, topics)
-  const body = await readPaperBody(libraryPath, paper.arxivId)
 
   // Without a model the abstract is all there is, and three cued sentences out of it beat reading it again.
   let overviewBody = bulletList(overviewFromAbstract(abstract, body))
@@ -369,7 +373,7 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   let next = snapshot.content
   const written: PaperDigestSection[] = []
   const sections: Array<[PaperDigestSection, string, string]> = [
-    ['overview', overviewBody, '_논문 본문과 초록을 아직 읽지 못했습니다._'],
+    ['overview', overviewBody, body.sections.length ? '_본문은 준비되어 있습니다. 초록을 확인하지 못해 자동 개요를 만들지 않았습니다._' : '_논문 본문과 초록을 아직 읽지 못했습니다._'],
     ['confusion', bulletList(confusionLines), '_이 논문에 대해 물어본 것이 아직 없습니다._'],
     ['focus', bulletList(focusLines), '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
     ['relations', bulletList(typedRelationLines(knowledgeRelationViews(context.relationsOf(paper.id), context.byId, paper.id))), ''],
@@ -378,6 +382,12 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
     // A section the conversation has taken over is not the rules' to rewrite. They seeded it so a researcher
     // with no model configured is not left with nothing; once a model has spoken they stand down for good.
     if (isChatSection('paper', section) && claimedByChat(context.chatMemory, paper.id, section)) continue
+    // Once selective memory exists, old question-frequency guesses must not resurrect resolved doubts.
+    if (section === 'confusion' && snapshot.content.includes('<!-- prism:reading-region memory -->')) {
+      const updated = removeAutoSection(next, section)
+      if (updated !== next) { next = updated; written.push(section) }
+      continue
+    }
     // Never trade written content for a placeholder: chat may be momentarily unreadable, and a note that
     // loses what it showed a minute ago is worse than one that is slightly stale.
     if (!filled && hasGeneratedContent(next, section)) continue
@@ -392,11 +402,16 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
 }
 
 /** Chat lives in Electron's userData, outside the vault; the digest reads it without the renderer passing it along. */
-export async function readChatMessages(sessionsPath: string): Promise<DigestChatMessage[]> {
+export async function readChatMessages(sessionsPath: string, libraryPath?: string): Promise<DigestChatMessage[]> {
   try {
-    const value = JSON.parse(await fs.readFile(sessionsPath, 'utf8')) as Array<{ deletedAt?: number; messages?: DigestChatMessage[] }>
+    const value = JSON.parse(await fs.readFile(sessionsPath, 'utf8')) as Array<{ libraryPath?: string | null; deletedAt?: number; messages?: DigestChatMessage[] }>
     if (!Array.isArray(value)) return []
-    return value.filter((session) => !session.deletedAt).flatMap((session) => Array.isArray(session.messages) ? session.messages : [])
+    const scope = libraryPath ? await fs.realpath(libraryPath) : undefined
+    const scoped = await Promise.all(value.filter(session => !session.deletedAt).map(async session => {
+      if (scope && (!session.libraryPath || await fs.realpath(session.libraryPath).catch(() => undefined) !== scope)) return []
+      return Array.isArray(session.messages) ? session.messages : []
+    }))
+    return scoped.flat()
   } catch { return [] }
 }
 
@@ -427,7 +442,7 @@ export async function pruneEmptySections(libraryPath: string, nodeId: string) {
 }
 
 
-const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함' }
+const relationWording: Record<string, string> = { defines: '정의함', uses: '사용함', supports: '지지함', contradicts: '반박함', extends: '확장함', raises: '제기함', answers: '답함', explains: '설명함', evidence_for: '근거', mentions: '언급함', related: '관련', discusses: '다룸', presents: '제시함', derived_from: '출발함', link: '링크' }
 
 /** Approved relations that say something, as links. Plain `[[links]]` are already in the prose that made them. */
 function typedRelationLines(views: Array<{ type: string; direction: string; reviewStatus: string; origin?: string; other: { title: string; relativePath: string } }>) {
@@ -439,7 +454,7 @@ function typedRelationLines(views: Array<{ type: string; direction: string; revi
 function relationLine(relation: { type: string; direction: string; other: { title: string; relativePath: string } }) {
   const wording = relationWording[relation.type] ?? relation.type
   const subject = `[[${relation.other.relativePath.replace(/\.md$/i, '')}|${relation.other.title}]]`
-  return relation.direction === 'incoming' ? `${subject}가 ${wording}` : `${wording} · ${subject}`
+  return relation.direction === 'incoming' && relation.type !== 'related' ? `${subject}가 ${wording}` : `${wording} · ${subject}`
 }
 
 /**
@@ -624,8 +639,9 @@ function sourceSentence(excerpt: string, title: string) {
 
 /** Takes a generated region and its heading away again once there is nothing to put in it. */
 export function removeAutoSection(content: string, section: PaperDigestSection) {
+  if (protectedAutoSection(content, section)) return content
   const { open, close } = markers(section)
-  const normalized = content.replace(/\r\n/g, '\n')
+  const normalized = stripAutoBaseline(content.replace(/\r\n/g, '\n'), section)
   const start = normalized.indexOf(open)
   if (start < 0) return normalized
   const end = normalized.indexOf(close, start)
@@ -651,24 +667,5 @@ export async function refreshVaultDigests(libraryPath: string, messages: DigestC
     try { if ((await refreshNoteDigest(libraryPath, node.id, messages, undefined, context)).updated) updated.push(node.id) }
     catch { /* it will catch up on the next sweep */ }
   }
-  return { scanned: targets.length, updated, understood: await promoteUnderstood(libraryPath, targets) }
-}
-
-/**
- * Status was a dropdown nobody touched, so a library of a hundred notes could not say how much of itself the
- * researcher had actually taken in. A note earns `understood` the moment it holds a sentence only they could
- * have written — the one piece of evidence that a concept landed — and nothing ever takes it away again,
- * because deleting a line you wrote is not the same as ceasing to understand it.
- */
-async function promoteUnderstood(libraryPath: string, records: KnowledgeNodeRecord[]) {
-  const promoted: string[] = []
-  for (const node of records) {
-    if (node.status !== 'inbox' && node.status !== 'developing') continue
-    try {
-      const snapshot = await readKnowledgeNode(libraryPath, node.id)
-      if (!hasOwnWriting(node.nodeType, snapshot.content)) continue
-      if ((await updateKnowledgeProperties(libraryPath, node.id, { status: 'understood' }, snapshot.revision)).saved) promoted.push(node.id)
-    } catch { /* renamed, deleted, or mid-edit: the next sweep will find it */ }
-  }
-  return promoted
+  return { scanned: targets.length, updated, understood: [] as string[] }
 }

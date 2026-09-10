@@ -194,8 +194,8 @@ export const panePresets = {
   mapUnderDual: () => paneSplit('col', [paneSplit('row', [paneGroup(['original']), paneGroup(['translated'])], [50, 50]), paneGroup(['map'])], [54, 46]),
 } satisfies Record<string, () => PaneNode>
 
-export const paneTitles: Record<PaneKind, string> = { original: '원문 PDF', translated: '한국어 문서', map: '구조 맵' }
-export const paneShortTitles: Record<PaneKind, string> = { original: '원문', translated: '한국어', map: '구조 맵' }
+export const paneTitles: Record<PaneKind, string> = { original: '원문 PDF', translated: '번역 문서', map: '구조 맵' }
+export const paneShortTitles: Record<PaneKind, string> = { original: '원문', translated: '번역', map: '구조 맵' }
 
 /** "원문 | 한국어" — the arrangement in one line, for the toolbar and for telling two presets apart. */
 export function describeLayout(node: PaneNode): string {

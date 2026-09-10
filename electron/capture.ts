@@ -1,11 +1,14 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSnapshot } from './notes.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
 import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
 import { createKnowledgeRelation, listKnowledgeRelationRecords } from './relations.js'
 import { mineRegion } from './noteContract.js'
 import type { KnowledgeNodeType } from './templates.js'
+import { wikiTargetResolver } from './wikiTargets.js'
+import { validatedScientificSource } from './scientificSource.js'
 
 /**
  * Reading-time capture: the Reader and the chat append into the Paper note's `## Notes` section
@@ -13,9 +16,9 @@ import type { KnowledgeNodeType } from './templates.js'
  */
 export type CapturePaper = EvidencePaper & { notePath: string }
 export type PaperCaptureRequest =
-  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
-  | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
-export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+  | { kind: 'evidence'; libraryPath?: string; paperId: string; anchorId: string; memo?: string; concept?: string }
+  | { kind: 'chat'; libraryPath?: string; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
+export type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string; warning?: string }
 export type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: { paperId: string; anchorId: string; type: EvidenceAnchor['type']; page: number; label: string }; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 
 /** Plain paragraphs written directly under an evidence card are reading memos; a memo already linked to a Claim or Question counts as promoted. */
@@ -50,6 +53,49 @@ export function memosFor(paper: KnowledgeNodeRecord, content: string): CurationM
 const typeLabels: Record<EvidenceAnchor['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
 const vaultFolders = new Set(['papers', 'concepts', 'claims', 'questions', 'insights', 'projects', 'templates', 'assets', '00 inbox'])
 
+/** Ordinary Markdown links also retain provenance when this note opens in Obsidian. */
+export function chatCaptureProvenance(answer: string, anchors: Array<{ paperId: string; anchorId: string; label: string; page?: number }>, paper: Pick<CapturePaper, 'arxivId' | 'title'>, paperTitles: ReadonlyMap<string, string> = new Map()) {
+  const unique = new Map<string, typeof anchors[number]>()
+  const aliases = new Map<string, Set<string>>()
+  for (const anchor of anchors) {
+    if (!anchor.paperId || !anchor.anchorId) continue
+    const key = JSON.stringify([anchor.paperId,anchor.anchorId])
+    if (!unique.has(key)) unique.set(key,anchor)
+    const keys = aliases.get(anchor.label) ?? new Set<string>(); keys.add(key); aliases.set(anchor.label,keys)
+  }
+  const target = (anchor: typeof anchors[number]) => `prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}${Number.isInteger(anchor.page) && anchor.page! > 0 ? `&page=${anchor.page}` : ''}`
+  const escape = (value: string) => value.replace(/\r?\n/g,' ').replace(/[\\[\]]/g,'\\$&')
+  // Never rewrite examples/code or choose between identical labels from two papers.
+  const linkedAnswer = answer.split(/(`{3,}[^\n]*\n[\s\S]*?`{3,}|~~~[^\n]*\n[\s\S]*?~~~|`+[^`\n]*`+|\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g).map((part,index) => index % 2 ? part : part.replace(/\[@([^\]\n]+)\](?!\()/g,(literal,label: string) => {
+    const keys = aliases.get(label)
+    if (keys?.size !== 1) return literal
+    const anchor = unique.get([...keys][0])!
+    return `[@${escape(label)}](${target(anchor)})`
+  })).join('')
+  const references = [...unique.values()].map(anchor => {
+    const title = anchor.paperId === paper.arxivId ? paper.title : paperTitles.get(anchor.paperId) || anchor.paperId
+    return `[${escape(`${anchor.label} · ${title}${Number.isInteger(anchor.page) && anchor.page! > 0 ? ` · p.${anchor.page}` : ''}`)}](${target(anchor)})`
+  }).join(', ')
+  return { answer: linkedAnswer, references, anchors: [...unique.values()] }
+}
+
+/** Resolve display metadata only in the capture's pinned vault; never follow record paths. */
+async function capturePaperTitles(libraryPath: string): Promise<Map<string, string>> {
+  try {
+    const records: unknown = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'library.json'), 'utf8'))
+    const titles = new Map<string, string>(); const ambiguous = new Set<string>()
+    if (!Array.isArray(records)) return titles
+    for (const record of records) {
+      if (!record || typeof record.arxivId !== 'string' || typeof record.title !== 'string' || !record.title.trim()) continue
+      const title = record.title.trim()
+      if (titles.has(record.arxivId) && titles.get(record.arxivId) !== title) ambiguous.add(record.arxivId)
+      titles.set(record.arxivId, title)
+    }
+    for (const id of ambiguous) titles.delete(id)
+    return titles
+  } catch { return new Map() } // Missing/unreadable metadata must not prevent saving the answer and its exact source IDs.
+}
+
 function blockIdFor(anchor: Pick<EvidenceAnchor, 'paperId' | 'anchorId'>) {
   const value = `${anchor.paperId}-${anchor.anchorId}`.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').slice(0, 90)
   return `evidence-${value || 'anchor'}`
@@ -60,7 +106,7 @@ function evidenceCardMarkdown(anchor: EvidenceAnchor) {
   const blockId = blockIdFor(anchor)
   const embedded = { paperId: anchor.paperId, paperTitle: anchor.paperTitle, anchorId: anchor.anchorId, type: anchor.type, page: anchor.page, label: anchor.label, source: anchor.source, sourceHash: anchor.sourceHash, blockId }
   const metadata = encodeURIComponent(JSON.stringify(embedded))
-  const source = anchor.source.replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
+  const source = validatedScientificSource(anchor.source, anchor.scientificSpans).replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
   const target = `prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page}`
   return { blockId, markdown: `> [!evidence] ${typeLabels[anchor.type]} · ${anchor.paperTitle} · p.${anchor.page} · ${anchor.label}\n${source}\n> [PDF 원문 열기](${target})\n<!-- prism-evidence:${metadata} -->\n^${blockId}` }
 }
@@ -83,7 +129,7 @@ async function addConceptDefinition(libraryPath: string, concept: KnowledgeNodeR
   const snapshot = await readKnowledgeNode(libraryPath, concept.id)
   const cell = (value: string) => value.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim()
   const link = `[PDF p.${anchor.page}](prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page})`
-  const row = `| [[${paper.relativePath.replace(/\.md$/i, '')}\\|${cell(paper.title)}]] | ${cell(anchor.source).slice(0, 400)} | ${memo ? `${cell(memo)} ` : ''}${link} |`
+  const row = `| [[${paper.relativePath.replace(/\.md$/i, '')}\\|${cell(paper.title)}]] | ${cell(validatedScientificSource(anchor.source, anchor.scientificSpans)).slice(0, 400)} | ${memo ? `${cell(memo)} ` : ''}${link} |`
   const lines = snapshot.content.replace(/\r\n/g, '\n').split('\n')
   const heading = lines.findIndex((line) => /^##\s+정의 비교\s*$/.test(line))
   let content: string
@@ -123,31 +169,40 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
       if (memo) { lines.splice(existing + 1, 0, '', memo); content = lines.join('\n') }
     } else content = appendToNotesSection(content, memo ? `${card.markdown}\n\n${memo}` : card.markdown)
   } else {
+    blockId = `ai-answer-${randomUUID()}`
     const capturedAt = new Date().toISOString()
     const question = request.question.replace(/\s+/g, ' ').trim().slice(0, 300)
-    const answer = request.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
-    const references = (request.anchors ?? []).map((anchor) => `${anchor.label}${anchor.page ? ` (p.${anchor.page})` : ''}`).join(', ')
-    const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt }))
-    const block = `> [!ai]- AI 답변 · ${capturedAt.slice(0, 10)} · ${request.provider}/${request.model}\n> **Q:** ${question || '(질문 없음)'}\n>\n${answer}${references ? `\n>\n> 참조: ${references}` : ''}\n<!-- prism-ai-answer:${metadata} -->`
-    content = appendToNotesSection(content, block)
+    const provenance = chatCaptureProvenance(request.answer, request.anchors ?? [], paper, await capturePaperTitles(libraryPath))
+    const answer = provenance.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
+    const references = provenance.references
+    const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt, anchors: provenance.anchors }))
+    const block = `> [!ai]- AI 답변 · ${capturedAt.slice(0, 10)} · ${request.provider}/${request.model}\n> **Q:** ${question || '(질문 없음)'}\n>\n${answer}${references ? `\n>\n> 참조: ${references}` : ''}`
+    content = appendToNotesSection(content, `${block}\n\n^${blockId}\n\n<!-- prism-ai-answer:${metadata} -->`)
   }
   const result = await saveNoteSnapshot(paper.notePath, { content, expectedRevision: snapshot.revision })
   if (!result.saved) throw new Error('노트가 방금 외부에서 변경되었습니다. 다시 시도해 주세요.')
   const conceptTitle = request.kind === 'evidence' ? request.concept?.trim() : undefined
   if (!conceptTitle || !capturedAnchor) return { saved: true, snapshot: result.snapshot, blockId }
-  // The sentence defines a concept: record it in the concept's comparison table and as an approved `defines` relation.
-  let nodes = await listKnowledgeNodes(libraryPath)
-  let concept = nodes.find((node) => node.nodeType === 'concept' && node.title.toLocaleLowerCase() === conceptTitle.toLocaleLowerCase())
-  if (!concept) { const created = await createKnowledgeNode(libraryPath, { title: conceptTitle, nodeType: 'concept' }); nodes = created.nodes; concept = nodes.find((node) => node.id === created.id) }
-  const paperNode = nodes.find((node) => node.id === paperNodeId(paper.arxivId))
-  if (!concept || !paperNode) throw new Error('개념 정의를 연결할 노트를 찾을 수 없습니다.')
-  await addConceptDefinition(libraryPath, concept, paperNode, capturedAnchor, (request.kind === 'evidence' ? request.memo ?? '' : '').trim())
-  const relations = await listKnowledgeRelationRecords(libraryPath)
-  if (!relations.some((relation) => relation.sourceId === paperNode.id && relation.targetId === concept!.id && relation.type === 'defines' && relation.reviewStatus !== 'rejected')) {
-    const latest = await readNoteSnapshot(paper.notePath)
-    await createKnowledgeRelation(libraryPath, { sourceId: paperNode.id, targetId: concept.id, type: 'defines', creator: 'user', evidenceAnchor: { paperId: capturedAnchor.paperId, anchorId: capturedAnchor.anchorId, type: capturedAnchor.type, page: capturedAnchor.page, label: capturedAnchor.label }, expectedRevision: latest.revision })
+  try {
+    // The sentence defines a concept: record it in the concept's comparison table and as an approved `defines` relation.
+    let nodes = await listKnowledgeNodes(libraryPath)
+    let concept = nodes.find((node) => node.nodeType === 'concept' && node.title.toLocaleLowerCase() === conceptTitle.toLocaleLowerCase())
+    if (!concept) { const created = await createKnowledgeNode(libraryPath, { title: conceptTitle, nodeType: 'concept' }); nodes = created.nodes; concept = nodes.find((node) => node.id === created.id) }
+    const paperNode = nodes.find((node) => node.id === paperNodeId(paper.arxivId))
+    if (!concept || !paperNode) throw new Error('개념 정의를 연결할 노트를 찾을 수 없습니다.')
+    await addConceptDefinition(libraryPath, concept, paperNode, capturedAnchor, (request.kind === 'evidence' ? request.memo ?? '' : '').trim())
+    const relations = await listKnowledgeRelationRecords(libraryPath)
+    if (!relations.some((relation) => relation.sourceId === paperNode.id && relation.targetId === concept!.id && relation.type === 'defines' && relation.reviewStatus !== 'rejected')) {
+      const latest = await readNoteSnapshot(paper.notePath)
+      const linked = await createKnowledgeRelation(libraryPath, { sourceId: paperNode.id, targetId: concept.id, type: 'defines', creator: 'user', evidenceAnchor: { paperId: capturedAnchor.paperId, anchorId: capturedAnchor.anchorId, type: capturedAnchor.type, page: capturedAnchor.page, label: capturedAnchor.label }, expectedRevision: latest.revision })
+      if (!linked.saved) throw new Error('논문 노트가 다른 곳에서 변경되어 개념 관계를 저장하지 못했습니다.')
+    }
+    // A failed refresh after both writes succeeded is not a failed concept connection.
+    return { saved: true, snapshot: await readNoteSnapshot(paper.notePath).catch(() => result.snapshot), blockId, concept: concept.title }
+  } catch (reason) {
+    const detail = reason instanceof Error ? reason.message : String(reason)
+    return { saved: true, snapshot: result.snapshot, blockId, warning: `논문 근거와 메모는 저장했습니다. 개념 '${conceptTitle}' 연결은 완료하지 못했습니다: ${detail}. 다시 연결하려면 메모는 비워 두고 개념 이름만 입력해 주세요.` }
   }
-  return { saved: true, snapshot: await readNoteSnapshot(paper.notePath), blockId, concept: concept.title }
 }
 
 /**
@@ -162,7 +217,7 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
 export async function ensureLinkStubs(libraryPath: string, content: string): Promise<string[]> {
   const searchable = content.replace(/```[\s\S]*?```/g, '')
   const apply = mineRegion(searchable, 'apply')
-  const targets = new Map<string, KnowledgeNodeType>()
+  const targets = new Map<string, { name: string; nodeType: KnowledgeNodeType }>()
   for (const match of searchable.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
     const raw = match[1].split('|', 1)[0].split('#', 1)[0].replace(/\.md$/i, '').replaceAll('\\', '/').trim()
     if (!raw) continue
@@ -175,23 +230,27 @@ export async function ensureLinkStubs(libraryPath: string, content: string): Pro
     if (name.length < 2 || name.length > 120 || /^[\d.v]+$/.test(name) || /[<>:"|?*]/.test(name)) continue
     // A link that only names a vault folder ("[[Concepts]]") is navigation, not a note.
     if (vaultFolders.has(name.toLocaleLowerCase())) continue
-    targets.set(name, nodeType)
+    targets.set(raw, { name, nodeType })
   }
   if (!targets.size) return []
   const nodes = await listKnowledgeNodes(libraryPath)
+  const resolveTarget = wikiTargetResolver(nodes)
   const known = new Set<string>()
+  const normalize = (value: string) => value.replaceAll('\\', '/').replace(/\.md$/i, '').trim().toLocaleLowerCase()
   for (const node of nodes) {
-    known.add(node.title.toLocaleLowerCase())
-    known.add(node.relativePath.replace(/\.md$/i, '').split('/').at(-1)!.toLocaleLowerCase())
+    known.add(normalize(node.title))
+    known.add(normalize(node.relativePath).split('/').at(-1)!)
+    // Ambiguous existing names are not missing notes. Do not shadow them with a new stub.
+    for (const alias of node.aliases ?? []) known.add(normalize(alias))
   }
   const created: string[] = []
-  for (const [name, nodeType] of targets) {
-    if (known.has(name.toLocaleLowerCase())) continue
+  for (const [raw, { name, nodeType }] of targets) {
+    if (resolveTarget(raw) || known.has(normalize(raw)) || (!raw.includes('/') && known.has(normalize(name)))) continue
     try { await fs.access(path.join(libraryPath, nodeType === 'project' ? 'Projects' : 'Concepts', `${name}.md`)); continue } catch { /* not present: create the stub */ }
     // Born as a stub in one write, so a reader never sees it in a half-created state.
     await createKnowledgeNode(libraryPath, { title: name, nodeType, status: 'inbox' })
     created.push(name)
-    known.add(name.toLocaleLowerCase())
+    known.add(normalize(name))
   }
   return created
 }

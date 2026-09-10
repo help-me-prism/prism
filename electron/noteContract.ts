@@ -105,7 +105,7 @@ export const rememberToolTitle = 'Keep something in a note'
  */
 export const chatMemoryInstruction = [
   'You are answering inside Prism, a local research reading app. The Markdown notes in the vault belong to the researcher.',
-  'Remembering is the last thing you do in a turn. After you have answered, call mcp__prism__remember on the note the conversation was about. Load that tool alongside the others rather than deciding at the end that you do not have it.',
+  'Answer directly from the supplied paper evidence when it is sufficient. Do not call tools for routine summaries or explanations. Only update memory when the researcher explicitly asks you to remember or update what they understand; saving answers is otherwise handled by the visible Save to note button.',
   'The section is one list: what the researcher still does not understand about that note. Keep it true.',
   'Add a line when they say they do not follow something. Remove a line when they say they now do. Answering it yourself changes nothing — your explanation is not evidence that it landed, and only what they say counts.',
   'Call mcp__prism__read_note_memory first and send the whole list back every time. Whatever you leave out is removed, so a line you still believe belongs must be sent again. An empty list clears the section; send one only when nothing belongs there any more.',
@@ -116,6 +116,35 @@ export const chatMemoryInstruction = [
 
 
 export function autoMarkers(section: AutoSection) { return { open: `<!-- prism:auto ${section} -->`, close: `<!-- /prism:auto ${section} -->` } }
+function normalizedOwnership(value: string) { return value.replace(/\s+/g, ' ').trim() }
+function ownershipHash(value: string) {
+  let a = 2166136261, b = 2246822519
+  for (const char of normalizedOwnership(value)) { a = Math.imul(a ^ char.charCodeAt(0), 16777619); b = Math.imul(b ^ char.charCodeAt(0), 3266489917) }
+  return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0')
+}
+export function autoBaseline(section: string, body: string) { return `<!-- prism:baseline ${section} ${ownershipHash(body)} -->` }
+export function stripAutoBaseline(content: string, section: string) { return content.replace(new RegExp(`\\n?<!-- prism:baseline ${section} [a-f0-9]{16} -->`, 'g'), '') }
+function autoBody(content: string, section: AutoSection) {
+  const { open, close } = autoMarkers(section), start = content.indexOf(open), end = content.indexOf(close, start)
+  return start < 0 || end < 0 ? undefined : content.slice(start + open.length, end)
+}
+export function protectedAutoSection(content: string, section: AutoSection) {
+  if (content.includes(`<!-- prism:keep ${section} -->`)) return true
+  const baseline = content.match(new RegExp(`<!-- prism:baseline ${section} ([a-f0-9]{16}) -->`))?.[1]
+  const body = autoBody(content, section)
+  return Boolean(baseline && (body === undefined || baseline !== ownershipHash(body)))
+}
+/** App edits lock only the changed legacy region; whitespace-only edits stay automatic. */
+export function protectEditedAutoSections(before: string, after: string) {
+  let result = after
+  for (const match of before.matchAll(/<!-- prism:keep [a-z]+ -->/g)) if (!result.includes(match[0])) result += `\n${match[0]}\n`
+  for (const section of Object.keys(autoHeadings) as AutoSection[]) {
+    const previous = autoBody(before, section), current = autoBody(after, section)
+    if (previous === undefined || normalizedOwnership(previous) === normalizedOwnership(current ?? '') || result.includes(`<!-- prism:keep ${section} -->`)) continue
+    result += `\n<!-- prism:keep ${section} -->\n`
+  }
+  return result
+}
 export function mineMarkers(section: MineSection) { return { open: `<!-- prism:mine ${section} -->`, close: `<!-- /prism:mine ${section} -->` } }
 
 /** The one question every automatic writer has to pass: is this section mine to write for this kind of note? */
@@ -184,7 +213,7 @@ export function insertMineSection(content: string, section: MineSection) {
  * reduce to the same string, and any other edit survives the reduction and shows up as a difference.
  */
 export function withoutAutoSections(content: string) {
-  let normalized = content.replace(/\r\n/g, '\n')
+  let normalized = content.replace(/\r\n/g, '\n').replace(/\n?<!-- prism:baseline [a-z]+ [a-f0-9]{16} -->/g, '')
   for (const section of Object.keys(autoHeadings) as AutoSection[]) {
     const { open, close } = autoMarkers(section)
     const heading = `## ${autoHeadings[section]}`

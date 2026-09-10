@@ -1,0 +1,3111 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 4,
+    "description": "Actual PDF.js items around run-in subheading, preserving geometry and font metadata"
+  },
+  "items": [
+    {
+      "str": "temperature, their masses were weighed using an electronic scale with an accuracy of 0.01g.",
+      "dir": "ltr",
+      "width": 362.2240000000002,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.012,
+        616.025
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "The test was performed according to the FC standards in [27]. The dry density of the test block",
+      "dir": "ltr",
+      "width": 375.62800000000004,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.012,
+        603.043
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "was calculated using Formula (1). The arithmetic average of dry density of the three test blocks",
+      "dir": "ltr",
+      "width": 374.8620000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        590.004
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "in each label was taken as the dry density",
+      "dir": "ltr",
+      "width": 161.9700000000003,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        577.021
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.22110000000000127,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        361.9819999999999,
+        577.021
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "ρ",
+      "dir": "ltr",
+      "width": 4.7700000000000005,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        364.1929999999999,
+        577.021
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "0 of FRFC test blocks in each label.",
+      "dir": "ltr",
+      "width": 106.95231430000011,
+      "height": 6.6659,
+      "transform": [
+        7.4999,
+        0,
+        0,
+        6.6659,
+        368.957,
+        575.376
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        352.12,
+        543.572
+      ],
+      "fontName": "g_d0_f3",
+      "hasEOL": true
+    },
+    {
+      "str": "r",
+      "dir": "ltr",
+      "width": 5.5200000000000005,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        352.12,
+        543.572
+      ],
+      "fontName": "g_d0_f3",
+      "hasEOL": false
+    },
+    {
+      "str": "0",
+      "dir": "ltr",
+      "width": 2.9999,
+      "height": 5.9998,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        357.619,
+        541.077
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.5488682956098411,
+      "height": 0,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        360.61890000000005,
+        541.077
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "¼",
+      "dir": "ltr",
+      "width": 7.7,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        363.912,
+        543.572
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.2788000000000011,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        371.61199999999997,
+        543.572
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "m",
+      "dir": "ltr",
+      "width": 7.87,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        374.4,
+        550.375
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "0",
+      "dir": "ltr",
+      "width": 2.9999,
+      "height": 5.9998,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        382.28,
+        547.88
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        376.384,
+        536.712
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": true
+    },
+    {
+      "str": "V",
+      "dir": "ltr",
+      "width": 6.75,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        376.384,
+        536.712
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.4870999999999981,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        383.134,
+        536.712
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "�",
+      "dir": "ltr",
+      "width": 7.7,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        388.005,
+        543.571
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.222199999999998,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        395.70500000000004,
+        543.571
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "10",
+      "dir": "ltr",
+      "width": 9.978999999999985,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        397.927,
+        543.571
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "6",
+      "dir": "ltr",
+      "width": 2.9999,
+      "height": 5.9998,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        407.906,
+        547.88
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 25.42836427880929,
+      "height": 0,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        410.90590000000003,
+        547.88
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "ð",
+      "dir": "ltr",
+      "width": 3.85,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        563.471,
+        543.572
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "1",
+      "dir": "ltr",
+      "width": 4.79,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        567.321,
+        543.572
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "Þ",
+      "dir": "ltr",
+      "width": 3.85,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        572.111,
+        543.572
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.97800000000007,
+        506.382
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "Where:",
+      "dir": "ltr",
+      "width": 29.37000000000007,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.97800000000007,
+        506.382
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.2206999999999823,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        241.34800000000018,
+        506.382
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "m0",
+      "dir": "ltr",
+      "width": 12.590999999999994,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        243.555,
+        506.382
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.22055476999999826,
+      "height": 0,
+      "transform": [
+        7.4999,
+        0,
+        0,
+        6.6659,
+        254.9534523,
+        504.737
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "and",
+      "dir": "ltr",
+      "width": 15.11999999999996,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        257.159,
+        506.381
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21709999999999924,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        272.279,
+        506.381
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "V",
+      "dir": "ltr",
+      "width": 6.75,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        274.45,
+        506.381
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21499999999999772,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        281.2,
+        506.381
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "were absolute dry mass and absolute volume respectively.",
+      "dir": "ltr",
+      "width": 227.55499999999995,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        283.34999999999997,
+        506.381
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "(3) Porosity tests.",
+      "dir": "ltr",
+      "width": 68.88800000000006,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.97599999999994,
+        493.399
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8041999999999974,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        280.864,
+        493.399
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "FRFC specimens were cut into cubes to measure the absolute density",
+      "dir": "ltr",
+      "width": 272.9749999999997,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        288.90599999999995,
+        493.399
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "using the drainage method. The true density of the specimen was tested with reference to the",
+      "dir": "ltr",
+      "width": 367.52799999999985,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01299999999995,
+        480.416
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "standards GB/T208-2014 [28]. The porosity",
+      "dir": "ltr",
+      "width": 173.57699999999977,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01299999999998,
+        467.43399999999997
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.2225999999999999,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        373.59000000000003,
+        467.43399999999997
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "P",
+      "dir": "ltr",
+      "width": 5.540000000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        375.81600000000003,
+        467.43399999999997
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21700000000000158,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        381.356,
+        467.43399999999997
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "was calculated using Formula (2).",
+      "dir": "ltr",
+      "width": 133.27099999999987,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        383.526,
+        467.43399999999997
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        332.56,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": true
+    },
+    {
+      "str": "P",
+      "dir": "ltr",
+      "width": 5.540000000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        332.56,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.29069999999999824,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        338.1,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "¼",
+      "dir": "ltr",
+      "width": 7.7,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        341.007,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8740999999999985,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        348.707,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "1",
+      "dir": "ltr",
+      "width": 5,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        357.448,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.22560000000000285,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        362.448,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "\u0000",
+      "dir": "ltr",
+      "width": 2.5,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        364.704,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.7423000000000002,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        367.204,
+        433.81499999999994
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "r",
+      "dir": "ltr",
+      "width": 3.3118896,
+      "height": 5.9998,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        374.627,
+        437.953
+      ],
+      "fontName": "g_d0_f3",
+      "hasEOL": false
+    },
+    {
+      "str": "0",
+      "dir": "ltr",
+      "width": 2.5,
+      "height": 5,
+      "transform": [
+        5,
+        0,
+        0,
+        5,
+        377.915,
+        436.479
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.20299999999999727,
+      "height": 0,
+      "transform": [
+        5,
+        0,
+        0,
+        5,
+        380.415,
+        436.479
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "=",
+      "dir": "ltr",
+      "width": 5,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        381.43,
+        433.757
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "r",
+      "dir": "ltr",
+      "width": 3.3118896,
+      "height": 5.9998,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.9998,
+        386.419,
+        431.093
+      ],
+      "fontName": "g_d0_f3",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        351.496,
+        444.926
+      ],
+      "fontName": "g_d0_f7",
+      "hasEOL": true
+    },
+    {
+      "str": "�",
+      "dir": "ltr",
+      "width": 5.93,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        351.496,
+        444.926
+      ],
+      "fontName": "g_d0_f7",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 3.284699999999998,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        357.426,
+        444.926
+      ],
+      "fontName": "g_d0_f7",
+      "hasEOL": false
+    },
+    {
+      "str": "�",
+      "dir": "ltr",
+      "width": 5.93,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        390.27299999999997,
+        444.926
+      ],
+      "fontName": "g_d0_f7",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        398.43699999999995,
+        433.815
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": true
+    },
+    {
+      "str": "�",
+      "dir": "ltr",
+      "width": 7.7,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        398.43699999999995,
+        433.815
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.2220999999999947,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        406.137,
+        433.815
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "100",
+      "dir": "ltr",
+      "width": 15,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        408.35799999999995,
+        433.815
+      ],
+      "fontName": "g_d0_f4",
+      "hasEOL": false
+    },
+    {
+      "str": "%",
+      "dir": "ltr",
+      "width": 7.6,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        423.35799999999995,
+        433.815
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 13.251099999999997,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        430.95799999999997,
+        433.815
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "ð",
+      "dir": "ltr",
+      "width": 3.85,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        563.4689999999999,
+        433.815
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "2",
+      "dir": "ltr",
+      "width": 4.79,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        567.319,
+        433.815
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "Þ",
+      "dir": "ltr",
+      "width": 3.85,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        572.1089999999999,
+        433.815
+      ],
+      "fontName": "g_d0_f5",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.976,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "In Formula (2),",
+      "dir": "ltr",
+      "width": 61.44199999999992,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.976,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.22239999999999896,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        273.418,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "P",
+      "dir": "ltr",
+      "width": 5.540000000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        275.642,
+        397.248
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21699999999999592,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        281.182,
+        397.248
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "and",
+      "dir": "ltr",
+      "width": 15.120000000000074,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        283.352,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.2171000000000049,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        298.472,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "ρ",
+      "dir": "ltr",
+      "width": 4.7700000000000005,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        300.64300000000003,
+        397.248
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21469999999999914,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        305.413,
+        397.248
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "were porosity and true density respectively.",
+      "dir": "ltr",
+      "width": 171.82500000000033,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        307.56,
+        397.248
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "(4) Thermal conductivity tests.",
+      "dir": "ltr",
+      "width": 122.18000000000002,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.976,
+        384.265
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.798599999999999,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        334.156,
+        384.265
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "The thermal conductivity of FC reflects its thermal insula-",
+      "dir": "ltr",
+      "width": 230.46899999999994,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        342.142,
+        384.265
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "tion performance, the lower the thermal conductivity, the better the thermal insulation perfor-",
+      "dir": "ltr",
+      "width": 374.61399999999946,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999995,
+        371.226
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "mance [29]. The size of the test blocks is 300 mm",
+      "dir": "ltr",
+      "width": 193.90300000000008,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        358.244
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21960000000000263,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        393.9169999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "×",
+      "dir": "ltr",
+      "width": 5.8,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        396.11299999999994,
+        358.244
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21929999999999836,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        401.9129999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": "300 mm",
+      "dir": "ltr",
+      "width": 32.84100000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        404.1059999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.219500000000005,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        436.9469999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "×",
+      "dir": "ltr",
+      "width": 5.8,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        439.14199999999994,
+        358.244
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21940000000000168,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        444.9419999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": "30 mm, and it is demolded",
+      "dir": "ltr",
+      "width": 106.17000000000006,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        447.1359999999999,
+        358.244
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "and cured under standard conditions. The test blocks were dried in a drying oven at",
+      "dir": "ltr",
+      "width": 333.0480000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        345.261
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "(105",
+      "dir": "ltr",
+      "width": 17.680000000000028,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        332.222
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21620000000000061,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        217.6939999999999,
+        332.222
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "±",
+      "dir": "ltr",
+      "width": 5.8,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        219.8559999999999,
+        332.222
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.21939999999999885,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        225.65599999999992,
+        332.222
+      ],
+      "fontName": "g_d0_f8",
+      "hasEOL": false
+    },
+    {
+      "str": "5)˚C for 24 hours and then cooled to room temperature. They were tested for thermal",
+      "dir": "ltr",
+      "width": 339.8899999999999,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        227.8499999999999,
+        332.222
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "conductivity using a JTRG-",
+      "dir": "ltr",
+      "width": 108.88100000000006,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        319.23900000000003
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "Ⅲ",
+      "dir": "ltr",
+      "width": 8.32,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        308.85499999999996,
+        319.23900000000003
+      ],
+      "fontName": "g_d0_f9",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.22339999999999804,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        317.17499999999995,
+        319.23900000000003
+      ],
+      "fontName": "g_d0_f9",
+      "hasEOL": false
+    },
+    {
+      "str": "thermal conductivity tester according to the standards GB",
+      "dir": "ltr",
+      "width": 230.15799999999973,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        319.40899999999993,
+        319.23900000000003
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "10294–2008. Each test block was tested 3 times, and their average value was taken as the ther-",
+      "dir": "ltr",
+      "width": 369.29500000000024,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999995,
+        306.257
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "mal conductivity.",
+      "dir": "ltr",
+      "width": 69.36800000000007,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999998,
+        293.274
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36,
+        707.981
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": true
+    },
+    {
+      "str": "Table 1. Basic properties of the three types of fibers.",
+      "dir": "ltr",
+      "width": 172.92983835000007,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36,
+        707.981
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": true
+    },
+    {
+      "str": "Type",
+      "dir": "ltr",
+      "width": 16.8157898,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        37.643979449999975,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 1.0302999999999998,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        54.45976924999998,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Ultimate tensile strength (MPa)",
+      "dir": "ltr",
+      "width": 106.58506767000003,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        62.70206621999998,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8429000000000015,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        169.28713388999998,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Modulus of elasticity (GPa)",
+      "dir": "ltr",
+      "width": 91.95805050999998,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        176.0302496,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8430000000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        267.98830010999995,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Ultimate elongation (%)",
+      "dir": "ltr",
+      "width": 80.96538792,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        274.73221580999996,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8494000000000071,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        355.6976037299999,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Equivalent diameter (10",
+      "dir": "ltr",
+      "width": 80.67528121000011,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        362.49271878999997,
+        693.12758567
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "2",
+      "dir": "ltr",
+      "width": 2.9999,
+      "height": 5.3325,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.3325,
+        443.168,
+        696.699
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.3031934397813247,
+      "height": 0,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.3325,
+        446.16790000000003,
+        696.699
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "μ",
+      "dir": "ltr",
+      "width": 4.3039462,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        447.987,
+        693.128
+      ],
+      "fontName": "g_d0_f11",
+      "hasEOL": false
+    },
+    {
+      "str": "m)",
+      "dir": "ltr",
+      "width": 9.575880300000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        452.2909462,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8516000000000015,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        461.8668265,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Length (mm)",
+      "dir": "ltr",
+      "width": 44.380245240000015,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        468.67954134,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.8445999999999949,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        513.05978658,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "Density (g/cm",
+      "dir": "ltr",
+      "width": 47.22649788000015,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        519.81650212,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "3",
+      "dir": "ltr",
+      "width": 3.003999999999994,
+      "height": 5.3325,
+      "transform": [
+        5.9998,
+        0,
+        0,
+        5.3325,
+        567.043,
+        696.699
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": ")",
+      "dir": "ltr",
+      "width": 2.8319646,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        570.047,
+        693.128
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        41.04801257000008,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "GF",
+      "dir": "ltr",
+      "width": 9.991875100000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        41.04801257000008,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 6.780199999999999,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        51.0398876700001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": ">",
+      "dir": "ltr",
+      "width": 6.159923,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        105.2808096500001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "2600",
+      "dir": "ltr",
+      "width": 15.327808400000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        111.44073265000009,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 11.040899999999999,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        126.76854105000007,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": ">",
+      "dir": "ltr",
+      "width": 6.159923,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        215.09463696000006,
+        680.6561559
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "80",
+      "dir": "ltr",
+      "width": 7.663904200000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        221.2545599600001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 10.021700000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        228.9184641600001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "3~4",
+      "dir": "ltr",
+      "width": 12.327845900000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        309.0910619900001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 10.867799999999997,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        321.4189078900001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "13",
+      "dir": "ltr",
+      "width": 7.663904200000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        408.3602211100001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 8.346800000000005,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        416.0241253100001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "6~15",
+      "dir": "ltr",
+      "width": 16.159798000000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        482.79769063000015,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 5.095000000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        498.9574886300001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "2.63",
+      "dir": "ltr",
+      "width": 13.327833400000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        539.7169791300001,
+        680.6561559
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "PVAF",
+      "dir": "ltr",
+      "width": 19.815752300000003,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36.172873510000045,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 5.297099999999991,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        55.988625810000144,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "1400~1600",
+      "dir": "ltr",
+      "width": 35.3195585,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        98.36489610000007,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 9.793700000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.68445460000004,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "35~39",
+      "dir": "ltr",
+      "width": 19.9917501,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        212.03307523000007,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 9.633400000000009,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        232.02482533000006,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "6~8",
+      "dir": "ltr",
+      "width": 12.327845900000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        309.0910619900001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 10.867799999999997,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        321.4189078900001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "15",
+      "dir": "ltr",
+      "width": 7.663904200000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        408.3602211100001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 8.346800000000005,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        416.0241253100001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "6~15",
+      "dir": "ltr",
+      "width": 16.159798000000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        482.79769063000015,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 5.095000000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        498.9574886300001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "1.50",
+      "dir": "ltr",
+      "width": 13.327833400000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        539.7169791300001,
+        668.1267125200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "PPF",
+      "dir": "ltr",
+      "width": 13.239834500000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        39.40403312000001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 6.813600000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        52.64386762000004,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": ">",
+      "dir": "ltr",
+      "width": 6.159923,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        107.15198626000006,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "486",
+      "dir": "ltr",
+      "width": 11.495856300000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        113.3119092600001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 11.172600000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        124.80776556000006,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": ">",
+      "dir": "ltr",
+      "width": 6.159923,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        214.18744830000009,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "4.8",
+      "dir": "ltr",
+      "width": 9.4958813,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        220.34737130000013,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 9.814,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        229.84325260000008,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": ">",
+      "dir": "ltr",
+      "width": 6.159923,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        308.3542712000001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f6",
+      "hasEOL": false
+    },
+    {
+      "str": "18",
+      "dir": "ltr",
+      "width": 7.663904200000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        314.51419420000013,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 10.772900000000005,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        322.17809840000007,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "20",
+      "dir": "ltr",
+      "width": 7.663904200000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        408.3602211100001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 8.346800000000005,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        416.0241253100001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "6~15",
+      "dir": "ltr",
+      "width": 16.159798000000002,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        482.79769063000015,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 5.095000000000003,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        498.9574886300001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "0.91",
+      "dir": "ltr",
+      "width": 13.327833400000001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        539.7169791300001,
+        655.6548684200001
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36.00247564000017,
+        640.63105622
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": true
+    },
+    {
+      "str": "https://doi.org/10.1371/journal.pone.0287690.t001",
+      "dir": "ltr",
+      "width": 151.1101110999997,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36.00247564000017,
+        640.63105622
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        101.877
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": true
+    },
+    {
+      "str": "Fig 2. Preparation process of FRFC.",
+      "dir": "ltr",
+      "width": 118.67691651999995,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        101.877
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        86.40039345999999
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": true
+    },
+    {
+      "str": "https://doi.org/10.1371/journal.pone.0287690.g002",
+      "dir": "ltr",
+      "width": 152.7044911700001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        86.40039345999999
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": false
+    },
+    {
+      "str": "PLOS ONE",
+      "dir": "ltr",
+      "width": 56.83700000000001,
+      "height": 11,
+      "transform": [
+        11,
+        0,
+        0,
+        11,
+        34.9795,
+        745.759
+      ],
+      "fontName": "g_d0_f13",
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        263.395,
+        745.795
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": true
+    },
+    {
+      "str": "Pore structure characteristics and thermal conductivity of fibers reinforced foamed concrete",
+      "dir": "ltr",
+      "width": 312.68169142999955,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        263.395,
+        745.795
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": true
+    },
+    {
+      "str": "PLOS ONE | https://doi.org/10.1371/journal.pone.0287690",
+      "dir": "ltr",
+      "width": 201.94307568000005,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.9915999999999994,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        237.94307568,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    },
+    {
+      "str": "July 7, 2023",
+      "dir": "ltr",
+      "width": 41.63787951999999,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        245.87577652,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "dir": "ltr",
+      "width": 33.70099999999999,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        287.51365604,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    },
+    {
+      "str": "4 / 17",
+      "dir": "ltr",
+      "width": 18.88296395999996,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        557.11828594,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    }
+  ],
+  "fonts": {
+    "g_d0_f2": {
+      "name": "RPMPPC+MinionPro-It"
+    },
+    "g_d0_f1": {
+      "name": "MinionPro-Regular"
+    }
+  },
+  "expectedSourceIdentity": [
+    {
+      "id": "p4-s0-ocjsxt",
+      "source": "temperature, their masses were weighed using an electronic scale with an accuracy of 0.01g."
+    },
+    {
+      "id": "p4-s1-19ua40g",
+      "source": "The test was performed according to the FC standards in [27]."
+    },
+    {
+      "id": "p4-s2-1krmh11",
+      "source": "The dry density of the test block was calculated using Formula (1)."
+    },
+    {
+      "id": "p4-s3-1te0n8m",
+      "source": "The arithmetic average of dry density of the three test blocks in each label was taken as the dry density ρ 0 of FRFC test blocks in each label."
+    },
+    {
+      "id": "p4-s4-61ol8q",
+      "source": "r 0 ¼ m 0"
+    },
+    {
+      "id": "p4-s5-1wii7po",
+      "source": "V � 10 6 ð 1 Þ"
+    },
+    {
+      "id": "p4-s6-y46jly",
+      "source": "Where: m0 and V were absolute dry mass and absolute volume respectively."
+    },
+    {
+      "id": "p4-s7-gvrmlh",
+      "source": "(3) Porosity tests."
+    },
+    {
+      "id": "p4-s8-1y3yjhq",
+      "source": "FRFC specimens were cut into cubes to measure the absolute density using the drainage method."
+    },
+    {
+      "id": "p4-s9-1crb7uj",
+      "source": "The true density of the specimen was tested with reference to the standards GB/T208-2014 [28]."
+    },
+    {
+      "id": "p4-s10-1nl2n37",
+      "source": "The porosity P was calculated using Formula (2)."
+    },
+    {
+      "id": "p4-s11-1gjp3rr",
+      "source": "P ¼ 1 r 0 = r"
+    },
+    {
+      "id": "p4-s12-xmg4y0",
+      "source": "� � � 100 % ð 2 Þ"
+    },
+    {
+      "id": "p4-s13-xi9evh",
+      "source": "In Formula (2), P and ρ were porosity and true density respectively."
+    },
+    {
+      "id": "p4-s14-6lx5fl",
+      "source": "(4) Thermal conductivity tests."
+    },
+    {
+      "id": "p4-s15-1dublac",
+      "source": "The thermal conductivity of FC reflects its thermal insulation performance, the lower the thermal conductivity, the better the thermal insulation performance [29]."
+    },
+    {
+      "id": "p4-s16-1obccif",
+      "source": "The size of the test blocks is 300 mm × 300 mm × 30 mm, and it is demolded and cured under standard conditions."
+    },
+    {
+      "id": "p4-s17-1c5rt6v",
+      "source": "The test blocks were dried in a drying oven at (105 ± 5)˚C for 24 hours and then cooled to room temperature."
+    },
+    {
+      "id": "p4-s18-1xu4d3d",
+      "source": "They were tested for thermal conductivity using a JTRGⅢ thermal conductivity tester according to the standards GB 10294–2008."
+    },
+    {
+      "id": "p4-s19-18qzvkk",
+      "source": "Each test block was tested 3 times, and their average value was taken as the thermal conductivity."
+    },
+    {
+      "id": "p4-s20-v11v4y",
+      "source": "Table 1. Basic properties of the three types of fibers."
+    },
+    {
+      "id": "p4-s21-huhsvn",
+      "source": "Type Ultimate tensile strength (MPa) Modulus of elasticity (GPa) Ultimate elongation (%) Equivalent diameter (10 2 μ m) Length (mm) Density (g/cm 3 ) GF > 2600 > 80 3~4 13 6~15 2.63"
+    },
+    {
+      "id": "p4-s22-p2ug2",
+      "source": "PVAF 1400~1600 35~39 6~8 15 6~15 1.50"
+    },
+    {
+      "id": "p4-s23-1a5vk8g",
+      "source": "PPF > 486 > 4.8 > 18 20 6~15 0.91"
+    },
+    {
+      "id": "p4-s24-jq3vcv",
+      "source": "Fig 2. Preparation process of FRFC."
+    }
+  ]
+}

@@ -3,8 +3,8 @@
 type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; installed: boolean; available: boolean; status: string; models: ProviderModel[] }
-type ContextAnchor = { paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
-type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[] }
+type ContextAnchor = { scientificSpans?: import('../electron/scientificSource').ScientificSpan[]; paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
+type ChatMessage = { savedNote?: { libraryPath: string; paperId: string; title: string; blockId?: string }; id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[]; primaryPaperId?: string; provider?: ProviderId; model?: string }
 type PaperDigestResult = { updated: boolean; chatMessages: number; sections: Array<'overview' | 'confusion' | 'focus'>; usedModel: boolean }
 // 컨텍스트 점유량은 "직전 요청이 실제로 보낸 대화 전체" 다. 턴마다 쌓이는 누적 토큰과는 다른 값이라
 // 누적치로 계산하면 대화가 길어질수록 잔량을 과대하게 깎아 보여준다.
@@ -14,25 +14,27 @@ type ChatUsage = { context?: ChatContextUsage }
 // 계산해서 보여줄 수 있으면 resetsAt 을, 아니면 받은 문장을 그대로 쓴다.
 type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDurationMins?: number; resetsAt?: number; resetsText?: string }
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
-type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
-type ChatRequest = { prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
-type AppSettings = { libraryPath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type ChatSession = { libraryPath?: string | null; id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
+type ChatRequest = { inputComposition?: import('../electron/aiUsageTypes').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
+type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
 type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
 type LatexBlock = { id: string; kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'; source: string; section?: string }
 type LatexStructure = { version: 3; rootFile: string; generatedAt: string; blocks: LatexBlock[] }
-type TranslationSegment = { id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type TranslationSegment = { scientificSpans?: import('./../electron/scientificSource').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 type TranslationCache = { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] }
-type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor'; paperId?: string; anchor?: ContextAnchor }
+type WorkspaceCommand = { id: number; type: 'search' | 'choose-folder' | 'open-paper' | 'navigate-anchor' | 'memo-anchor'; paperId?: string; anchor?: ContextAnchor }
 type WorkspaceSnapshot = { library: PaperRecord[]; openPaperIds: string[]; activePaperId?: string; libraryPath?: string }
-type NoteSnapshot = { content: string; revision: string; modifiedAt: number }
-type NoteSaveRequest = { content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
+type ReadingSizeSnapshot = { paperId: string; mode: 'original' | 'translated'; scale: number; anchorId: string; page: number }
+type ReadingSizeRequest = ReadingSizeSnapshot & { id: number }
+type NoteSnapshot = { vaultId?: string; content: string; revision: string; modifiedAt: number }
+type NoteSaveRequest = { vaultId?: string; content: string; expectedRevision?: string; force?: boolean; createStubs?: boolean }
 type NoteSaveResult = { saved: true; snapshot: NoteSnapshot; stubs?: string[] } | { saved: false; conflict: NoteSnapshot }
 type PaperCaptureRequest =
-  | { kind: 'evidence'; paperId: string; anchorId: string; memo?: string; concept?: string }
-  | { kind: 'chat'; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
-type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string }
+  | { kind: 'evidence'; libraryPath?: string; paperId: string; anchorId: string; memo?: string; concept?: string }
+  | { kind: 'chat'; libraryPath: string; paperId: string; question: string; answer: string; provider: string; model: string; anchors?: Array<{ paperId: string; anchorId: string; label: string; page?: number }> }
+type PaperCaptureResult = { saved: true; snapshot: NoteSnapshot; blockId?: string; concept?: string; warning?: string }
 type CurationMemo = { paper: KnowledgeNodeRecord; blockId: string; anchorLabel: string; anchorSource: string; anchor?: EvidenceAnchorRef; memo: string; aiHint?: { id: string; kind: 'claim' | 'question'; why: string } }
 type CurationStub = { node: KnowledgeNodeRecord; backlinks: number; ready: boolean }
 type CurationPendingRelation = { relation: KnowledgeRelationRecord; source: KnowledgeNodeRecord; target: KnowledgeNodeRecord }
@@ -46,7 +48,7 @@ type PromoteApplyRequest = { nodeId: string; line: string; title: string }
 type CurationConflict = { relationId: string; left: KnowledgeNodeRecord; right: KnowledgeNodeRecord; claim?: KnowledgeNodeRecord }
 type CurationQueue = { pendingRelations: CurationPendingRelation[]; stubs: CurationStub[]; memos: CurationMemo[]; applyNotes: CurationApplyNote[]; unsupportedClaims: KnowledgeNodeRecord[]; unansweredQuestions: KnowledgeNodeRecord[]; conflicts: CurationConflict[]; conceptSuggestions: CurationConceptSuggestion[]; claimSuggestions: CurationClaimSuggestion[]; modelRuns: ModelSuggestionSummary[]; total: number }
 type PromoteMemoRequest = { paperNodeId: string; blockId: string; memo: string; nodeType: 'claim' | 'question'; title: string }
-type CitationEntry = { arxivId?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
+type CitationEntry = { arxivId?: string; doi?: string; title: string; year?: number; citationCount?: number; authors: string[]; inLibrary: boolean; nodeId?: string }
 type CitationLinks = { arxivId: string; fetchedAt: string; references: CitationEntry[]; citations: CitationEntry[]; stale: boolean; error?: string }
 type MergeConceptsRequest = { sourceId: string; targetId: string }
 type StructureRole = 'problem' | 'background' | 'method' | 'component' | 'rationale' | 'experiment' | 'result' | 'limit'
@@ -65,11 +67,11 @@ type KnowledgeReadingStatus = 'to_read' | 'reading' | 'read' | 'paused'
 type KnowledgeLevel = 'low' | 'medium' | 'high'
 type ClaimOrigin = 'paper' | 'mine'
 type EvidenceKind = 'theory' | 'experiment' | 'anecdote' | 'idea'
-type KnowledgeNodeRecord = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; arxivId?: string; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[]; preview: string; evidenceCount: number; relativePath: string; revision: string; modifiedAt: number }
+type KnowledgeNodeRecord = { id: string; title: string; aliases?: string[]; nodeType: KnowledgeNodeType; status: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance: KnowledgeLevel; confidence: KnowledgeLevel; templateId?: string; arxivId?: string; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[]; preview: string; evidenceCount: number; relativePath: string; revision: string; modifiedAt: number }
 type ResearchSearchResult = KnowledgeSearchResult & { textScore: number; semanticScore: number }
 type KnowledgeSuggestion = { id: string; kind: 'duplicate_concept' | 'supports' | 'contradicts' | 'evidence_gap' | 'research_gap'; source: KnowledgeNodeRecord; target?: KnowledgeNodeRecord; proposedRelation?: KnowledgeRelationType; confidence: number; reason: string }
 type ObsidianOpenRequest = { nodeId: string; heading?: string; blockId?: string }
-type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus }
+type KnowledgeCreateRequest = { title: string; nodeType: KnowledgeNodeType; templateId?: string; variables?: Record<string, string>; status?: KnowledgeStatus; body?: string; vaultId?: string }
 type ApplyTemplateSectionsResult = { saved: true; snapshot: NoteSnapshot; addedHeadings: string[] } | { saved: false; conflict: NoteSnapshot }
 type KnowledgePropertyPatch = { status?: KnowledgeStatus; readingStatus?: KnowledgeReadingStatus; importance?: KnowledgeLevel; confidence?: KnowledgeLevel; claimOrigin?: ClaimOrigin; evidenceKind?: EvidenceKind | ''; scopeDomain?: string; scopeRegime?: string; scopeAssumptions?: string[]; projects?: string[] }
 type KnowledgeBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
@@ -78,7 +80,7 @@ type RelationEvidenceAnchor = EvidenceAnchorRef
 type RelationOrigin = 'manual' | 'link'
 type KnowledgeRelationRecord = { id: string; sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; reviewStatus: 'pending' | 'approved' | 'rejected'; evidenceAnchor?: RelationEvidenceAnchor; origin?: RelationOrigin; createdAt: string }
 type KnowledgeRelationView = KnowledgeRelationRecord & { direction: 'outgoing' | 'incoming'; other: Pick<KnowledgeNodeRecord, 'id' | 'title' | 'nodeType' | 'relativePath'> }
-type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string }
+type KnowledgeRelationCreateRequest = { sourceId: string; targetId: string; type: KnowledgeRelationType; creator: 'user' | 'ai'; evidenceAnchor?: RelationEvidenceAnchor; expectedRevision: string; vaultId?: string }
 type KnowledgeRelationDeleteRequest = { id: string; expectedRevision: string }
 type KnowledgeRelationReviewRequest = { id: string; decision: 'approved' | 'rejected'; expectedRevision: string }
 type KnowledgeGraphNode = { id: string; title: string; nodeType: KnowledgeNodeType; status: KnowledgeStatus; relativePath: string; modifiedAt: number }
@@ -91,7 +93,7 @@ type ClusterReport = { clusters: KnowledgeCluster[]; modularity: number; clear: 
 type KnowledgeGraphInsights = { clusters: ClusterReport; similar: SimilarityReport }
 type KnowledgeRelationMutationResult = { saved: true; relation?: KnowledgeRelationRecord; snapshot: NoteSnapshot; relations: KnowledgeRelationView[] } | { saved: false; conflict: NoteSnapshot }
 type EvidenceAnchorRef = { paperId: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string }
-type EvidenceAnchor = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
+type EvidenceAnchor = EvidenceAnchorRef & { scientificSpans?: import('../electron/scientificSource').ScientificSpan[]; paperTitle: string; source: string; sourceHash: string; availability: 'linked' | 'needs-relink' }
 type EvidenceBacklink = { nodeId: string; title: string; nodeType: KnowledgeNodeType; relativePath: string; excerpt: string }
 type KnowledgeEvidenceCopyRequest = { sourceNodeId: string; targetNodeId: string; blockId: string; expectedTargetRevision: string }
 
@@ -105,18 +107,27 @@ interface Window {
     onProviderAuthData: (callback: (event: ProviderAuthEvent) => void) => () => void
     loadSessions: () => Promise<ChatSession[]>
     saveSessions: (sessions: ChatSession[]) => Promise<boolean>
+    onSettingsChanged: (callback: (settings: AppSettings) => void) => () => void
     getSettings: () => Promise<AppSettings>
     updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+    reconnectPaperStorage: () => Promise<{ restored: number; skipped: number; noteWarnings: number } | null>
+    onLibraryChanged: (callback: (records: PaperRecord[]) => void) => () => void
+    choosePaperStorage: (reset?: boolean) => Promise<AppSettings | null>
     chooseWorkspace: () => Promise<AppSettings | null>
     listLibrary: () => Promise<PaperRecord[]>
+    updatePaperTitle: (input: { paperId: string; title: string; expectedTitle: string; libraryPath: string }) => Promise<{ paper: PaperRecord; warnings: string[] }>
+    searchCrossref: (query: string) => Promise<ArxivPaper[]>
+    openDoi: (id: string) => Promise<void>
     searchArxiv: (input: string) => Promise<ArxivPaper[]>
     autocompletePapers: (input: string) => Promise<Array<{ title: string; authorsYear?: string }>>
     openArxiv: (arxivId: string) => Promise<void>
+    importLocalPaper: (metadata?: ArxivPaper) => Promise<PaperRecord | null>
     downloadPaper: (paper: ArxivPaper) => Promise<PaperRecord>
     readPaperPdf: (arxivId: string) => Promise<Uint8Array>
     readLatexStructure: (arxivId: string) => Promise<LatexStructure | null>
     readPaperFigures: (arxivId: string) => Promise<PaperFigureAsset[]>
     openNotes: () => Promise<boolean>
+    setAppearance: (theme: 'light' | 'dark') => Promise<void>
     openPaperInReader: (arxivId?: string) => Promise<boolean>
     onOpenPaperInReader: (callback: (arxivId: string) => void) => () => void
     capturePaperNote: (request: PaperCaptureRequest) => Promise<PaperCaptureResult>
@@ -134,7 +145,7 @@ interface Window {
     listAutoUnread: () => Promise<Record<string, { at: number; sections: string[] }>>
     clearAutoUnread: (id: string) => Promise<{ cleared: boolean }>
     refreshPaperDigest: (paperNodeId: string, options?: { useModel?: boolean }) => Promise<PaperDigestResult>
-    refreshVaultDigests: () => Promise<{ scanned: number; updated: string[]; understood: string[] }>
+    refreshVaultDigests: (libraryPath?: string) => Promise<{ scanned: number; updated: string[]; understood: string[] }>
     onVaultChanged: (callback: (event: { paths: string[] }) => void) => () => void
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
@@ -148,7 +159,12 @@ interface Window {
     openKnowledgeNodeInObsidian: (request: ObsidianOpenRequest) => Promise<boolean>
     createKnowledgeNode: (request: KnowledgeCreateRequest) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     applyTemplateSections: (request: { nodeId: string; templateId: string; expectedRevision: string }) => Promise<ApplyTemplateSectionsResult>
-    readKnowledgeNode: (id: string) => Promise<NoteSnapshot>
+    readKnowledgeNode: (id: string, vaultId?: string) => Promise<NoteSnapshot>
+    listPendingNoteRecoveries: () => Promise<Array<{ id: string; noteFile: string; relativePath: string; createdAt: number; kinds: Array<'draft' | 'before' | 'displaced'> }>>
+    readPendingNoteRecovery: (id: string, kind: 'draft' | 'before' | 'displaced') => Promise<string>
+    recoverPendingNote: (id: string, kind: 'draft' | 'before' | 'displaced') => Promise<void>
+    listNoteHistory: (id: string, vaultId?: string) => Promise<Array<{ id: string; createdAt: number; kind: 'before' | 'draft' | 'displaced'; size: number }>>
+    readNoteHistory: (id: string, entryId: string, vaultId?: string) => Promise<string>
     saveKnowledgeNode: (id: string, request: NoteSaveRequest) => Promise<NoteSaveResult>
     updateKnowledgeProperties: (id: string, patch: KnowledgePropertyPatch, expectedRevision: string) => Promise<NoteSaveResult>
     deleteKnowledgeNode: (id: string) => Promise<{ nodes: KnowledgeNodeRecord[]; trashed: string; title: string }>
@@ -164,14 +180,18 @@ interface Window {
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
     listEvidenceBacklinks: (anchor: EvidenceAnchorRef) => Promise<EvidenceBacklink[]>
-    openKnowledgeNodeInNotes: (id: string) => Promise<boolean>
-    onOpenKnowledgeNode: (callback: (id: string) => void) => () => void
+    openKnowledgeNodeInNotes: (id: string, options?: { blockId?: string; libraryPath?: string }) => Promise<boolean>
+    onOpenKnowledgeNode: (callback: (request: string | { id: string; blockId?: string; libraryPath?: string }) => void) => () => void
+    readSavedFigure: (paperId: string, anchorId: string) => Promise<{ dataUrl: string; rect?: { x: number; y: number; width: number; height: number }; page?: number }>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
-    startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean }) => Promise<{ started: boolean }>
+    startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean; pages?: number[] }) => Promise<{ started: boolean }>
     cancelTranslation: (arxivId: string) => Promise<boolean>
+    readAiUsage: () => Promise<import('../electron/aiUsageTypes').AiRun[]>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
+    paperGuide: (request: { paperId: string; libraryPath: string; generate?: boolean; force?: boolean }) => Promise<import('../electron/readingGuideTypes').ReadingGuide | null>
+    compactChat: (request: { sessionId: string; libraryPath: string | null; model: string }) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>
     onChatEvent: (callback: (event: unknown) => void) => () => void
     onChatDone: (callback: (event: unknown) => void) => () => void

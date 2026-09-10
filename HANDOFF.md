@@ -4,7 +4,7 @@
 작업 브랜치: `feat/research-db` (`main`에서 분기, 2026-09-03)
 기능 구현 기준: 연구 DB v2(읽기·정리 분리, 4노드 온톨로지, 대기열, 모델 제안, 인용 레이어)가 반영된 `feat/research-db` HEAD. 배경과 원칙은 `docs/RESEARCH_DB_V2.md`.
 
-이 문서는 새로운 Codex/Claude 대화나 다른 개발자가 현재 상태를 빠르게 파악하고 바로 이어서 작업하기 위한 기준 문서다. 다음 작업을 시작할 때는 먼저 `git checkout kys_enhanced`와 `git pull origin kys_enhanced`를 실행하고 이 문서를 읽는다.
+이 문서는 과거 구현의 배경 기록입니다. 현재 시작점은 최신 main이며, 2026-09-09 개선은 `codex/product-reader`에서 진행했습니다. 현재 동작과 검증은 [docs/PRODUCT_REVIEW.md](docs/PRODUCT_REVIEW.md)와 README를 우선하세요. 아래의 과거 브랜치로 전환하지 마세요.
 
 ## 1. 제품 목표
 

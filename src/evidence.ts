@@ -1,3 +1,4 @@
+import { validatedScientificSource } from '../electron/scientificSource'
 const typeLabels: Record<EvidenceAnchorRef['type'], string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
 
 export type EmbeddedEvidence = EvidenceAnchorRef & { paperTitle: string; source: string; sourceHash: string; blockId: string }
@@ -10,7 +11,7 @@ function blockId(anchor: EvidenceAnchorRef) {
 export function evidenceMarkdown(anchor: EvidenceAnchor) {
   const embedded: EmbeddedEvidence = { paperId: anchor.paperId, paperTitle: anchor.paperTitle, anchorId: anchor.anchorId, type: anchor.type, page: anchor.page, label: anchor.label, source: anchor.source, sourceHash: anchor.sourceHash, blockId: blockId(anchor) }
   const metadata = encodeURIComponent(JSON.stringify(embedded))
-  const source = anchor.source.replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
+  const source = validatedScientificSource(anchor.source, anchor.scientificSpans).replace(/\r?\n/g, '\n').split('\n').map((line) => `> ${line || ' '}`).join('\n')
   const target = `prism://paper/${encodeURIComponent(anchor.paperId)}?anchor=${encodeURIComponent(anchor.anchorId)}&page=${anchor.page}`
   return `> [!evidence] ${typeLabels[anchor.type]} · ${anchor.paperTitle} · p.${anchor.page} · ${anchor.label}\n${source}\n> [PDF 원문 열기](${target})\n<!-- prism-evidence:${metadata} -->\n^${embedded.blockId}`
 }

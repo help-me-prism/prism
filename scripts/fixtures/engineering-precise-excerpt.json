@@ -1,0 +1,73 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 11,
+    "license": "CC BY",
+    "anchor": "p11-s6-1q3tno7",
+    "source": "Actual renderer precise glyph rectangles from https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0287690"
+  },
+  "bounds": {
+    "left": 199.38699340820318,
+    "top": 499.33301067352295,
+    "width": 372.2679898071288,
+    "height": 35.9660005569458
+  },
+  "rects": [
+    {
+      "left": 434.09398651123047,
+      "top": 499.33301067352295,
+      "width": 126.04401428222661,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 199.38699340820318,
+      "top": 512.3160133361816,
+      "width": 98.33099800109858,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 297.18099212646484,
+      "top": 512.9410133361816,
+      "width": 6.25,
+      "height": 6.875,
+      "fontSize": 10
+    },
+    {
+      "left": 303.9839897155762,
+      "top": 512.3160133361816,
+      "width": 267.6709934997558,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 199.38699340820318,
+      "top": 525.2990112304688,
+      "width": 141.9839997863769,
+      "height": 10,
+      "fontSize": 10
+    },
+    {
+      "left": 340.83399391174316,
+      "top": 525.9240112304688,
+      "width": 6.25,
+      "height": 6.875,
+      "fontSize": 10
+    },
+    {
+      "left": 348.3189926147461,
+      "top": 525.9240112304688,
+      "width": 8.125,
+      "height": 8.75,
+      "fontSize": 10
+    },
+    {
+      "left": 358.8089904785156,
+      "top": 525.2990112304688,
+      "width": 186.31701171875,
+      "height": 8.125,
+      "fontSize": 10
+    }
+  ]
+}

@@ -94,7 +94,11 @@ try {
     socket.addEventListener('error', reject, { once: true })
   })
   await send('Runtime.enable')
-  await waitFor(`Boolean(document.querySelector('[role="dialog"]')) || Boolean(document.querySelector('.fatal-error'))`, 'The initial renderer state did not settle.')
+  await waitFor(`Boolean(document.querySelector('.reader-empty')) || Boolean(document.querySelector('.fatal-error'))`, 'The initial renderer state did not settle.')
+  assert(await evaluate(`!document.querySelector('[role="dialog"]')`), 'First launch must not force a modal.')
+  assert(await evaluate(`document.querySelector('.chat-pane').hidden`), 'First launch should prioritize reading.')
+  await evaluate(`document.querySelector('.reader-empty button').click()`)
+  await waitFor(`Boolean(document.querySelector('.paper-finder'))`, 'The import action did not open the finder.')
 
   const initial = await evaluate(`(() => ({
     dialog: document.querySelector('[role="dialog"]')?.getAttribute('aria-labelledby'),
@@ -103,11 +107,15 @@ try {
     viewport: { width: innerWidth, height: innerHeight },
   }))()`)
   assert(initial.dialog === 'paper-finder-title', 'The first-run paper finder is not exposed as a dialog.')
-  assert(initial.activeLabel === 'arXiv 논문 검색어', 'The paper search field did not receive initial focus.')
+  assert(initial.activeLabel === '논문 검색어', 'The paper search field did not receive initial focus.')
   assert(!initial.fatal, 'The renderer displayed the fatal error screen.')
   assert(initial.viewport.width === 1040 && initial.viewport.height === 680, `Minimum window size was not applied: ${initial.viewport.width}x${initial.viewport.height}`)
 
+  await evaluate(`(() => { const controls = [...document.querySelectorAll('.paper-finder button:not(:disabled), .paper-finder input:not(:disabled), .paper-finder select:not(:disabled)')].filter(el => el.getClientRects().length); controls.at(-1).focus() })()`)
+  await press('Tab', 9)
+  assert(await evaluate(`document.activeElement === document.querySelector('.paper-finder button')`), 'Tab escaped the modal focus boundary.')
   await press('Escape', 27)
+  await evaluate(`document.querySelector('.reading-focus').click()`)
   assert(await evaluate(`!document.querySelector('.paper-finder')`), 'Escape did not close the paper finder.')
   assert(await evaluate(`document.querySelector('.repository-card').compareDocumentPosition(document.querySelector('.sidebar-actions')) & Node.DOCUMENT_POSITION_FOLLOWING`), 'The current library card was not placed above the open-paper button.')
   assert(await evaluate(`document.querySelector('.repository-card strong')?.textContent`) === 'library', 'The current library card did not show the configured repository name.')
@@ -204,6 +212,16 @@ try {
   const visual = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   const visualPath = path.join(process.cwd(), 'tmp', 'ui', 'chat-markdown.png')
   await fs.mkdir(path.dirname(visualPath), { recursive: true }); await fs.writeFile(visualPath, Buffer.from(visual.data, 'base64'))
+
+  await evaluate(`document.querySelector('button[aria-label="설정"]').click()`)
+  await evaluate("document.querySelector('[data-settings-tab=appearance]').click()")
+  await waitFor('Boolean(document.querySelector("[aria-label=\\"화면 테마\\"]"))', 'The appearance panel did not open.')
+  await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
+  assert(await evaluate(`document.documentElement.style.colorScheme === 'dark'`), 'Dark theme was not applied.')
+  assert(await evaluate(`localStorage.getItem('prism.appearance') === 'dark'`), 'Theme preference was not persisted.')
+  await press('Escape', 27)
+  const dark = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+  await fs.writeFile(path.join(process.cwd(), 'tmp', 'ui', 'reader-dark.png'), Buffer.from(dark.data, 'base64'))
 
   assert(exceptions.length === 0, `Renderer exceptions were reported: ${exceptions.join('; ')}`)
   assert(securityWarnings.length === 0, 'Electron reported an insecure Content Security Policy.')

@@ -1,0 +1,173 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "url": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0287690",
+    "page": 4,
+    "license": "CC BY",
+    "extraction": "PDF.js getTextContent; unmodified raw items with immediate neighboring items; coordinates in PDF user space"
+  },
+  "page": {
+    "width": 612,
+    "height": 792
+  },
+  "doiItemIndexes": [
+    174,
+    178,
+    182
+  ],
+  "items": [
+    {
+      "itemIndex": 173,
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36.00247564000017,
+        640.63105622
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": true
+    },
+    {
+      "itemIndex": 174,
+      "str": "https://doi.org/10.1371/journal.pone.0287690.t001",
+      "dir": "ltr",
+      "width": 151.1101110999997,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36.00247564000017,
+        640.63105622
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": false
+    },
+    {
+      "itemIndex": 175,
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        101.877
+      ],
+      "fontName": "g_d0_f10",
+      "hasEOL": true
+    },
+    {
+      "itemIndex": 177,
+      "str": "",
+      "dir": "ltr",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        86.40039345999999
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": true
+    },
+    {
+      "itemIndex": 178,
+      "str": "https://doi.org/10.1371/journal.pone.0287690.g002",
+      "dir": "ltr",
+      "width": 152.7044911700001,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        86.40039345999999
+      ],
+      "fontName": "g_d0_f12",
+      "hasEOL": false
+    },
+    {
+      "itemIndex": 179,
+      "str": "PLOS ONE",
+      "dir": "ltr",
+      "width": 56.83700000000001,
+      "height": 11,
+      "transform": [
+        11,
+        0,
+        0,
+        11,
+        34.9795,
+        745.759
+      ],
+      "fontName": "g_d0_f13",
+      "hasEOL": false
+    },
+    {
+      "itemIndex": 181,
+      "str": "Pore structure characteristics and thermal conductivity of fibers reinforced foamed concrete",
+      "dir": "ltr",
+      "width": 312.68169142999955,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        263.395,
+        745.795
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": true
+    },
+    {
+      "itemIndex": 182,
+      "str": "PLOS ONE | https://doi.org/10.1371/journal.pone.0287690",
+      "dir": "ltr",
+      "width": 201.94307568000005,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    },
+    {
+      "itemIndex": 183,
+      "str": " ",
+      "dir": "ltr",
+      "width": 0.9915999999999994,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        237.94307568,
+        36
+      ],
+      "fontName": "g_d0_f14",
+      "hasEOL": false
+    }
+  ]
+}

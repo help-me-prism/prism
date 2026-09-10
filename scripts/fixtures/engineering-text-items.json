@@ -1,0 +1,483 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 4,
+    "source": "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0287690",
+    "license": "CC BY",
+    "extraction": "PDF.js 6.3.289, original coordinates and text items"
+  },
+  "density": [
+    {
+      "str": "temperature, their masses were weighed using an electronic scale with an accuracy of 0.01g.",
+      "width": 362.2240000000002,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.012,
+        616.025
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "The test was performed according to the FC standards in [27]. The dry density of the test block",
+      "width": 375.62800000000004,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.012,
+        603.043
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "was calculated using Formula (1). The arithmetic average of dry density of the three test blocks",
+      "width": 374.8620000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        590.004
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "in each label was taken as the dry density",
+      "width": 161.9700000000003,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        577.021
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.22110000000000127,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        361.9819999999999,
+        577.021
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "ρ",
+      "width": 4.7700000000000005,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        364.1929999999999,
+        577.021
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "0 of FRFC test blocks in each label.",
+      "width": 106.95231430000011,
+      "height": 6.6659,
+      "transform": [
+        7.4999,
+        0,
+        0,
+        6.6659,
+        368.957,
+        575.376
+      ],
+      "hasEOL": false
+    }
+  ],
+  "dimensions": [
+    {
+      "str": "mance [29]. The size of the test blocks is 300 mm",
+      "width": 193.90300000000008,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.21960000000000263,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        393.9169999999999,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "×",
+      "width": 5.8,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        396.11299999999994,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.21929999999999836,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        401.9129999999999,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "300 mm",
+      "width": 32.84100000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        404.1059999999999,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.219500000000005,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        436.9469999999999,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "×",
+      "width": 5.8,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        439.14199999999994,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.21940000000000168,
+      "height": 0,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        444.9419999999999,
+        358.244
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "30 mm, and it is demolded",
+      "width": 106.17000000000006,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        447.1359999999999,
+        358.244
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "and cured under standard conditions. The test blocks were dried in a drying oven at",
+      "width": 333.0480000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01399999999992,
+        345.261
+      ],
+      "hasEOL": true
+    }
+  ],
+  "caption": [
+    {
+      "str": "Fig 2. Preparation process of FRFC.",
+      "dir": "ltr",
+      "width": 118.67691651999995,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        133.682,
+        101.877
+      ],
+      "fontName": "g_d1_f12",
+      "hasEOL": false
+    }
+  ],
+  "furniture": [
+    {
+      "str": "PLOS ONE",
+      "width": 56.83700000000001,
+      "height": 11,
+      "transform": [
+        11,
+        0,
+        0,
+        11,
+        34.9795,
+        745.759
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "",
+      "width": 0,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        263.395,
+        745.795
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "Pore structure characteristics and thermal conductivity of fibers reinforced foamed concrete",
+      "width": 312.68169142999955,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        263.395,
+        745.795
+      ],
+      "hasEOL": true
+    },
+    {
+      "str": "PLOS ONE | https://doi.org/10.1371/journal.pone.0287690",
+      "width": 201.94307568000005,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        36,
+        36
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 0.9915999999999994,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        237.94307568,
+        36
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "July 7, 2023",
+      "width": 41.63787951999999,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        245.87577652,
+        36
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": " ",
+      "width": 33.70099999999999,
+      "height": 0,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        287.51365604,
+        36
+      ],
+      "hasEOL": false
+    },
+    {
+      "str": "4 / 17",
+      "width": 18.88296395999996,
+      "height": 7.9999,
+      "transform": [
+        7.9999,
+        0,
+        0,
+        7.9999,
+        557.11828594,
+        36
+      ],
+      "hasEOL": false
+    }
+  ],
+  "preservedFragments": [
+    {
+      "id": "p4-s4-61ol8q",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 352.12,
+        "top": 231.625,
+        "width": 33.15989999999999,
+        "height": 19.298000000000002
+      }
+    },
+    {
+      "id": "p4-s5-1wii7po",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 376.384,
+        "top": 238.1202,
+        "width": 199.577,
+        "height": 17.1678
+      }
+    },
+    {
+      "id": "p4-s11-1gjp3rr",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 332.56,
+        "top": 348.04720000000003,
+        "width": 57.17088959999995,
+        "height": 12.85979999999995
+      }
+    },
+    {
+      "id": "p4-s12-xmg4y0",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 351.496,
+        "top": 337.074,
+        "width": 224.46299999999997,
+        "height": 21.11099999999999
+      }
+    },
+    {
+      "id": "p4-s21-huhsvn",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 37.643979449999975,
+        "top": 89.96850000000005,
+        "width": 535.23498515,
+        "height": 21.375344099999907
+      }
+    },
+    {
+      "id": "p4-s22-p2ug2",
+      "items": [
+        {
+          "kind": "artifact"
+        }
+      ],
+      "rect": {
+        "left": 36.172873510000045,
+        "top": 115.87338747999993,
+        "width": 516.8719390200001,
+        "height": 7.999899999999997
+      }
+    },
+    {
+      "id": "p4-s23-1a5vk8g",
+      "items": [
+        {
+          "kind": "equation"
+        }
+      ],
+      "rect": {
+        "left": 39.40403312000001,
+        "top": 128.34523157999993,
+        "width": 513.6407794100002,
+        "height": 7.999899999999997
+      }
+    }
+  ]
+}

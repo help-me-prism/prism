@@ -6,20 +6,49 @@ function subscribe(channel: string, callback: (payload: unknown) => void) {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// The main process can finish loading before React mounts its listener. Keep the
+// newest navigation intent until a subscriber exists; ordinary events need no replay.
+let pendingKnowledgeOpen: unknown
+const knowledgeOpenListeners = new Set<(id: unknown) => void>()
+ipcRenderer.on('knowledge:open-requested', (_event: Electron.IpcRendererEvent, id: unknown) => {
+  if (typeof id !== 'string' && !(id && typeof id === 'object' && typeof (id as { id?: unknown }).id === 'string')) return
+  pendingKnowledgeOpen = id
+  if (knowledgeOpenListeners.size) {
+    pendingKnowledgeOpen = undefined
+    for (const listener of knowledgeOpenListeners) listener(id)
+  }
+})
+function subscribeKnowledgeOpen(callback: (id: unknown) => void) {
+  knowledgeOpenListeners.add(callback)
+  if (pendingKnowledgeOpen !== undefined) {
+    const id = pendingKnowledgeOpen; pendingKnowledgeOpen = undefined; callback(id)
+  }
+  return () => { knowledgeOpenListeners.delete(callback) }
+}
+
 contextBridge.exposeInMainWorld('prism', {
+  setAppearance: (theme: unknown) => ipcRenderer.invoke('appearance:set', theme),
   listProviders: () => ipcRenderer.invoke('providers:list'),
   loginProvider: (provider: unknown) => ipcRenderer.invoke('provider:login', provider),
   logoutProvider: (provider: unknown) => ipcRenderer.invoke('provider:logout', provider),
   onProviderAuthData: (callback: (event: unknown) => void) => subscribe('provider:auth:data', callback),
   loadSessions: () => ipcRenderer.invoke('sessions:load'),
   saveSessions: (sessions: unknown) => ipcRenderer.invoke('sessions:save', sessions),
+  onSettingsChanged: (callback: (settings: unknown) => void) => subscribe('settings:changed', callback),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings: unknown) => ipcRenderer.invoke('settings:update', settings),
+  reconnectPaperStorage: () => ipcRenderer.invoke('storage:reconnect-papers'),
+  onLibraryChanged: (callback: (records: unknown) => void) => subscribe('library:changed', callback),
+  choosePaperStorage: (reset = false) => ipcRenderer.invoke('storage:choose-papers', reset),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   listLibrary: () => ipcRenderer.invoke('library:list'),
+  updatePaperTitle: (input: unknown) => ipcRenderer.invoke('paper:update-title', input),
+  searchCrossref: (query: string) => ipcRenderer.invoke('papers:search-crossref', query),
+  openDoi: (id: string) => ipcRenderer.invoke('papers:open-doi', id),
   searchArxiv: (input: string) => ipcRenderer.invoke('arxiv:search', input),
   autocompletePapers: (input: string) => ipcRenderer.invoke('paper:autocomplete', input),
   openArxiv: (arxivId: string) => ipcRenderer.invoke('arxiv:open', arxivId),
+  importLocalPaper: (metadata?: unknown) => ipcRenderer.invoke('paper:import-local', metadata),
   downloadPaper: (paper: unknown) => ipcRenderer.invoke('paper:download', paper),
   readPaperPdf: (arxivId: string) => ipcRenderer.invoke('paper:pdf', arxivId),
   readLatexStructure: (arxivId: string) => ipcRenderer.invoke('paper:latex-structure', arxivId),
@@ -42,7 +71,7 @@ contextBridge.exposeInMainWorld('prism', {
   listAutoUnread: () => ipcRenderer.invoke('knowledge:auto-unread:list'),
   clearAutoUnread: (id: string) => ipcRenderer.invoke('knowledge:auto-unread:clear', id),
   refreshPaperDigest: (paperNodeId: string, options?: unknown) => ipcRenderer.invoke('paper:digest:refresh', paperNodeId, options),
-  refreshVaultDigests: () => ipcRenderer.invoke('knowledge:digest:refresh-vault'),
+  refreshVaultDigests: (libraryPath?: string) => ipcRenderer.invoke('knowledge:digest:refresh-vault', libraryPath),
   onVaultChanged: (callback: (event: unknown) => void) => subscribe('knowledge:vault-changed', callback),
   restoreKnowledgeNode: (trashedRelativePath: string) => ipcRenderer.invoke('knowledge:restore', trashedRelativePath),
   listPaperCitations: (arxivId: string, options?: unknown) => ipcRenderer.invoke('paper:citations', arxivId, options),
@@ -56,7 +85,12 @@ contextBridge.exposeInMainWorld('prism', {
   openKnowledgeNodeInObsidian: (request: unknown) => ipcRenderer.invoke('knowledge:open-in-obsidian', request),
   createKnowledgeNode: (request: unknown) => ipcRenderer.invoke('knowledge:create', request),
   applyTemplateSections: (request: unknown) => ipcRenderer.invoke('knowledge:apply-template-sections', request),
-  readKnowledgeNode: (id: string) => ipcRenderer.invoke('knowledge:read', id),
+  readKnowledgeNode: (id: string, vaultId?: string) => ipcRenderer.invoke('knowledge:read', id, vaultId),
+  listPendingNoteRecoveries: () => ipcRenderer.invoke('knowledge:recoveries'),
+  readPendingNoteRecovery: (id: string, kind: string) => ipcRenderer.invoke('knowledge:recovery-read', id, kind),
+  recoverPendingNote: (id: string, kind: string) => ipcRenderer.invoke('knowledge:recovery-restore', id, kind),
+  listNoteHistory: (id: string, vaultId?: string) => ipcRenderer.invoke('knowledge:history', id, vaultId),
+  readNoteHistory: (id: string, entryId: string, vaultId?: string) => ipcRenderer.invoke('knowledge:history-read', id, entryId, vaultId),
   saveKnowledgeNode: (id: string, request: unknown) => ipcRenderer.invoke('knowledge:save', id, request),
   updateKnowledgeProperties: (id: string, patch: unknown, expectedRevision: string) => ipcRenderer.invoke('knowledge:update-properties', id, patch, expectedRevision),
   deleteKnowledgeNode: (id: string) => ipcRenderer.invoke('knowledge:delete', id),
@@ -72,14 +106,18 @@ contextBridge.exposeInMainWorld('prism', {
   openEvidenceAnchor: (anchor: unknown) => ipcRenderer.invoke('evidence:open', anchor),
   onOpenEvidenceAnchor: (callback: (anchor: unknown) => void) => subscribe('evidence:open-requested', callback),
   listEvidenceBacklinks: (anchor: unknown) => ipcRenderer.invoke('evidence:backlinks', anchor),
-  openKnowledgeNodeInNotes: (id: string) => ipcRenderer.invoke('knowledge:open-in-notes', id),
-  onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribe('knowledge:open-requested', callback),
+  openKnowledgeNodeInNotes: (id: string, options?: { blockId?: string; libraryPath?: string }) => ipcRenderer.invoke('knowledge:open-in-notes', id, options),
+  onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribeKnowledgeOpen(callback),
+  readSavedFigure: (paperId: string, anchorId: string) => ipcRenderer.invoke('paper:figure:read', paperId, anchorId),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),
   savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),
   startTranslation: (arxivId: string, segments: unknown, options?: unknown) => ipcRenderer.invoke('translation:start', arxivId, segments, options),
   cancelTranslation: (arxivId: string) => ipcRenderer.invoke('translation:cancel', arxivId),
+  readAiUsage: () => ipcRenderer.invoke('ai:usage'),
   sendMessage: (request: unknown) => ipcRenderer.invoke('chat:send', request),
+  paperGuide: (request: unknown) => ipcRenderer.invoke('paper:guide', request),
+  compactChat: (request: unknown) => ipcRenderer.invoke('chat:compact', request),
   cancelMessage: (sessionId: string) => ipcRenderer.invoke('chat:cancel', sessionId),
   onChatEvent: (callback: (event: unknown) => void) => subscribe('chat:event', callback),
   onChatDone: (callback: (event: unknown) => void) => subscribe('chat:done', callback),

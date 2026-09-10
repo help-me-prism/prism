@@ -1,141 +1,73 @@
 # Prism
 
-논문을 더 편하게 읽고 이해할 수 있도록 돕는 데스크톱 AI 어시스턴트입니다.
+논문을 읽고, 이해하고, 근거가 연결된 지식을 남기는 Windows·macOS용 로컬 데스크톱 앱입니다.
 
-현재 구현 구조, 검증 결과, 남은 우선순위와 다음 작업자를 위한 안내는 [HANDOFF.md](HANDOFF.md)에 정리되어 있습니다.
+## 시작하기
 
-> 현재는 아이디어와 개발 방식을 검증하는 초기 단계입니다. 아래 내용은 프로젝트가 구체화되면서 변경될 수 있습니다.
+1. 보관할 **노트 볼트** 폴더를 선택합니다. AI 로그인은 읽기를 시작하는 데 필요하지 않습니다.
+2. **논문 열기**에서 컴퓨터의 PDF를 가져오거나 논문을 검색합니다.
+3. 원문을 읽고 **메모 남기기**로 생각을 기록합니다. 문장을 클릭하면 질문의 근거로 추가됩니다.
+4. 필요할 때 **AI 대화 열기** 또는 **번역 시작**을 사용합니다.
 
-## 프로젝트 방향
+검색은 **Crossref(모든 분야)**와 **arXiv**를 지원합니다. Crossref 검색 결과는 출판사 원문 사이트를 열거나, 가지고 있는 PDF에 서지정보를 연결합니다. 출판사 접근 권한을 우회하지 않습니다. arXiv는 PDF와 공개된 LaTeX 소스를 직접 내려받습니다. 로컬 PDF는 내용 해시로 중복을 확인하며 파일을 이동하지 않고 복사합니다.
 
-- 별도 웹 서비스가 아닌 로컬에서 실행하는 애플리케이션을 지향합니다.
-- 사용자가 본인의 AI 어시스턴트 계정 또는 API를 직접 연동해 사용합니다.
-- 논문 요약, 질의응답, 핵심 내용 정리 등 논문 읽기에 필요한 기능을 탐색합니다.
-- 별도의 중앙 AI 사용료를 운영팀이 부담하지 않는 구조를 목표로 합니다.
+## 읽기와 번역
 
-## 사용 흐름
+- 연속 PDF 읽기, 원문·한국어·병기·상하 배치, 배율과 스크롤 제어
+- 한국어는 문단 흐름으로 배치하며 수식·표·비트맵 및 감지된 벡터 도해는 원문 영역으로 표시
+- 각 번역 페이지에서 원문을 펼쳐 교차 확인 가능
+- 번역 캐시의 원문 일치 검사, 누락·중복 ID·수식·인용 변경 응답 거부, 이어서 번역, 명시적인 전체 재번역
+- 자동 번역 기본 OFF, Codex 기본 Luna/낮은 추론 강도, Claude 기본 Haiku
+- 현재 논문과 제한된 실제 본문 발췌를 질문에 자동 포함; 발췌만으로 판단할 수 없는 내용은 추측하지 않도록 안내
+- 다크·라이트·시스템 테마. PDF 원본과 구조 발췌는 인쇄 색상 유지
 
-1. 애플리케이션을 설치하고 실행합니다.
-2. Codex 또는 Claude CLI 로그인을 마칩니다.
-3. `논문 열기`에서 보관 폴더를 선택하고 arXiv 제목, 키워드, ID 또는 링크를 검색합니다.
-4. 검색 결과를 저장하면 PDF와 메타데이터, Markdown 노트가 자동으로 내려받아집니다.
-5. PDF 원문과 한국어 번역을 나란히 읽고, 문장·수식·페이지를 채팅에 태그해 질문합니다.
+자동 도해 경계는 추정입니다. 복잡한 패널이나 감지되지 않은 피겨는 **피겨 캡처**로 범위를 지정할 수 있습니다. 이미지 전용 스캔의 OCR과 암호화 PDF의 비밀번호 입력은 현재 지원하지 않습니다.
 
-## 현재 프로토타입
+## 노트와 저장 위치
 
-Electron + React 기반 데스크톱 앱과 Codex CLI 채팅 연동이 구현되어 있습니다. CLI는 앱의 메인 프로세스에서 읽기 전용 모드로 실행되며, UI에서는 대화 이벤트만 안전한 IPC를 통해 전달받습니다.
-
-- 여러 대화를 만들고 전환할 수 있으며 메시지, 모델, CLI 세션 ID가 로컬에 자동 저장됩니다.
-- 채팅 상단에서 Codex 또는 Claude와 세부 모델을 선택할 수 있습니다.
-- Codex app-server와 Claude `stream-json` 이벤트를 사용해 답변을 생성되는 즉시 표시합니다.
-- Claude를 사용하려면 별도로 Claude CLI를 설치하고 로그인해야 합니다.
-- 논문 제목 자동완성, 정확한 제목 우선 검색, 관련도·인용 수 기반 정렬을 지원합니다.
-- arXiv 검색 후 PDF와 가능한 원본 LaTeX 소스를 자동 다운로드하고 압축을 해제합니다.
-- 모든 PDF 페이지가 한 문서처럼 이어지며 휠·트랙패드로 연속 스크롤할 수 있습니다.
-- 채팅과 별도로 번역용 CLI 및 모델, 다운로드 직후 자동 번역 여부를 지정하며 기존 번역은 논문 폴더에 캐시합니다.
-- 한국어 문서는 원본 페이지의 피겨·표·수식 배치를 그대로 사용하고 영문 텍스트층만 번역층으로 교체합니다. 원문/한국어 탭 및 동기화된 병기 모드를 지원합니다.
-- 원문 문장과 번역 문장은 안정적인 앵커 ID로 연결되어 양쪽에서 함께 강조됩니다. 수식은 번역하지 않고 원형을 유지합니다.
-- 문장·수식·페이지 태그는 채팅 입력창 위의 참조 칩으로 관리되며, `@문장24`를 직접 입력해 검색할 수도 있습니다. 논문 ID, 페이지, 원문 구조는 CLI에 함께 전달됩니다.
-- LaTeX `includegraphics` 자산과 PDF 이미지 객체를 우선 찾아 기본 상태에서 피겨를 클릭할 수 있습니다. 자동 인식되지 않은 영역은 `피겨 캡처`로 드래그 저장할 수 있습니다.
-- 독립 Notes 창에서 읽기 / Live Edit / 분할 모드, 툴바와 `/` 블록 삽입, 섹션 접기와 블록 드래그를 제공하며 Markdown 원문을 보존합니다.
-- Paper, Concept, Claim, Insight, Question, Project와 개인 템플릿을 Markdown Vault에 저장하고, 내부 링크·백링크·타입 관계·PDF 근거 카드·로컬 그래프·연구 현황을 Prism 안에서 관리합니다.
-- 문장·섹션·수식·표·피겨·페이지 근거에서 PDF와 노트를 양방향으로 이동하고, 필기를 Claim / Insight / Question으로 승격해 원래 근거를 유지합니다.
-- 병기 모드의 원문/한국어 패널 너비를 드래그로 조절하며 스크롤과 확대 동기화를 각각 켜거나 끌 수 있습니다.
-- 왼쪽 논문 트리에서 라이브러리 논문을 탭으로 열고, 채팅 상단에서 AI 문맥에 포함할 논문을 복수 선택할 수 있습니다.
-
-선택한 라이브러리 폴더는 다음 구조로 유지됩니다.
+설정에서 **노트 · Obsidian 볼트**와 **새 논문의 PDF · 번역 · 피겨** 보관 위치를 지정합니다. 기본은 한 폴더이며, PDF 자산만 별도 폴더에 둘 수도 있습니다. 위치 변경은 새로 가져오는 논문에 적용되고 기존 파일은 원래 위치에서 열립니다.
 
 ```text
-library/
-  .prism/library.json
-  papers/1706.03762/
-    original.pdf
-    source.tar.gz
-    source/
-    metadata.json
-    anchors.json
-    figures/
-    1706.03762.md
-    translation.ko.json
+노트 볼트/
+  .prism/                 # 라이브러리 색인, 근거·관계 캐시
+  papers/<논문 ID>/*.md
+  Concepts/ Claims/ Questions/ Projects/ ...
+
+PDF 자산 폴더/<논문 ID>/   # 별도 지정하지 않으면 볼트의 papers/ 아래
+  original.pdf
+  translation.ko.json
+  anchors.json
+  figures/
+  source/                 # 공개된 LaTeX가 있는 경우
 ```
 
-## 새 컴퓨터에서 실행
+Obsidian의 **Open folder as vault**에서 노트 폴더를 열면 됩니다. Markdown·위키 링크·근거 block ID를 보존합니다. 노트에는 논문, 개념, 주장, 질문, 프로젝트를 연결하고, 근거 기반 승인 관계와 단순 문서 링크를 구분합니다. AI의 제안은 승인 대기 상태로 생성됩니다.
 
-Node.js 22.12 이상(LTS 권장)과 Git을 설치한 뒤 저장소를 받습니다.
+노트는 자동 저장되며 충돌을 감지합니다. 같은 파일의 저장은 직렬화하고, 볼트 변경 직전의 지연 저장은 읽었던 원래 볼트에 기록합니다. 별도 PDF 폴더의 파일 링크는 절대 file URI이므로 다른 컴퓨터로 옮길 때는 자산 경로도 유지해야 합니다. 이동성과 Obsidian 첨부 호환성이 가장 중요하면 한 볼트에 함께 보관하세요.
 
-```bash
-git clone <저장소 주소>
-cd prism
-git switch kys_enhanced
-```
+## 개발과 실행
 
-- Windows: `run-windows.cmd`를 더블클릭합니다.
-- macOS: `run-macos.command`를 더블클릭합니다. 처음 한 번 macOS가 막으면 파일을 우클릭하고 **열기**를 선택합니다.
-- 터미널: `npm ci` 후 `npm start`를 실행합니다.
+Node.js 22.12 이상이 필요합니다.
 
-두 실행 스크립트는 `node_modules`가 없을 때 잠금 파일과 정확히 일치하는 의존성을 자동 설치한 뒤 현재 소스를 빌드해 실행합니다. PDF는 Git에 없어도 앱의 `논문 열기`에서 arXiv 논문을 다시 저장하면 내려받을 수 있습니다. 채팅을 사용하려면 각 컴퓨터에서 Codex 또는 Claude CLI 설치와 로그인을 별도로 해야 합니다.
-
-`index.html` 파일을 브라우저에서 직접 열면 동작하지 않습니다. `npm start`가 화면 코드를 빌드한 뒤 Electron 앱으로 실행합니다. 개발 중에는 `npm run dev`를 사용할 수 있습니다.
-
-첫 실행 전 터미널에서 `codex login`을 마쳐야 합니다. `npm run build`로 타입 검사와 프로덕션 번들을 확인할 수 있습니다.
-
-화면 회귀 검증은 별도 테스트 프로필과 최소 창 크기에서 Electron을 실행하는 `npm run test:ui`로 수행합니다. 제품 완성도 리뷰와 반복별 확인 결과는 [docs/UX_REVIEW.md](docs/UX_REVIEW.md)에 기록합니다.
-
-연구 지식 기능은 `npm run test:notes-ui`, 로컬 AI 도구 계약은 `npm run test:mcp`로 검증합니다. 세부 구현·화면 검수 상태는 [docs/RESEARCH_IMPLEMENTATION_STATUS.md](docs/RESEARCH_IMPLEMENTATION_STATUS.md)에 정리되어 있습니다.
-
-### Obsidian과 같은 Vault 사용
-
-Obsidian을 함께 사용할 때는 Prism에서 선택한 라이브러리 폴더를 Obsidian의 **Open folder as vault**로 한 번 등록합니다. 이후 연구 지식 화면의 제목 오른쪽 `Obsidian` 버튼은 현재 Markdown 파일을 열고, PDF 근거 카드의 `Obsidian` 버튼은 해당 block ID 위치까지 이동합니다. Obsidian이 설치되지 않았거나 Vault로 등록되지 않아도 Prism의 작성·검색·링크·그래프 기능에는 영향이 없습니다.
-
-Prism은 Markdown 링크와 저장 경로를 Vault 기준 `/` 상대 경로로 유지합니다. 외부 앱을 여는 순간에만 현재 운영체제의 절대 경로를 만들며 이 경로는 노트에 저장하지 않습니다. URI 동작과 heading/block 규칙은 [Obsidian 공식 URI 문서](https://help.obsidian.md/Extending%2BObsidian/Obsidian%2BURI)를 따릅니다. Windows와 macOS 경로 변환은 `npm run test:notes-ui`에 포함된 호환성 테스트로 확인할 수 있습니다.
-
-### 로컬 연구 지식 MCP 연결
-
-Prism Vault를 지원하는 AI 호스트에서 검색·근거 조회·논문 비교를 사용하려면 먼저 소스를 빌드합니다.
-
-```bash
+```sh
 npm ci
-npm run build
+npm start
 ```
 
-호스트의 MCP 설정에는 `node` 명령과 아래 인수를 등록합니다. 두 경로는 상대 경로 대신 현재 컴퓨터의 절대 경로를 사용합니다.
+Windows는 `run-windows.cmd`, macOS는 `run-macos.command`로도 시작할 수 있습니다. 개발 서버는 `npm run dev`입니다. AI를 사용할 때만 Codex 또는 Claude CLI를 설치하고 로그인합니다. 앱 설정에서 연결 상태를 확인할 수 있습니다. 기존에 사용자가 선택한 모델과 대화는 유지됩니다.
 
-```text
-<Prism 저장소>/dist-electron/mcpServer.js
---vault
-<Prism에서 선택한 Vault 폴더>
+```sh
+npm run test:core       # 도메인·캐시·저장·MCP 계약
+npm run test:product    # 실제 PDF 가져오기·읽기·테마·저장 위치 통합
+npm run test:ui         # 첫 실행·키보드·대화·IME
+npm run test:notes-ui   # 편집·근거·관계·외부 수정·Obsidian
+npm run package:win
+npm run package:mac:x64
+npm run package:mac:arm64
 ```
 
-예를 들어 Windows에서는 명령이 `node`, 인수가 `C:\\dev\\prism\\dist-electron\\mcpServer.js`, `--vault`, `D:\\ResearchVault`가 됩니다. 호스트가 환경 변수를 지원한다면 `--vault` 대신 `PRISM_VAULT_PATH`를 설정할 수도 있습니다. 서버는 로컬 stdio로만 통신하며 네트워크 포트를 열지 않습니다.
+GitHub Actions는 main 및 codex 브랜치의 Windows/Intel Mac/Apple Silicon Mac 빌드를 구성하며 패키징 전에 핵심 테스트를 실행합니다. macOS 서명·공증과 실기기 검증은 별도 릴리스 단계입니다.
 
-연결 후 `search_knowledge`, `get_claim_evidence`, `find_related_concepts`, `compare_papers`, `open_paper_anchor`, `suggest_relationships`, `create_note_draft` 도구를 사용할 수 있습니다. 앞의 여섯 도구는 Vault 내용을 수정하지 않습니다. `create_note_draft`만 `created_by: ai`, `draft: true`인 새 Markdown 노트를 만들며 같은 이름의 파일을 덮어쓰지 않습니다. 관계 승인·거절과 기존 노트 편집은 계속 Prism의 연구 지식 화면에서 사용자가 직접 수행합니다.
+로컬 지식 MCP는 `npm run mcp` 또는 `node dist-electron/mcpServer.js --vault <절대 볼트 경로>`로 실행합니다.
 
-실제 stdio 연결, 일곱 도구, 승인된 관계만의 조회, Electron Reader 앵커 이동, 초안 충돌 방지는 `npm run test:mcp`로 확인할 수 있습니다.
-
-### Windows 실행 파일
-
-`npm run package:win`을 실행하면 `release/Prism-0.1.0-Windows-x64.exe`가 생성됩니다. 이후에는 이 파일을 더블클릭하면 되며 터미널이나 `npm` 명령은 필요하지 않습니다. 자주 사용한다면 파일을 우클릭해 작업 표시줄 또는 시작 화면에 고정할 수 있습니다.
-
-생성한 패키지가 실제 renderer를 여는지 별도 테스트 프로필로 확인하려면 `node scripts/smoke-packaged-launch.mjs "release/Prism-0.1.0-Windows-x64.exe"`를 실행합니다.
-
-`release/`는 빌드 결과라 Git에 저장하지 않습니다. 따라서 예전에 만든 EXE가 폴더에 남아 있다면 최신 소스가 아닐 수 있습니다. 브랜치에 푸시할 때마다 GitHub Actions의 **Build desktop apps**가 Windows portable EXE와 Intel/Apple Silicon용 macOS DMG를 새로 만들며, 해당 실행의 Artifacts에서 내려받을 수 있습니다.
-
-### macOS
-
-Electron과 파일 경로 API는 Windows/macOS 공통으로 작성되어 있습니다. macOS 기기에서 `npm run package:mac`을 실행하면 현재 Mac 아키텍처용 DMG를 만들 수 있습니다. GitHub Actions는 `Prism-0.1.0-macOS-x64.dmg`와 `Prism-0.1.0-macOS-arm64.dmg`를 각각 Intel/Apple Silicon runner에서 생성합니다. 자동 빌드 DMG는 서명되지 않았으므로 macOS 최초 실행 시 우클릭 후 **열기**가 필요할 수 있습니다. 일반 사용자에게 경고 없이 배포하려면 Apple Developer 인증서 기반 코드 서명과 notarization 설정이 별도로 필요합니다.
-
-현재 다음 단계는 LaTeX 기반 한국어 PDF 재컴파일 또는 충돌 없는 번역 reflow, 더 정교한 피겨 경계 매칭, 멀티모달 이미지 전달, 대규모 Vault 성능·동기화 검증과 macOS 서명·notarization입니다.
-
-## 기여하기
-
-작업 전 이슈 또는 팀 내 논의를 통해 범위를 맞춰 주세요. Pull Request를 만들면 기본 템플릿이 자동으로 표시됩니다.
-
-PR에는 다음 내용을 간단히 작성합니다.
-
-- 무엇을 변경했는지
-- 변경한 이유가 무엇인지
-- 어떻게 확인했는지
-
-## 라이선스
-
-라이선스는 추후 결정할 예정입니다.
+구현 판단, 검증 결과, 페르소나 리뷰와 남은 릴리스 조건은 [제품 개선 리뷰](docs/PRODUCT_REVIEW.md)에 정리했습니다. 이전 설계 기록은 `docs/`에 보존되어 있으며, 과거 문서의 브랜치·화면 설명보다 이 README와 제품 개선 리뷰가 우선합니다.

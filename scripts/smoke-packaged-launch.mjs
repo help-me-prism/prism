@@ -44,11 +44,33 @@ try {
     socket.addEventListener('open', resolve, { once: true })
     socket.addEventListener('error', reject, { once: true })
   })
-  socket.send(JSON.stringify({ id: 1, method: 'Browser.close' }))
-  console.log(`Packaged launch passed: ${path.basename(executablePath)} opened ${page.title} at ${page.url}.`)
+  let requestId = 0
+  const request = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++requestId
+    const timeout = setTimeout(() => { socket.removeEventListener('message', receive); reject(new Error(`Timed out: ${method}`)) }, 10000)
+    const receive = event => {
+      const message = JSON.parse(event.data)
+      if (message.id !== id) return
+      clearTimeout(timeout); socket.removeEventListener('message', receive)
+      if (message.error) reject(new Error(message.error.message)); else resolve(message.result)
+    }
+    socket.addEventListener('message', receive)
+    socket.send(JSON.stringify({ id, method, params }))
+  })
+  let ready = false
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const result = await request('Runtime.evaluate', { expression: `Boolean(document.querySelector(".app-shell:not(.loading-app) .reader-empty")) && Array.from(document.fonts).some(font => font.family.includes("Pretendard") && font.status === "loaded")`, returnByValue: true })
+    if (result.result?.value === true) { ready = true; break }
+    await sleep(200)
+  }
+  if (!ready) throw new Error('Packaged app did not finish rendering its first-use screen and UI font')
+  socket.send(JSON.stringify({ id: ++requestId, method: 'Browser.close' }))
+  console.log(`Packaged launch passed: ${path.basename(executablePath)} rendered its first-use screen with the bundled UI font.`)
 } finally {
   socket?.close()
   if (child.exitCode === null) child.kill()
   await sleep(500)
-  await fs.rm(temporaryRoot, { recursive: true, force: true }).catch(() => {})
+  const resolvedRoot = path.resolve(temporaryRoot)
+  if (!resolvedRoot.startsWith(path.resolve(os.tmpdir()) + path.sep + 'prism-packaged-smoke-')) throw new Error('Unexpected smoke-test cleanup path')
+  await fs.rm(resolvedRoot, { recursive: true, force: true }).catch(() => {})
 }

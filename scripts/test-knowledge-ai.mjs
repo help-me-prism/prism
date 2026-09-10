@@ -18,6 +18,10 @@ try {
   await fs.writeFile(notePath, `---\ntype: paper\narxiv_id: "test.0001"\ntitle: "Paper Alpha"\n---\n\n# Paper Alpha\n\n## 한 문장 요약\n\nDiffusion as weighted score matching.\n\n## Notes\n`, 'utf8')
   await write('.prism/anchors/test.0001.json', JSON.stringify({ version: 1, paperId: 'test.0001', anchors: [{ id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' }] }))
   const paperSentence = 'Flow matching trains continuous normalizing flows without simulating the ODE during training.'
+  await write('.prism/anchors/test.0001.json', JSON.stringify({ anchors: [
+    { id: 'sentence-p1-1', type: 'text', page: 1, source: 'Noise prediction can be interpreted as denoising score matching.' },
+    { id: 'sentence-p11-2', type: 'text', page: 11, source: paperSentence },
+  ] }))
   await fs.writeFile(path.join(paperDir, 'translation.ko.json'), JSON.stringify({ version: 1, segments: [
     { source: paperSentence, translation: paperSentence, kind: 'text', page: 1, sectionTitle: 'Introduction' },
     { source: 'We evaluate on CIFAR10 and ImageNet.', translation: 'We evaluate on CIFAR10 and ImageNet.', kind: 'text', page: 4, sectionTitle: 'Experiments' },
@@ -52,7 +56,10 @@ try {
     return JSON.stringify({
       relations: [
         { type: 'defines', targetId: 'concept-aaaaaaaa', reason: '정의함', evidenceBlockId: 'evidence-test-0001-sentence-p1-1' },
-        { type: 'contradicts', targetId: 'claim-bbbbbbbb', reason: 'scope overlaps' },
+        { type: 'contradicts', targetId: 'claim-bbbbbbbb', reason: 'scope overlaps', evidenceBlockId: 'evidence-test-0001-sentence-p1-1' },
+        { type: 'supports', targetId: 'claim-bbbbbbbb', reason: 'missing direct evidence' },
+        { type: 'supports', targetId: 'claim-bbbbbbbb', evidenceBlockId: 'invented-id' },
+        { type: 'evidence_for', targetId: 'claim-bbbbbbbb', evidenceBlockId: 'invented-id' },
         { type: 'answers', targetId: 'question-cccccccc' },
         { type: 'supports', targetId: 'concept-aaaaaaaa', reason: 'wrong type for a concept' },
         { type: 'uses', targetId: 'concept-zzzzzzzz', reason: 'unknown id' },
@@ -72,7 +79,8 @@ try {
   const summary = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', fakeCli)
   assert(seenPrompt.includes('- concept-aaaaaaaa | concept | Score matching') && seenPrompt.includes('MEMO LINES') && seenPrompt.includes('- 노이즈 예측은 가중 score matching과 같다.'), 'The prompt did not list existing nodes and memo lines.')
   assert.equal(summary.relationsCreated, 3, `Expected three valid relations, got ${JSON.stringify(summary)}`)
-  assert.equal(summary.relationsSkipped, 3)
+  assert.equal(summary.relationsSkipped, 6)
+  assert(seenPrompt.includes('evidenceBlockId is REQUIRED'), 'Grounded relations lost their explicit evidence requirement.')
   assert(seenPrompt.includes('THE PAPER ITSELF') && seenPrompt.includes(paperSentence), 'The prompt did not carry the paper body a claim has to be quoted from.')
   assert.equal(summary.candidates, 1); assert.equal(summary.concepts, 1)
   // A claim must be the paper's own words: one quoted line is kept, an invented one is dropped.
@@ -117,6 +125,30 @@ try {
   const claimBody = (await readKnowledgeNode(root, claimNode.id)).content
   assert(claimBody.includes('claim_origin: paper') && claimBody.includes(paperSentence) && claimBody.includes('[[papers/test.0001/test.0001|Paper Alpha]]'), `The accepted claim is missing its origin, sentence or source:\n${claimBody}`)
   assert(!(await listCurationQueue(root)).claimSuggestions.length, 'An accepted claim is still being offered.')
+
+  const groundedSupport = async () => JSON.stringify({ relations: [{ type: 'supports', targetId: 'claim-bbbbbbbb', evidenceBlockId: 'evidence-test-0001-sentence-p1-1' }] })
+  const beforeTruncation = await fs.readFile(notePath, 'utf8')
+  await fs.writeFile(notePath, beforeTruncation.replace('# Paper Alpha', '# Paper Alpha\n\n' + 'Long researcher prose. '.repeat(600)))
+  const unsupplied = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', groundedSupport)
+  assert.equal(unsupplied.relationsCreated, 0, 'A real card outside the actual prompt budget was accepted.')
+  assert.equal(unsupplied.relationsSkipped, 1)
+  await fs.writeFile(notePath, beforeTruncation)
+  const registryPath = path.join(root, '.prism', 'anchors', 'test.0001.json')
+  const registry = await fs.readFile(registryPath, 'utf8')
+  await fs.writeFile(registryPath, registry.replace('Noise prediction can be interpreted as denoising score matching.', 'Changed PDF source: this card is stale.'))
+  const stale = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', groundedSupport)
+  assert.equal(stale.relationsCreated, 0, 'A card that no longer matches the actual PDF registry was accepted.')
+  assert.equal(stale.relationsSkipped, 1)
+  await fs.writeFile(registryPath, registry)
+  const grounded = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', groundedSupport)
+  assert.equal(grounded.relationsCreated, 1, 'A real supplied support quote was rejected.')
+  assert((await listKnowledgeRelationRecords(root)).some(relation => relation.type === 'supports' && relation.reviewStatus === 'pending' && relation.evidenceAnchor?.anchorId === 'sentence-p1-1'))
+  await fs.writeFile(notePath, note('paper-test.0001', 'paper', 'Paper Alpha', '> [!ai]- Saved answer\n> Old answer is not PDF evidence.', 'arxiv_id: "test.0001"\n'))
+  const withoutCards = await runModelSuggestions(root, 'paper-test.0001', 'codex', 'fake-model', async prompt => {
+    assert(prompt.includes('BOUNDED PDF SAMPLE') && prompt.includes(paperSentence), 'Late-page registry prose was absent without manual cards')
+    return JSON.stringify({ relations: [{ type: 'supports', targetId: claimNode.id, evidenceBlockId: 'pdf-test.0001-sentence-p11-2' }] })
+  })
+  assert.equal(withoutCards.relationsCreated, 1, 'A card-free note could not use a real supplied late-page PDF anchor')
 
   process.stdout.write('Knowledge AI passed: note rendering without AI answers, guarded prompt, tolerant JSON parsing, type/id validation, pending-only relations with anchors, memo hints, concept stubs, claims quoted from the paper body rather than invented, and rejection memory.\n')
 } finally {

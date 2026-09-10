@@ -1,3 +1,11 @@
+import TaskSettings, { type ModelTask } from './TaskSettings'
+import { buildQuestionContext } from './paper/questionContext'
+import { useComposerDraft } from './paper/useComposerDraft'
+import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
+import { readComposerDom } from './paper/composerDom'
+import { answerReferenceAnchors, answerReferences } from './paper/answerReferences'
+import FigureAttachments from './FigureAttachments'
+import { useDialogFocus } from './useDialogFocus'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,6 +17,11 @@ import {
   MessageSquareText, Plus, RefreshCw, RotateCcw, SendHorizontal, Settings2, Sigma, Table2,
   Sparkles, Square, StickyNote, TextQuote, Trash2, Undo2, X,
 } from 'lucide-react'
+import { stableReferences } from './paper/readerContext'
+import { composerLease } from './paper/composerDraft'
+import StorageSettings from './StorageSettings'
+import AiUsageHistory from './AiUsageHistory'
+import ThemeControl from './ThemeControl'
 import PaperWorkspace from './PaperWorkspace'
 
 type JsonRecord = Record<string, unknown>
@@ -33,12 +46,12 @@ function uniqueId(prefix: string) {
   return `${prefix}-${Date.now()}-${sequence}`
 }
 
-function makeSession(provider: ProviderId = 'codex', model = provider === 'codex' ? 'gpt-5.6-sol' : 'sonnet'): ChatSession {
+function makeSession(provider: ProviderId = 'codex', model = provider === 'codex' ? 'gpt-5.6-luna' : 'haiku'): ChatSession {
   const now = Date.now()
   return { id: uniqueId('session'), title: '새 대화', provider, model, messages: [], createdAt: now, updatedAt: now }
 }
 
-const referencePattern = /\[?@((?:문장|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
+const referencePattern = /\[?@((?:문장|섹션|근거|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
 
 function referencedAnchors(text: string, anchors: ContextAnchor[]) {
   const byLabel = new Map(anchors.map((anchor) => [anchor.label, anchor]))
@@ -83,7 +96,7 @@ function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?:
 
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
   const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'table' ? Table2 : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
-  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>{anchor.paperId}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
     : <button type="button" className="anchor-token" title="논문의 해당 위치로 이동" onClick={() => onNavigate?.(anchor)}>{content}</button>
@@ -157,29 +170,24 @@ function textWithPlacedReferences(text: string, anchors: ContextAnchor[]) {
   }, text)
 }
 
-function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown }: {
+function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, onCaretChange, onKeyDown, onMemo }: {
   text: string; anchors: ContextAnchor[]; disabled: boolean; focusPlacementId?: string
   onChange: (text: string, anchors: ContextAnchor[]) => void; onCaretChange: (offset: number) => void
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  onMemo: (anchor: ContextAnchor) => void
 }) {
+  const memoAction = useRef(onMemo); memoAction.current = onMemo
   const editorRef = useRef<HTMLDivElement>(null)
   const lastFocusedPlacementRef = useRef<string | undefined>(undefined)
   const composingRef = useRef(false)
   function editorSnapshot() {
     const root = editorRef.current; if (!root) return { text: '', anchors: [] as ContextAnchor[] }
-    const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor])); let value = ''; const placed: ContextAnchor[] = []
-    const walk = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) { value += (node.textContent ?? '').replaceAll(composerCaretSentinel, ''); return }
-      if (!(node instanceof HTMLElement)) return
-      const placementId = node.dataset.placementId
-      if (placementId) { const anchor = byPlacement.get(placementId); if (anchor) placed.push({ ...anchor, placementId, textOffset: value.length }); return }
-      if (node.tagName === 'BR') { value += '\n'; return }
-      const startsBlock = node !== root && node.tagName === 'DIV' && value.length > 0 && !value.endsWith('\n')
-      if (startsBlock) value += '\n'
-      node.childNodes.forEach(walk)
-    }
-    root.childNodes.forEach(walk)
-    return { text: value.replace(/\n{3,}/g, '\n\n'), anchors: placed }
+    const byPlacement = new Map(anchors.map((anchor) => [placementKey(anchor), anchor]))
+    const snapshot = readComposerDom(root)
+    return { text: snapshot.text, anchors: snapshot.placements.flatMap(placement => {
+      const anchor = byPlacement.get(placement.placementId)
+      return anchor ? [{ ...anchor, ...placement }] : []
+    }) }
   }
 
   function readEditor() { const snapshot = editorSnapshot(); onChange(snapshot.text, snapshot.anchors) }
@@ -188,8 +196,18 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     const root = editorRef.current; const selection = window.getSelection()
     if (!root || !selection?.rangeCount || !selection.focusNode || !root.contains(selection.focusNode)) return
     const range = document.createRange(); range.selectNodeContents(root); range.setEnd(selection.focusNode, selection.focusOffset)
-    const wrapper = document.createElement('div'); wrapper.append(range.cloneContents()); wrapper.querySelectorAll('[data-placement-id]').forEach((node) => node.remove()); wrapper.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
-    onCaretChange((wrapper.textContent ?? '').replaceAll(composerCaretSentinel, '').length)
+    onCaretChange(readComposerDom(range.cloneContents()).text.length)
+    if (selection.isCollapsed && document.activeElement === root) {
+      let caret = selection.getRangeAt(0).getBoundingClientRect()
+      // Chromium reports an empty Range rect on the blank line after a pasted
+      // trailing newline. Its empty block still provides the actual line box.
+      if (!caret.height && selection.focusNode instanceof HTMLElement && selection.focusNode !== root && !selection.focusNode.textContent) caret = selection.focusNode.getBoundingClientRect()
+      const viewport = root.getBoundingClientRect()
+      if (caret.height > 0) {
+        if (caret.bottom > viewport.top + root.clientHeight) root.scrollTop += caret.bottom - viewport.top - root.clientHeight
+        else if (caret.top < viewport.top) root.scrollTop -= viewport.top - caret.top
+      }
+    }
   }
 
   useEffect(() => {
@@ -201,11 +219,21 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
       for (const { anchor } of ordered) {
         const offset = Math.max(cursor, Math.min(text.length, anchor.textOffset ?? 0)); if (offset > cursor) root.append(document.createTextNode(text.slice(cursor, offset)))
         const wrapper = document.createElement('span'); wrapper.className = 'composer-anchor'; wrapper.dataset.placementId = placementKey(anchor); wrapper.contentEditable = 'false'
-        const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = anchor.source
+        const presentation = composerEvidenceLabel(anchor)
+        const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = presentation.description; chip.tabIndex = 0; chip.setAttribute('aria-label', presentation.description)
         const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
-        const label = document.createElement('span'); label.textContent = anchor.label; const paper = document.createElement('small'); paper.textContent = anchor.paperId
+        const label = document.createElement('span'); label.textContent = anchor.label
+        const paper = document.createElement('small'); paper.className = 'composer-anchor-location'; paper.textContent = presentation.location
+        const excerpt = document.createElement('span'); excerpt.className = 'composer-anchor-excerpt'; excerpt.textContent = presentation.excerpt
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
-        chip.append(symbol, label, paper); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip, close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
+        chip.append(symbol, label, paper, excerpt); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip);
+        if (anchor.type !== 'figure') {
+          wrapper.classList.add('has-memo-action'); const memo = document.createElement('button'); memo.type = 'button'; memo.className = 'composer-anchor-memo'; memo.textContent = '메모'; memo.title = presentation.location + ' · 이 근거에 메모 남기기'; memo.setAttribute('aria-label', anchor.label + ' 메모 남기기');
+          memo.addEventListener('mousedown', event => event.preventDefault());
+          memo.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() });
+          memo.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); memoAction.current(anchor) }); wrapper.append(memo);
+        }
+        wrapper.append(close); root.append(wrapper, document.createTextNode(composerCaretSentinel)); cursor = offset
       }
       if (cursor < text.length) root.append(document.createTextNode(text.slice(cursor)))
     }
@@ -219,7 +247,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
     }
   }, [text, anchors, focusPlacementId, onChange, onCaretChange])
 
-  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')) }} onKeyDown={onKeyDown} />
+  return <div ref={editorRef} className="composer-editor" contentEditable={!disabled} suppressContentEditableWarning role="textbox" aria-label="AI에게 질문" aria-multiline="true" aria-autocomplete="list" data-placeholder="논문에 대해 질문하세요…" onInput={(event) => { if (!composingRef.current && !event.nativeEvent.isComposing) readEditor(); caretOffset() }} onCompositionStart={() => { composingRef.current = true }} onCompositionEnd={() => { composingRef.current = false; readEditor(); caretOffset() }} onKeyUp={caretOffset} onMouseUp={caretOffset} onFocus={caretOffset} onPaste={(event) => { event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain')); requestAnimationFrame(caretOffset) }} onKeyDown={event => { if (!(event.target instanceof HTMLElement) || !event.target.closest('button')) onKeyDown(event) }} />
 }
 
 function App() {
@@ -229,18 +257,38 @@ function App() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [rateLimits, setRateLimits] = useState<Partial<Record<ProviderId, ProviderRateLimits>>>({})
   const [runningIds, setRunningIds] = useState<string[]>([])
-  const [input, setInput] = useState('')
+  const composerRevision = useRef(0)
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
+  const composerDraft = useComposerDraft(JSON.stringify([workspaceState.libraryPath ?? null, activeSessionId]))
+  const { input, setInput: updateInput, anchors: contextAnchors, setAnchors: updateContextAnchors } = composerDraft
+  function setInput(value: string) { composerRevision.current += 1; updateInput(value) }
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [contextAnchors, setContextAnchors] = useState<ContextAnchor[]>([])
+  const [memoryNotices, setMemoryNotices] = useState<Record<string, { text: string; paperId?: string }>>({})
+  function setContextAnchors(value: Parameters<typeof updateContextAnchors>[0]) { composerRevision.current += 1; updateContextAnchors(value) }
   const [anchorCatalog, setAnchorCatalog] = useState<ContextAnchor[]>([])
-  const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
-  const [noteSaved, setNoteSaved] = useState<Record<string, string>>({})
+  const [autoIncludePaper, setAutoIncludePaper] = useState(true)
+  useEffect(() => {
+    setContextPaperIds([]); setAutoIncludePaper(true)
+  }, [workspaceState.libraryPath])
+  const noteSaved = useMemo(() => Object.fromEntries(sessions.flatMap(session => session.messages.flatMap(message => message.savedNote && message.savedNote.libraryPath === workspaceState.libraryPath
+    ? [[JSON.stringify([workspaceState.libraryPath, session.id, message.id]), message.savedNote]] : []))), [sessions, workspaceState.libraryPath])
+  const savingAnswerIds = useRef(new Set<string>())
+  const [savingAnswers, setSavingAnswers] = useState<Record<string, boolean>>({})
   const [paperContextOpen, setPaperContextOpen] = useState(false)
+  const [chatVisible, setChatVisible] = useState(() => localStorage.getItem('prism.chat-visible') === 'true')
+  const [readingSizeOffer, setReadingSizeOffer] = useState<ReadingSizeSnapshot>()
+  const [readingSizeRequest, setReadingSizeRequest] = useState<ReadingSizeRequest>()
+  useEffect(() => {
+    if (!chatVisible || readingSizeOffer?.paperId !== workspaceState.activePaperId) setReadingSizeOffer(undefined)
+  }, [chatVisible, workspaceState.activePaperId, workspaceState.libraryPath])
+  useEffect(() => { localStorage.setItem('prism.chat-visible', String(chatVisible)) }, [chatVisible])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPanel, setSettingsPanel] = useState<'general' | 'usage' | 'storage' | 'appearance' | 'keyboard' | ModelTask>('general')
+  useDialogFocus(settingsOpen, '.app-settings', 'button[aria-label="설정"]')
   const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
   const [composerCaret, setComposerCaret] = useState(0)
@@ -251,14 +299,25 @@ function App() {
   const [authMessage, setAuthMessage] = useState('')
   const messagesRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const preparingMessages = useRef(new Map<string, { cancelled: boolean; dispatched: boolean; restoreDraft: () => void }>())
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0]
+  const noteActionScope = useRef({ key: '', owner: {} })
+  const noteActionKey = JSON.stringify([workspaceState.libraryPath, activeSession?.id])
+  if (noteActionScope.current.key !== noteActionKey) noteActionScope.current = { key: noteActionKey, owner: {} }
+  const answerAnchors = useMemo(() => new Map((activeSession?.messages ?? [])
+    .filter(message => message.role === 'assistant')
+    .map(message => [message.id, answerReferenceAnchors(activeSession.messages, message.id)])), [activeSession?.messages])
+  const composerSession = useRef(activeSession?.id ?? '')
+  if (composerSession.current !== (activeSession?.id ?? '')) { composerSession.current = activeSession?.id ?? ''; composerRevision.current += 1 }
   const activeProvider = providers.find((provider) => provider.id === activeSession?.provider)
   const isRunning = activeSession ? runningIds.includes(activeSession.id) : false
-  const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId))
+  const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId) || (autoIncludePaper && paper.arxivId === workspaceState.activePaperId))
+  const historicalReferences = activeSession?.messages.flatMap(message => message.anchors ?? []).filter(anchor => /^근거\d+$/.test(anchor.label)) ?? []
+  const composerReferences = [...anchorCatalog, ...historicalReferences.filter((anchor, index, all) => all.findIndex(item => item.label === anchor.label) === index)]
   const tagMatch = input.slice(0, composerCaret).match(/(?:^|\s)@([^\s@]*)$/)
   const tagQuery = tagMatch?.[1]
-  const tagSuggestions = tagQuery !== undefined ? anchorCatalog.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
+  const tagSuggestions = tagQuery !== undefined ? composerReferences.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
 
   useEffect(() => { setTagSuggestionIndex(0) }, [tagQuery, anchorCatalog])
   useEffect(() => {
@@ -282,14 +341,16 @@ function App() {
       const initial = active.length ? active : [makeSession('codex', providerList.find((item) => item.id === 'codex')?.models[0]?.id)]
       setSessions(initial)
       setTrashedSessions(restoredTrash)
-      setActiveSessionId(initial[0].id)
+      const lastSessionId = localStorage.getItem('prism.last-chat')
+      setActiveSessionId(initial.find(session => session.id === lastSessionId)?.id ?? initial[0].id)
       setHydrated(true)
     }).catch((reason) => {
       const initial = makeSession()
       setSessions([initial])
       setActiveSessionId(initial.id)
       setErrors({ [initial.id]: String(reason) })
-      setHydrated(true)
+      // Do not replace unreadable on-disk sessions with an empty recovery session.
+      setHydrated(false)
     })
 
     const offEvent = window.prism.onChatEvent((payload) => {
@@ -297,6 +358,7 @@ function App() {
       const event = payload as JsonRecord
       const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
       if (!sessionId) return
+      if (event.type === 'memory.updated' || event.type === 'memory.error') setMemoryNotices(current => ({ ...current, [sessionId]: { text: event.type === 'memory.updated' ? '대화에서 필요한 연구 메모를 업데이트했습니다.' : String(event.message), paperId: typeof event.paperId === 'string' ? event.paperId : undefined } }))
       if (event.type === 'thread.started' && typeof event.providerThreadId === 'string') {
         setSessions((current) => current.map((session) => session.id === sessionId
           ? { ...session, providerThreadId: event.providerThreadId as string, updatedAt: Date.now() }
@@ -349,6 +411,7 @@ function App() {
 
   useEffect(() => {
     if (!hydrated) return
+    try { localStorage.setItem('prism.last-chat', activeSessionId) } catch { /* Session data still has its own durable store. */ }
     const timeout = window.setTimeout(() => {
       const compactSessions = [...sessions, ...trashedSessions].map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
       window.prism.saveSessions(compactSessions).catch((reason) => {
@@ -367,10 +430,6 @@ function App() {
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'auto' }))
   }, [activeSessionId])
 
-  useEffect(() => {
-    const id = workspaceState.activePaperId
-    if (id) setContextPaperIds((current) => current.includes(id) ? current : [...current, id])
-  }, [workspaceState.activePaperId])
   useEffect(() => { setContextPaperIds((current) => current.filter((id) => workspaceState.library.some((paper) => paper.arxivId === id))) }, [workspaceState.library])
 
   const canSend = useMemo(() => Boolean(input.trim() && activeSession && !isRunning && activeProvider?.available), [input, activeSession, isRunning, activeProvider])
@@ -382,11 +441,10 @@ function App() {
 
   function newChat(provider = activeSession?.provider ?? 'codex', model?: string) {
     const providerData = providers.find((item) => item.id === provider)
+    setChatVisible(true)
     const session = makeSession(provider, model ?? providerData?.models[0]?.id)
     setSessions((current) => [session, ...current])
     setActiveSessionId(session.id)
-    setInput('')
-    setContextAnchors([])
     setComposerCaret(0); setFocusPlacementId(undefined)
   }
 
@@ -457,7 +515,7 @@ function App() {
 
   function changeProvider(provider: ProviderId) {
     if (!activeSession) return
-    const model = providers.find((item) => item.id === provider)?.models[0]?.id ?? (provider === 'codex' ? 'gpt-5.6-sol' : 'sonnet')
+    const model = providers.find((item) => item.id === provider)?.models[0]?.id ?? (provider === 'codex' ? 'gpt-5.6-luna' : 'haiku')
     if (activeSession.messages.length) {
       newChat(provider, model)
       return
@@ -468,51 +526,108 @@ function App() {
   async function send(text = input) {
     const leadingWhitespace = text.length - text.trimStart().length
     const rawPrompt = text.trim()
-    const typedAnchors = referencedAnchors(rawPrompt, anchorCatalog)
-    const selectedAnchors = [...contextAnchors.map((anchor) => ({ ...anchor, textOffset: typeof anchor.textOffset === 'number' ? Math.max(0, anchor.textOffset - leadingWhitespace) : undefined })), ...typedAnchors]
+    const typedAnchors = referencedAnchors(rawPrompt, composerReferences)
+    const selectedAnchors = stableReferences([...contextAnchors.map((anchor) => ({ ...anchor, textOffset: typeof anchor.textOffset === 'number' ? Math.max(0, anchor.textOffset - leadingWhitespace) : undefined })), ...typedAnchors], historicalReferences)
     const prompt = rawPrompt
-    if (!prompt || !activeSession || isRunning || !activeProvider?.available) return
+    if (!prompt || !activeSession || isRunning || !activeProvider?.available || preparingMessages.current.has(activeSession.id)) return
     const sessionId = activeSession.id
+    // Consume this draft before awaiting I/O. Later typing belongs to the next request.
+    const consumedDraft = text === input
+    if (consumedDraft) { setInput(''); setContextAnchors([]); setComposerCaret(0); setFocusPlacementId(undefined) }
+    const stillOwnsComposer = composerLease({ sessionId, revision: composerRevision.current }, () => ({ sessionId: composerSession.current, revision: composerRevision.current }))
+    const restoreDraft = () => {
+      if (consumedDraft && stillOwnsComposer()) { setInput(input); setContextAnchors(contextAnchors); setComposerCaret(composerCaret) }
+    }
+    const pending = { cancelled: false, dispatched: false, restoreDraft }
+    preparingMessages.current.set(sessionId, pending)
+    setRunningIds(current => [...new Set([...current, sessionId])])
     const assistantId = uniqueId('assistant')
-    const paperContext = selectedPapers.length ? `<paper_context>\n${selectedPapers.map((paper) => `<paper id="${paper.arxivId}" title=${JSON.stringify(paper.title)} />`).join('\n')}\n</paper_context>` : ''
-    const inlinePrompt = textWithPlacedReferences(prompt, selectedAnchors)
-    const assistantAnchors = selectedAnchors.map(({ placementId: _placementId, textOffset: _textOffset, ...anchor }) => anchor).filter((anchor, index, all) => all.findIndex((item) => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index)
-    const anchorContext = selectedAnchors.length ? `<prism_context>\n${selectedAnchors.map((anchor, occurrence) => { const offset = anchor.textOffset ?? 0; return `<anchor ref="@${anchor.label}" occurrence="${occurrence + 1}" text_offset="${offset}" before=${JSON.stringify(prompt.slice(Math.max(0, offset - 40), offset))} after=${JSON.stringify(prompt.slice(offset, offset + 40))} type="${anchor.type}" paper="${anchor.paperId}" stable_id="${anchor.anchorId}" page="${anchor.page}">\n${anchor.source.slice(0, 4000)}\n</anchor>` }).join('\n')}\n</prism_context>\nThe [@...] references occur at the exact positions shown in the user request. Preserve their order and interpret each reference using its surrounding sentence.` : ''
-    const promptWithContext = [inlinePrompt, paperContext, anchorContext].filter(Boolean).join('\n\n')
+    const userMessageId = uniqueId('user')
+    try {
+    const libraryPath = workspaceState.libraryPath ?? null
+    if (activeSession.messages.length && activeSession.libraryPath !== libraryPath) throw new Error(activeSession.libraryPath === undefined ? '이전 버전 대화는 보관함 정보가 없습니다. 기록은 보존됩니다. 새 대화를 시작해 주세요.' : '이 대화는 다른 보관함에서 시작했습니다. 현재 보관함에서 새 대화를 시작해 주세요.')
+    const stored = await window.prism.listEvidenceAnchors().catch(() => [])
+    if (pending.cancelled) return
+    const mergedAnchors = [...anchorCatalog, ...stored.filter(anchor => !anchorCatalog.some(current => current.paperId === anchor.paperId && current.anchorId === anchor.anchorId))]
+
+    const renamedPrompt = prompt.replace(referencePattern, (token, label: string) => { const original = typedAnchors.find(anchor => anchor.label === label); const renamed = original && selectedAnchors.find(anchor => anchor.paperId === original.paperId && anchor.anchorId === original.anchorId); return renamed ? `[@${renamed.label}]` : token })
+    const inlinePrompt = textWithPlacedReferences(renamedPrompt, selectedAnchors.filter(anchor => anchor.placementId))
+    const context = buildQuestionContext(inlinePrompt, selectedAnchors, mergedAnchors, selectedPapers, historicalReferences)
+    const assistantAnchors = [...selectedAnchors.map(({ placementId: _placementId, textOffset: _textOffset, ...anchor }) => anchor), ...context.references]
+    const promptWithContext = context.prompt
     // Remember which papers this exchange was about so the notes can tell what the reader was working through.
-    const contextPaperIdsForMessage = [...new Set([...selectedPapers.map((paper) => paper.arxivId), ...selectedAnchors.map((anchor) => anchor.paperId), workspaceState.activePaperId].filter((value): value is string => Boolean(value)))]
+    const contextPaperIdsForMessage = context.paperIds
+    const attribution = { primaryPaperId: contextPaperIdsForMessage[0], provider: activeSession.provider, model: activeSession.model }
     const now = Date.now()
     setFollowChat(true)
-    setInput('')
-    setComposerCaret(0); setFocusPlacementId(undefined)
     setErrors((current) => { const next = { ...current }; delete next[sessionId]; return next })
     updateSession(sessionId, (session) => ({
       ...session,
       title: session.messages.length ? session.title : prompt.replace(/\s+/g, ' ').slice(0, 34),
+      libraryPath,
       updatedAt: now,
       messages: [
         ...session.messages,
-        { id: uniqueId('user'), role: 'user', text: prompt, createdAt: now, anchors: selectedAnchors, paperIds: contextPaperIdsForMessage },
-        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors, paperIds: contextPaperIdsForMessage },
+        { id: userMessageId, role: 'user', text: renamedPrompt, createdAt: now, anchors: selectedAnchors, paperIds: contextPaperIdsForMessage, ...attribution },
+        { id: assistantId, role: 'assistant', text: '', createdAt: now + 1, anchors: assistantAnchors, paperIds: contextPaperIdsForMessage, ...attribution },
       ],
     }))
-    setContextAnchors([])
-    setRunningIds((current) => [...current, sessionId])
-    try {
+      pending.dispatched = true
       await window.prism.sendMessage({
-        prompt: promptWithContext, sessionId, messageId: assistantId, provider: activeSession.provider,
+        prompt: promptWithContext, inputComposition: context.inputComposition, libraryPath, sessionId, messageId: assistantId, provider: activeSession.provider,
         model: activeSession.model, providerThreadId: activeSession.providerThreadId,
+        figures: selectedAnchors.filter((anchor, index) => anchor.type === 'figure' && selectedAnchors.findIndex(other => other.paperId === anchor.paperId && other.anchorId === anchor.anchorId) === index).map(({ paperId, anchorId, label }) => ({ paperId, anchorId, label })),
       })
+      if (pending.cancelled) await window.prism.cancelMessage(sessionId)
     } catch (reason) {
-      setContextAnchors(selectedAnchors)
-      setInput(prompt); setComposerCaret(prompt.length)
+      if (pending.cancelled) return
+      restoreDraft()
       setRunningIds((current) => current.filter((id) => id !== sessionId))
       setErrors((current) => ({ ...current, [sessionId]: reason instanceof Error ? reason.message : String(reason) }))
-      updateSession(sessionId, (session) => ({ ...session, messages: session.messages.filter((message) => message.id !== assistantId) }))
+      updateSession(sessionId, (session) => ({ ...session, messages: session.messages.filter((message) => message.id !== assistantId && message.id !== userMessageId) }))
+    } finally {
+      if (preparingMessages.current.get(sessionId) === pending) {
+        preparingMessages.current.delete(sessionId)
+        if (!pending.dispatched || pending.cancelled) setRunningIds(current => current.filter(id => id !== sessionId))
+      }
+    }
+  }
+
+  async function stopMessage(sessionId: string) {
+    const pending = preparingMessages.current.get(sessionId)
+    if (pending) pending.cancelled = true
+    if (!pending || pending.dispatched) await window.prism.cancelMessage(sessionId)
+    else {
+      pending.restoreDraft()
+      preparingMessages.current.delete(sessionId)
+      setRunningIds(current => current.filter(id => id !== sessionId))
     }
   }
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
+  async function compactChat() {
+    if (!activeSession || isRunning) return
+    const sessionId = activeSession.id
+    setRunningIds(ids => [...ids, sessionId])
+    try { await window.prism.compactChat({ sessionId, libraryPath: workspaceState.libraryPath ?? null, model: activeSession.model }) }
+    catch (reason) { setRunningIds(ids => ids.filter(id => id !== sessionId)); setErrors(errors => ({ ...errors, [sessionId]: String(reason) })) }
+  }
+  async function openReadingNote(paperId = workspaceState.activePaperId, blockId?: string) {
+    const owner = noteActionScope.current.owner, libraryPath = workspaceState.libraryPath, sessionId = activeSession?.id
+    const current = () => noteActionScope.current.owner === owner
+    try {
+      const nodes = paperId ? await window.prism.listKnowledgeNodes() : []
+      if (!current()) return
+      const settings = await window.prism.getSettings()
+      if (!current()) return
+      if (settings.libraryPath !== libraryPath) throw new Error('보관함이 변경됐습니다. 현재 보관함에서 다시 열어 주세요.')
+      const note = nodes.find(node => node.nodeType === 'paper' && node.arxivId === paperId)
+      if (note) await window.prism.openKnowledgeNodeInNotes(note.id, { blockId, libraryPath })
+      else await window.prism.openNotes()
+    } catch (reason) {
+      if (sessionId && current()) setErrors(errors => noteActionScope.current.owner === owner ? ({ ...errors, [sessionId]: `노트를 열지 못했습니다: ${String(reason)}` }) : errors)
+    }
+  }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (tagSuggestions.length) {
@@ -526,7 +641,7 @@ function App() {
   }
 
   function consumeReferences(value: string, includeTrailingToken = false) {
-    const byLabel = new Map(anchorCatalog.map((anchor) => [anchor.label, anchor])); const matches = [...value.matchAll(referencePattern)].filter((match) => byLabel.has(match[1]) && (includeTrailingToken || (match.index ?? 0) + match[0].length < value.length))
+    const byLabel = new Map(composerReferences.map((anchor) => [anchor.label, anchor])); const matches = [...value.matchAll(referencePattern)].filter((match) => byLabel.has(match[1]) && (includeTrailingToken || (match.index ?? 0) + match[0].length < value.length))
     if (!matches.length) { setInput(value); return }
     let cleaned = ''; let sourceCursor = 0; let removed = 0; const additions: ContextAnchor[] = []
     for (const match of matches) {
@@ -555,7 +670,9 @@ function App() {
     const start = composerCaret - match[0].length + (match[0].startsWith(' ') ? 1 : 0); setInput(`${input.slice(0, start)}${input.slice(composerCaret)}`); setComposerCaret(start)
   }
 
-  function insertAnchor(anchor: ContextAnchor) {
+  function insertAnchor(anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) {
+    if (!chatVisible) setReadingSizeOffer(readingSize)
+    setChatVisible(true)
     const placementId = uniqueId('placement'); const offset = Math.max(0, Math.min(input.length, composerCaret))
     setContextAnchors((current) => [...current, { ...anchor, placementId, textOffset: offset }]); setFocusPlacementId(placementId)
   }
@@ -563,18 +680,31 @@ function App() {
   function runWorkspaceCommand(type: WorkspaceCommand['type'], paperId?: string, anchor?: ContextAnchor) { setWorkspaceCommand({ id: Date.now() + Math.random(), type, paperId, anchor }) }
   function navigateAnchor(anchor: ContextAnchor) { runWorkspaceCommand('navigate-anchor', anchor.paperId, anchor) }
   useEffect(() => window.prism.onOpenPaperInReader((paperId) => runWorkspaceCommand('open-paper', paperId)), [])
+  const answerSaveKey = (message: ChatMessage) => JSON.stringify([workspaceState.libraryPath, activeSession?.id, message.id])
   async function saveAnswerToNote(message: ChatMessage) {
     if (!activeSession) return
+    const owner = noteActionScope.current.owner, libraryPath = workspaceState.libraryPath, sessionId = activeSession.id
+    const current = () => noteActionScope.current.owner === owner
+    if (!libraryPath) { setErrors(errors => ({ ...errors, [sessionId]: '먼저 논문 노트를 저장할 보관함을 선택해 주세요.' })); return }
+    const key = answerSaveKey(message)
+    if (savingAnswerIds.current.has(key)) return
+    if (noteSaved[key]) { await openReadingNote(noteSaved[key].paperId, noteSaved[key].blockId); return }
     const index = activeSession.messages.findIndex((item) => item.id === message.id)
     const question = activeSession.messages.slice(0, Math.max(0, index)).reverse().find((item) => item.role === 'user')
-    // Prefer the paper being read; fall back to the chat context paper or the paper the question referenced.
-    const paperId = workspaceState.activePaperId ?? contextPaperIds[0] ?? question?.anchors?.[0]?.paperId
+    // Retain the original destination after the reader changes paper or model.
+    const paperId = message.primaryPaperId ?? question?.primaryPaperId ?? message.paperIds?.[0] ?? question?.paperIds?.[0] ?? workspaceState.activePaperId ?? contextPaperIds[0]
     if (!paperId) { setErrors((current) => ({ ...current, [activeSession.id]: '저장할 논문이 없습니다. 논문을 열거나 컨텍스트 논문을 선택하세요.' })); return }
+    const paper = workspaceState.library.find((item) => item.arxivId === paperId)
+    const available = answerAnchors.get(message.id) ?? []
+    const questionAnchors = (question?.anchors ?? []).filter(anchor => available.some(known => known.label === anchor.label && known.paperId === anchor.paperId && known.anchorId === anchor.anchorId))
+    const cited = answerReferences(activeSession.messages, message)
+    const request: PaperCaptureRequest = { kind: 'chat', libraryPath, paperId, question: question ? withoutReferences(question.text) : '', answer: message.text, provider: message.provider ?? question?.provider ?? activeSession.provider, model: message.model ?? question?.model ?? activeSession.model, anchors: [...questionAnchors, ...cited].map((anchor) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, label: anchor.label, page: anchor.page })) }
+    savingAnswerIds.current.add(key); setSavingAnswers(current => ({ ...current, [key]: true }))
     try {
-      await window.prism.capturePaperNote({ kind: 'chat', paperId, question: question ? withoutReferences(question.text) : '', answer: message.text, provider: activeSession.provider, model: activeSession.model, anchors: (question?.anchors ?? []).map((anchor) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, label: anchor.label, page: anchor.page })) })
-      const paper = workspaceState.library.find((item) => item.arxivId === paperId)
-      setNoteSaved((current) => ({ ...current, [message.id]: `'${paper?.title ?? paperId}' 노트에 저장됨` }))
-    } catch (reason) { setErrors((current) => ({ ...current, [activeSession.id]: reason instanceof Error ? reason.message : String(reason) })) }
+      const captured = await window.prism.capturePaperNote(request)
+      updateSession(sessionId, session => ({ ...session, messages: session.messages.map(item => item.id === message.id ? { ...item, savedNote: { libraryPath, paperId, title: paper?.title ?? paperId, blockId: captured.blockId } } : item) }))
+    } catch (reason) { if (current()) setErrors(errors => noteActionScope.current.owner === owner ? ({ ...errors, [sessionId]: reason instanceof Error ? reason.message : String(reason) }) : errors) }
+    finally { savingAnswerIds.current.delete(key); setSavingAnswers(current => { const next = { ...current }; delete next[key]; return next }) }
   }
 
   useEffect(() => window.prism.onOpenEvidenceAnchor((anchor) => navigateAnchor({ ...anchor, paperTitle: '', source: '' })), [])
@@ -591,23 +721,23 @@ function App() {
     <main className="app-shell">
       <header className="titlebar">
         <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><span>Prism</span></div>
-        <div className="document-title"><FileText size={14} /><span>{activeSession.title}</span></div>
-      </header>
+        <div className="document-title"><FileText size={14} /><span>{workspaceState.library.find(paper => paper.arxivId === workspaceState.activePaperId)?.title ?? "Prism · 논문 읽기"}</span></div>
+      <button className="reading-focus" aria-expanded={chatVisible} onClick={() => setChatVisible(value => !value)}>{chatVisible ? "AI 대화 닫기" : "AI 대화 열기"}</button></header>
 
       <div className="workspace">
         {sidebarOpen && (
           <aside className="sidebar">
-            <button className="repository-card sidebar-repository" onClick={() => runWorkspaceCommand('choose-folder')} title={workspaceState.libraryPath ?? '라이브러리 폴더를 선택하세요'}><FolderOpen size={16} /><span><small>CURRENT LIBRARY</small><strong>{workspaceState.libraryPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? '폴더 선택'}</strong></span></button>
+            <button className="repository-card sidebar-repository" onClick={() => runWorkspaceCommand('choose-folder')} title={workspaceState.libraryPath ?? '라이브러리 폴더를 선택하세요'}><FolderOpen size={16} /><span><small>내 라이브러리</small><strong>{workspaceState.libraryPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? '폴더 선택'}</strong></span></button>
             <div className="sidebar-actions">
               <button className="new-paper" onClick={() => runWorkspaceCommand('search')}><Plus size={16} /> 논문 열기</button>
             </div>
             <nav>
-              <p className="nav-label">WORKSPACE</p>
-              <button className="nav-item active"><BookOpen size={17} /> Reader <span>{workspaceState.openPaperIds.length}</span></button>
-              <button className="nav-item" aria-label="Notes 열기" onClick={() => void window.prism.openNotes()}><StickyNote size={17} /> Notes <span>{workspaceState.library.length}</span></button>
-              <div className="paper-tree-heading"><p className="nav-label">PAPERS</p><button onClick={() => runWorkspaceCommand('search')} title="arXiv 검색"><Plus size={13} /></button></div>
-              <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === workspaceState.activePaperId ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={13} /><span><strong>{paper.title}</strong><small>{paper.arxivId}</small></span></button>) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
-              <div className="session-heading"><p className="nav-label">CHATS</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>
+              <p className="nav-label">작업 공간</p>
+              <div className="nav-item active" aria-current="page"><BookOpen size={17} /> 논문 읽기 <span>{workspaceState.openPaperIds.length}</span></div>
+              <button className="nav-item" aria-label="Notes 열기" onClick={() => void openReadingNote()}><StickyNote size={17} /> 노트 <span>{workspaceState.library.length}</span></button>
+              <div className="paper-tree-heading"><p className="nav-label">논문</p><button onClick={() => runWorkspaceCommand('search')} title="논문 추가"><Plus size={13} /></button></div>
+              <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === workspaceState.activePaperId ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={13} /><span><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></span></button>) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
+              <div className="session-heading"><p className="nav-label">대화</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>
               <div className="session-list">
                 {orderedSessions.map((session) => (
                   <div key={session.id} className={`session-item ${session.id === activeSession.id ? 'selected' : ''}`}>
@@ -629,11 +759,11 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
+        <PaperWorkspace onOpenNote={paperId => void openReadingNote(paperId)} readingSizeRequest={readingSizeRequest} providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
 
-        <aside className="chat-pane">
+        <aside className="chat-pane" hidden={!chatVisible}>
           <div className="chat-header">
-            <div><span className="ai-icon"><Sparkles size={15} /></span><strong>AI Research Assistant</strong></div>
+            <div><span className="ai-icon"><MessageSquareText size={15} /></span><strong>논문에 질문하기</strong></div>
             <div className="header-buttons"><button onClick={() => newChat()} title="새 대화" aria-label="새 대화"><Plus size={17} /></button><button onClick={() => setSettingsOpen(true)} title="앱 설정" aria-label="앱 설정"><Settings2 size={17} /></button></div>
           </div>
           <div className="model-bar">
@@ -641,7 +771,10 @@ function App() {
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
-          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.arxivId).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>AI가 보고 있는 논문</header>{workspaceState.library.map((paper) => { const selected = contextPaperIds.includes(paper.arxivId); return <button key={paper.arxivId} onClick={() => setContextPaperIds((current) => selected ? current.filter((id) => id !== paper.arxivId) : [...current, paper.arxivId])}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId}</small></div></button> })}</div>}</div>
+          {memoryNotices[activeSession.id] && <p className="memory-update-status" role="status">{memoryNotices[activeSession.id].text} {memoryNotices[activeSession.id].paperId && <button onClick={() => void openReadingNote(memoryNotices[activeSession.id].paperId)}>노트 보기</button>}</p>}
+          {activeSession.provider === 'codex' && activeSession.providerThreadId && <div className="session-usage"><button disabled={isRunning} onClick={() => void compactChat()} title="Codex가 이전 대화를 요약해 문맥을 줄입니다. AI 사용량이 소모되며 화면의 대화 기록은 보존됩니다. 세부 내용이 필요하면 해당 근거를 다시 첨부하세요.">대화 문맥 정리 · AI 사용</button></div>}
+          {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
+          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>
             {activeSession.messages.length === 0 ? (
@@ -655,9 +788,9 @@ function App() {
                 <div className="message-label">{message.role === 'user' ? 'You' : activeProvider?.name ?? 'Prism'}</div>
                 <div className={`message-body ${message.role === 'assistant' && isRunning && !message.text ? 'streaming-empty' : ''}`}>
                   {message.role === 'user' && message.anchors?.length && !message.anchors.some((anchor) => typeof anchor.textOffset === 'number') ? <span className="inline-message-anchors">{message.anchors.map((anchor) => <AnchorChip key={placementKey(anchor)} anchor={anchor} onNavigate={navigateAnchor} />)}</span> : null}
-                  {message.text ? <MessageContent text={message.role === 'user' && !message.anchors?.some((anchor) => typeof anchor.textOffset === 'number') ? withoutReferences(message.text) : message.text} anchors={message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
+                  {message.text ? <MessageContent text={message.role === 'user' && !message.anchors?.some((anchor) => typeof anchor.textOffset === 'number') ? withoutReferences(message.text) : message.text} anchors={message.role === 'assistant' ? answerAnchors.get(message.id) : message.anchors} onNavigate={navigateAnchor} /> : message.role === 'assistant' ? '●' : ''}{message.role === 'assistant' && isRunning && message === activeSession.messages.at(-1) && <span className="stream-caret" />}
                 </div>
-                {message.role === 'assistant' && message.text && !(isRunning && message === activeSession.messages.at(-1)) && <div className="message-actions"><button aria-label="AI 답변을 논문 노트에 저장" title="현재 논문 노트의 Notes 섹션에 AI 출처가 표시된 답변으로 저장" onClick={() => void saveAnswerToNote(message)}><StickyNote size={12} /> 노트에 저장</button>{noteSaved[message.id] && <span role="status">{noteSaved[message.id]}</span>}</div>}
+                {message.role === 'assistant' && message.text && !(isRunning && message === activeSession.messages.at(-1)) && <div className="message-actions"><button disabled={!workspaceState.libraryPath || savingAnswers[answerSaveKey(message)]} aria-label={noteSaved[answerSaveKey(message)] ? '저장한 논문 노트 열기' : 'AI 답변을 논문 노트에 저장'} title={!workspaceState.libraryPath ? '논문 보관함을 선택하면 저장할 수 있습니다' : noteSaved[answerSaveKey(message)]?.title ?? '답변 당시의 논문 노트에 AI 출처와 함께 저장'} onClick={() => void saveAnswerToNote(message)}><StickyNote size={12} />{savingAnswers[answerSaveKey(message)] ? '저장 중…' : noteSaved[answerSaveKey(message)] ? '저장한 노트 열기' : '노트에 저장'}</button>{noteSaved[answerSaveKey(message)] && <span role="status">노트에 저장됨</span>}</div>}
               </article>
             ))}
             {errors[activeSession.id] && <div className="error-banner"><Circle size={10} fill="currentColor" /><span>{errors[activeSession.id]}</span><button onClick={() => setErrors((current) => ({ ...current, [activeSession.id]: '' }))}><X size={14} /></button></div>}
@@ -669,10 +802,12 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <InlineComposer text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
+              <FigureAttachments anchors={contextAnchors} />
+              {composerDraft.error && <p role="alert">{composerDraft.error}</p>}
+              <InlineComposer onMemo={anchor => runWorkspaceCommand('memo-anchor', anchor.paperId, anchor)} text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
-                {isRunning ? <button type="button" className="send-button stop" onClick={() => void window.prism.cancelMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
+                {isRunning ? <button type="button" className="send-button stop" onClick={() => void stopMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
               </div>
             </form>
             <p className="composer-note">자동 저장 · 실시간 스트리밍 · CLI는 읽기 전용으로 실행됩니다</p>
@@ -681,6 +816,11 @@ function App() {
       </div>
       {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
         <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
+        <div className="settings-layout"><nav className="settings-tabs" role="tablist" aria-label="설정 항목" aria-orientation="vertical">{([['general', 'CLI 연결'], ['guide', '처음 읽기'], ['translation', '번역'], ['memory', '대화 메모리'], ['knowledge', '지식 정리'], ['structure', '구조 분석'], ['storage', '파일 보관'], ['appearance', '화면'], ['usage', 'AI 사용 기록'], ['keyboard', '키보드']] as const).map(([id, label]) => <button key={id} data-settings-tab={id} role="tab" aria-selected={settingsPanel === id} onClick={() => setSettingsPanel(id)}>{label}</button>)}</nav>
+        <div className="settings-content" role="tabpanel">
+        {settingsPanel === 'usage' && <AiUsageHistory />}
+        {['guide', 'translation', 'memory', 'knowledge', 'structure'].includes(settingsPanel) && <TaskSettings task={settingsPanel as ModelTask} providers={providers} />}
+        {settingsPanel === 'general' && <>
         <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>Codex 또는 Claude CLI로 채팅과 번역을 사용합니다.</small></div><button onClick={() => void refreshProviders()} disabled={authInProgress !== null}><RefreshCw size={14} /> 다시 확인</button></div>
           <div className="provider-list">{providers.map((provider) => (
             <div key={provider.id}>
@@ -700,8 +840,11 @@ function App() {
           ))}</div>
           {authMessage && <p className="provider-auth-message">{authMessage}</p>}
         </div>
-        <div className="settings-section"><strong>라이브러리</strong><p>논문 PDF, 번역, 피겨와 Markdown 노트는 선택한 로컬 폴더에 저장됩니다.</p><button className="settings-action" onClick={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }}><FolderOpen size={15} /> 라이브러리 폴더 변경</button></div>
-        <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
+        </>}
+        {settingsPanel === 'storage' && <StorageSettings onChooseVault={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }} />}
+        {settingsPanel === 'appearance' && <div className="settings-section"><ThemeControl /><p>원문 PDF는 인쇄 색상을 유지합니다.</p></div>}
+        {settingsPanel === 'keyboard' && <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>}
+        </div></div>
       </section></div>}
       {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 휴지통으로 옮겼습니다.</strong><small>휴지통에서도 언제든 복원할 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
     </main>

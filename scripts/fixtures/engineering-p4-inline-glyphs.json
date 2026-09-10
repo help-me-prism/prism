@@ -1,0 +1,5388 @@
+{
+  "provenance": {
+    "doi": "10.1371/journal.pone.0287690",
+    "page": 4,
+    "license": "CC BY",
+    "capture": "PDF.js actual fillText; embedded fonts registered with napi canvas; selected source item runs"
+  },
+  "items": [
+    {
+      "str": "was calculated using Formula (1). The arithmetic average of dry density of the three test blocks",
+      "dir": "ltr",
+      "width": 374.8620000000001,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        590.004
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    },
+    {
+      "str": "in each label was taken as the dry density",
+      "dir": "ltr",
+      "width": 161.9700000000003,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        200.01199999999994,
+        577.021
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "ρ",
+      "dir": "ltr",
+      "width": 4.7700000000000005,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        364.1929999999999,
+        577.021
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "0 of FRFC test blocks in each label.",
+      "dir": "ltr",
+      "width": 106.95231430000011,
+      "height": 6.6659,
+      "transform": [
+        7.4999,
+        0,
+        0,
+        6.6659,
+        368.957,
+        575.376
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "Where:",
+      "dir": "ltr",
+      "width": 29.37000000000007,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        211.97800000000007,
+        506.382
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "m0",
+      "dir": "ltr",
+      "width": 12.590999999999994,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        243.555,
+        506.382
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "and",
+      "dir": "ltr",
+      "width": 15.11999999999996,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        257.159,
+        506.381
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": false
+    },
+    {
+      "str": "V",
+      "dir": "ltr",
+      "width": 6.75,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        274.45,
+        506.381
+      ],
+      "fontName": "g_d0_f2",
+      "hasEOL": false
+    },
+    {
+      "str": "were absolute dry mass and absolute volume respectively.",
+      "dir": "ltr",
+      "width": 227.55499999999995,
+      "height": 10,
+      "transform": [
+        10,
+        0,
+        0,
+        10,
+        283.34999999999997,
+        506.381
+      ],
+      "fontName": "g_d0_f1",
+      "hasEOL": true
+    }
+  ],
+  "expected": [
+    {
+      "unicode": "w",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "g",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "F",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "m",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "(",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "1",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": ")",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": ".",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "T",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "m",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "v",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "g",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "f",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "f",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "k",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "w",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "k",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "ρ",
+      "fontChar": "",
+      "fontRef": "g_d0_f2"
+    },
+    {
+      "unicode": "0",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "f",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "F",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "R",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "F",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "C",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "k",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": ".",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "W",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "h",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": ":",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "m",
+      "fontChar": "",
+      "fontRef": "g_d0_f2"
+    },
+    {
+      "unicode": "0",
+      "fontChar": "",
+      "fontRef": "g_d0_f2"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "V",
+      "fontChar": "",
+      "fontRef": "g_d0_f2"
+    },
+    {
+      "unicode": "w",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "m",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "n",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "d",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "a",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "b",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "v",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "o",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "u",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "m",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "r",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "s",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "p",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "c",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "t",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "i",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "v",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "e",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "l",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": "y",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    },
+    {
+      "unicode": ".",
+      "fontChar": "",
+      "fontRef": "g_d0_f1"
+    }
+  ],
+  "painted": [
+    {
+      "char": "",
+      "x": 200.01199340820312,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        200.01199340820312,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 12,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 206.84199340820314,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        200.01199340820312,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 211.17199340820312,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        200.01199340820312,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 216.96299743652344,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 221.19299743652343,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 225.52299743652344,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 227.98299743652345,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 232.21299743652344,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 237.48299743652345,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 239.94299743652343,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 244.27299743652344,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 247.25299743652343,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 251.48299743652342,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        216.96299743652344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 259.0279846191406,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        259.0279846191406,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 264.2979846191406,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        259.0279846191406,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 267.89798461914063,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        259.0279846191406,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 270.5579846191406,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        259.0279846191406,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 276.0379846191406,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        259.0279846191406,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 282.9530029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 288.2230029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 293.2830029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 296.9930029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 13,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 305.1730029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 310.4430029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 312.9030029296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        282.9530029296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 319.4629821777344,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        319.4629821777344,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": -1,
+        "right": 5,
+        "ascent": 12,
+        "descent": 3
+      }
+    },
+    {
+      "char": "",
+      "x": 322.8529968261719,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        322.8529968261719,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": -1,
+        "right": 7,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 327.6029968261719,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        327.6029968261719,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 12,
+        "descent": 3
+      }
+    },
+    {
+      "char": "",
+      "x": 330.99299682617186,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        327.6029968261719,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 3,
+        "ascent": 2,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 335.50701904296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        335.50701904296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 10,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 341.6070190429688,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        335.50701904296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 346.87701904296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        335.50701904296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 353.3079833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 357.6379833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 361.3479833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 364.0079833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 366.9879833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 372.2579833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 13,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 380.4379833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 384.6679833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 387.64798339843753,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 390.3079833984375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        353.3079833984375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 396.791015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 401.121015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 1,
+        "right": 8,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 405.661015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 409.891015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 413.601015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 417.931015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 422.571015625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        396.791015625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 429.04901123046875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        429.04901123046875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 434.10901123046875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        429.04901123046875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 439.197021484375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        439.197021484375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 444.467021484375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        439.197021484375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 448.177021484375,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        439.197021484375,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 454.9580078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 460.2280078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 464.4580078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 469.9380078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 473.5380078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 476.1980078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 479.1780078125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.9580078125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 485.968994140625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        485.968994140625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 491.028994140625,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        485.968994140625,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 496.11700439453125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        496.11700439453125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 499.09700439453127,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        496.11700439453125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 504.36700439453125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        496.11700439453125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 510.79998779296875,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        510.79998779296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 513.7799877929688,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        510.79998779296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 519.0499877929688,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        510.79998779296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 522.7599877929688,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        510.79998779296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 526.9899877929688,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        510.79998779296875,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 533.4769897460938,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        533.4769897460938,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 536.4569897460938,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        533.4769897460938,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 540.6869897460938,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        533.4769897460938,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 544.2869897460937,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        533.4769897460938,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 549.4639892578125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 554.5239892578124,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 556.9839892578125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 562.0439892578125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 566.2739892578124,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 571.2339892578125,
+      "y": 201.9959716796875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        549.4639892578125,
+        201.9959716796875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 200.01199340820312,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        200.01199340820312,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 202.67199340820312,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        200.01199340820312,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 210.32998657226562,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        210.32998657226562,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 214.55998657226561,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        210.32998657226562,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 218.88998657226563,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        210.32998657226562,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 223.11998657226562,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        210.32998657226562,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 230.625,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        230.625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 233.085,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        230.625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 237.415,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        230.625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 242.475,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        230.625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 246.705,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        230.625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 251.43199157714844,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        251.43199157714844,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 12,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 258.2619915771484,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        251.43199157714844,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 262.59199157714846,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        251.43199157714844,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 268.38299560546875,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        268.38299560546875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 271.36299560546877,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        268.38299560546875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 275.69299560546875,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        268.38299560546875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 280.65299560546873,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        268.38299560546875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 284.88299560546875,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        268.38299560546875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 292.5899963378906,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        292.5899963378906,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 296.9199963378906,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        292.5899963378906,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 302.73797607421875,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        302.73797607421875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 305.71797607421877,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        302.73797607421875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 310.98797607421875,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        302.73797607421875,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 317.4779968261719,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        317.4779968261719,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 322.74799682617186,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        317.4779968261719,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 326.4579968261719,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        317.4779968261719,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 333.1820068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 338.4520068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 342.6820068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 348.1620068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 351.7620068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 354.4220068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 357.4020068359375,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        333.1820068359375,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 364.1929931640625,
+      "y": 214.97897338867188,
+      "font": "normal normal 16px \"g_d0_f2\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        364.1929931640625,
+        214.97897338867188
+      ],
+      "metrics": {
+        "left": 1,
+        "right": 8,
+        "ascent": 7,
+        "descent": 4
+      }
+    },
+    {
+      "char": "",
+      "x": 368.9570007324219,
+      "y": 216.6240234375,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.4687437415122986,
+        0,
+        0,
+        0.4166187644004822,
+        368.9570007324219,
+        216.6240234375
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 11,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 374.6830139160156,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        374.6830139160156,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 379.7430139160156,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        374.6830139160156,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 384.83001708984375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        384.83001708984375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 390.10001708984373,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        384.83001708984375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 11,
+        "ascent": 11,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 396.31001708984377,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        384.83001708984375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 401.58001708984375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        384.83001708984375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 11,
+        "ascent": 11,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 410.4560241699219,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        410.4560241699219,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 413.4360241699219,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        410.4560241699219,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 417.66602416992185,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        410.4560241699219,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 421.2660241699219,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        410.4560241699219,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 426.4430236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 431.5030236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 433.9630236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 439.0230236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 443.2530236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 448.2130236816406,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        426.4430236816406,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 454.052001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.052001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 456.712001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        454.052001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 464.427001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        464.427001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 468.657001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        464.427001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 472.987001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        464.427001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 477.217001953125,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        464.427001953125,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 484.7230224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 487.1830224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 491.5130224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 496.5730224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 500.8030224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 503.2630224609375,
+      "y": 214.97998046875,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        484.7230224609375,
+        214.97998046875
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 3,
+        "ascent": 2,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 211.97802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 16,
+        "ascent": 11,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 221.61802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 226.88802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 231.11802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 234.82802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 239.05802734375,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        211.97802734375,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 3,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 243.55499267578125,
+      "y": 285.61798095703125,
+      "font": "normal normal 16px \"g_d0_f2\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        243.55499267578125,
+        285.61798095703125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 12,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 251.37600708007812,
+      "y": 287.26300048828125,
+      "font": "normal normal 16px \"g_d0_f2\", sans-serif",
+      "matrix": [
+        0.4687437415122986,
+        0,
+        0,
+        0.4166187644004822,
+        251.37600708007812,
+        287.26300048828125
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 10,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 257.15899658203125,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        257.15899658203125,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 261.48899658203123,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        257.15899658203125,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 266.96899658203125,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        257.15899658203125,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 274.45001220703125,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f2\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        274.45001220703125,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": -1,
+        "right": 12,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 283.3500061035156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        283.3500061035156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 12,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 290.1800061035156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        283.3500061035156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 294.4100061035156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        283.3500061035156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 298.1200061035156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        283.3500061035156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 304.552978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 308.882978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 313.942978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 317.542978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 322.602978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 325.062978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 330.332978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 333.312978515625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        304.552978515625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 339.8160095214844,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        339.8160095214844,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 345.08600952148436,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        339.8160095214844,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 348.7960095214844,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        339.8160095214844,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 355.5769958496094,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        355.5769958496094,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 13,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 363.7569958496094,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        355.5769958496094,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 368.08699584960937,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        355.5769958496094,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 371.6869958496094,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        355.5769958496094,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 377.5169982910156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        377.5169982910156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 381.8469982910156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        377.5169982910156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 387.3269982910156,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        377.5169982910156,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 394.8079833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 399.1379833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 12,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 404.1979833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 407.7979833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 412.8579833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 415.3179833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 420.5879833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 423.5679833984375,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        394.8079833984375,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 430.07098388671875,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 1,
+        "right": 8,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 434.61098388671877,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 439.6709838867188,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 442.13098388671875,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 9,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 447.40098388671873,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 13,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 455.58098388671874,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        430.07098388671875,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 462.04498291015625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 465.75498291015623,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 469.98498291015625,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 6,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 473.58498291015627,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 8,
+        "descent": 4
+      }
+    },
+    {
+      "char": "",
+      "x": 478.74498291015624,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 482.97498291015626,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 487.2049829101563,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 10,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 490.18498291015624,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 5,
+        "ascent": 11,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 492.84498291015626,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 1,
+        "right": 8,
+        "ascent": 7,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 497.3849829101563,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 7,
+        "ascent": 8,
+        "descent": 1
+      }
+    },
+    {
+      "char": "",
+      "x": 501.61498291015624,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 4,
+        "ascent": 12,
+        "descent": 0
+      }
+    },
+    {
+      "char": "",
+      "x": 504.0749829101562,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 8,
+        "ascent": 7,
+        "descent": 5
+      }
+    },
+    {
+      "char": "",
+      "x": 508.61498291015624,
+      "y": 285.6189880371094,
+      "font": "normal normal 16px \"g_d0_f1\", sans-serif",
+      "matrix": [
+        0.625,
+        0,
+        0,
+        0.625,
+        462.04498291015625,
+        285.6189880371094
+      ],
+      "metrics": {
+        "left": 0,
+        "right": 3,
+        "ascent": 2,
+        "descent": 1
+      }
+    }
+  ],
+  "segments": [
+    {
+      "id": "p4-s3-1te0n8m",
+      "page": 4,
+      "source": "The arithmetic average of dry density of the three test blocks in each label was taken as the dry density ρ 0 of FRFC test blocks in each label.",
+      "kind": "text",
+      "blockId": "pdf-p4-b0",
+      "paragraphContext": "temperature, their masses were weighed using an electronic scale with an accuracy of 0.01g. The test was performed according to the FC standards in [27]. The dry density of the test block was calculated using Formula (1). The arithmetic average of dry density of the three test blocks in each label was taken as the dry density ρ 0 of FRFC test blocks in each label.",
+      "itemIndexes": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "itemSlices": [
+        {
+          "itemIndex": 0,
+          "start": 0.3541666666666667,
+          "end": 1
+        },
+        {
+          "itemIndex": 1,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 2,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 3,
+          "start": 0,
+          "end": 1
+        }
+      ]
+    },
+    {
+      "id": "p4-s6-y46jly",
+      "page": 4,
+      "source": "Where: m0 and V were absolute dry mass and absolute volume respectively.",
+      "kind": "text",
+      "blockId": "pdf-p4-b3",
+      "paragraphContext": "Where: m0 and V were absolute dry mass and absolute volume respectively.",
+      "itemIndexes": [
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "itemSlices": [
+        {
+          "itemIndex": 4,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 5,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 6,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 7,
+          "start": 0,
+          "end": 1
+        },
+        {
+          "itemIndex": 8,
+          "start": 0,
+          "end": 1
+        }
+      ]
+    }
+  ]
+}

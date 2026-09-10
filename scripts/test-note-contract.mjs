@@ -95,11 +95,10 @@ try {
   assert.doesNotThrow(() => assertOnlyAutoChanged(before, after, 'rerun'), 'A second run moved something outside a generated region.')
   assert.equal(mineRegion(after, 'unresolved').text, mineLines.unresolved, 'A second run changed the researcher\'s writing.')
 
-  // ---------- a note the researcher has written in says so, without anybody setting a dropdown ----------
-  assert(sweep.understood.includes(paper.id) && sweep.understood.includes(concept.id), `Notes with the researcher's own sentences were not promoted: ${JSON.stringify(sweep.understood)}`)
+  // Writing unresolved questions must never assert that the researcher understands.
+  assert.equal(sweep.understood.length, 0)
   const promoted = await listKnowledgeNodes(root)
-  assert(promoted.every((node) => node.status === 'understood'), `Status did not follow the writing: ${JSON.stringify(promoted.map((node) => [node.title, node.status]))}`)
-  // Nothing takes it away again, and a second sweep does not keep rewriting frontmatter it already wrote.
+  assert(promoted.every(node => node.status !== 'understood'), 'Free sweeps must preserve explicit understanding state')
   const again = await refreshVaultDigests(root, messages)
   assert.equal(again.understood.length, 0, 'A second sweep promoted notes that were already promoted.')
 

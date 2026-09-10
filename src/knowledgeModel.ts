@@ -17,10 +17,14 @@ export const relationLabels: Record<KnowledgeRelationType, string> = {
  */
 export const creatableTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'project']
 export const treeTypes: KnowledgeNodeType[] = ['paper', 'concept', 'claim', 'question', 'insight', 'project']
-export const primaryRelationTypes: KnowledgeRelationType[] = ['defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers']
+export const primaryRelationTypes: KnowledgeRelationType[] = ['related', 'defines', 'uses', 'supports', 'contradicts', 'extends', 'raises', 'answers']
 
-/** Every relation must answer a query the researcher actually runs; pairs without one only get a plain link. */
+/** Related records a deliberate association without asserting support or hierarchy. */
 export function relationTypesFor(source: KnowledgeNodeRecord, target: KnowledgeNodeRecord): KnowledgeRelationType[] {
+  if (source.id === target.id) return []
+  return ['related', ...specificRelationTypesFor(source, target)]
+}
+function specificRelationTypesFor(source: KnowledgeNodeRecord, target: KnowledgeNodeRecord): KnowledgeRelationType[] {
   switch (`${source.nodeType}>${target.nodeType}`) {
     case 'paper>concept': return ['defines', 'uses']
     case 'claim>concept': return ['uses']
