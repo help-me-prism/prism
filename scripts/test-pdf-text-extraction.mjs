@@ -55,6 +55,23 @@ const separatedDisplay = segmentsFromItems(4,[item('We define the objective,',63
 assert.deepEqual(separatedDisplay.map(segment=>segment.source),['We define the objective,','L(θ) = E ||v-u||²','where samples are unbiased.'],'Blank PDF line markers separate centered display math from surrounding prose')
 const numberedDisplay = segmentsFromItems(4,[item('L(θ) = E ||v-u||²',619,false),item('(9) where samples are unbiased.',604)])
 assert.deepEqual(numberedDisplay.map(segment=>segment.source),['L(θ) = E ||v-u||² (9)','where samples are unbiased.'],'A display equation number ends the formula before its explanatory prose')
+const positioned = (str,x,y,hasEOL=false,height=10,width=Math.max(5,str.length*5)) => ({str,width,height,transform:[height,0,0,height,x,y],hasEOL})
+const fractionDisplay = segmentsFromItems(4,[
+  positioned('This flow then provides a vector field that generates the conditional probability path:',108,149),
+  positioned('',257,136,true,0,0), positioned('d',257,136,true), positioned('dt',255,122),
+  positioned('ψ(t,x) = u(t,ψ(t,x)|x1).',265,129), positioned('(13)',487,129,true),
+  positioned('Reparameterizing the probability path in terms of the base sample.',108,111),
+])
+assert.deepEqual(fractionDisplay.map(segment=>segment.kind),['text','equation','text'],'A centered fraction between prose lines remains a separate display equation')
+assert.match(fractionDisplay[1].source,/^d dt .*\(13\)$/)
+assert.equal(segmentsFromItems(4,[positioned('That is to say, the preceding prose introduces the equation,',108,149),positioned('',257,136,true,0,0),positioned('x = y',257,136),positioned('(12)',487,136,true)])[0].kind,'text','Prose ending with a colon or comma before display math remains translatable prose')
+const tallNormDisplay = segmentsFromItems(4,[
+  positioned('L_CFM(θ) = E',201,91), positioned('',297,102,true,0,0), positioned('∥',297,102,true),
+  positioned('∥v(ψ(x)) − d',297,91), positioned('d',362,98,true), positioned('dt',360,84),
+  positioned('ψ(x)∥²',370,91), positioned('(14)',487,91,true), positioned('Since the map is invertible, the field has a closed form.',108,73),
+])
+assert.deepEqual(tallNormDisplay.map(segment=>segment.kind),['equation','text'],'Tall norm and fraction glyphs sharing one numbered display produce one equation anchor')
+assert.match(tallNormDisplay[0].source,/\(14\)$/)
 const mixedSizes = [item('A smaller sidebar sentence contributes its font size.',720,true,8),item('Another smaller sidebar sentence contributes its font size.',706,true,8),item('The main paragraph ends with a continuation. While',680,true,10)]
 assert.equal(segmentsFromItems(2,mixedSizes).find(s=>s.source==='While').kind,'text')
 console.log('PDF extraction passed: real PLOS engineering dimensions/subscript/caption/footer regressions and section boundaries.')

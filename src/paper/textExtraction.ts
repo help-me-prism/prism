@@ -50,14 +50,25 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       const height = Math.max(5, Math.abs(previous.height || previous.transform[3]))
       const nextHeight = Math.max(1, Math.abs(item.height || item.transform[3]))
       const verticalGap = Math.abs(previousY - nextY)
-      const columnReset = nextY > previousY + height * 1.2
+      const rawColumnReset = nextY > previousY + height * 1.2
       // Empty PDF.js items can carry the only EOL between centered displays and
       // prose. Use a slightly stronger gap for those markers so ordinary compact
       // table rows retain their established source identity.
       const currentParagraph = combined.slice(combined.lastIndexOf('\n\n') + 2)
-      const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value)
-      const paragraphGap = (previous.hasEOL && verticalGap > height * 1.55)
-        || (pendingEOL && verticalGap > height * 1.64) || displayToProse
+      // PDF text order walks tall delimiters and fractions vertically even though
+      // they belong to one visual display. Do not turn those short nearby glyphs
+      // into separate paragraphs merely because their baseline moves upward/downward.
+      const equationContinuation = isEquation(currentParagraph) && (isEquation(value)
+        || (value.length <= 4 && Math.abs(item.transform[4] - previous.transform[4]) < 24))
+      const columnReset = rawColumnReset && !equationContinuation
+      const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value) && !equationContinuation
+      const numberedDisplayToProse = previous.hasEOL && /^\(\d{1,4}\)$/.test(previous.str.trim()) && verticalGap > height * .9
+      const centeredDisplayAfterProse = pendingEOL && verticalGap > height * .9
+        && (currentParagraph.match(/[A-Za-z]{3,}/g)?.length ?? 0) >= 4
+        && (isEquation(value) || value.length === 1)
+        && Math.abs(item.transform[4] - previous.transform[4]) > 40
+      const paragraphGap = (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
+        || (!equationContinuation && pendingEOL && verticalGap > height * 1.64) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
       // A number at an inline font boundary is often a subscript or a measured
       // dimension, not a section number (e.g. rho + "0 of ...", 300 mm × 300 mm).
       const headingBoundary = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix)\b/i.test(value)
@@ -67,8 +78,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
         // line spacing as prose. Preserve their new paragraph without inventing
         // bold weight or splitting the body that follows on the same baseline.
         || (verticalGap > height * .75 && /^\(\d{1,3}\)\s+[A-Z][^.!?]{1,100}[.:]$/.test(value) && value.split(/\s+/).length <= 9)
-      const displayGap = verticalGap > height * 1.8
-      const fontSizeBoundary = verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
+      const displayGap = !equationContinuation && verticalGap > height * 1.8
+      const fontSizeBoundary = !equationContinuation && verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
       const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset
       if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
       combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
@@ -123,7 +134,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
     const digitRatio = digits / Math.max(1, part.text.length)
     const numericLayout = digits >= 6 && digitRatio > .12 && matchedItems.length >= 5
-    const hasProseSentence = /[.!?]$/.test(part.text) && (part.text.match(/[A-Za-z]{2,}/g)?.length ?? 0) >= 4
+    const proseWordCount = part.text.match(/[A-Za-z]{2,}/g)?.length ?? 0
+    const hasProseSentence = (/[.!?]$/.test(part.text) && proseWordCount >= 4) || (/[,;:]$/.test(part.text) && proseWordCount >= 6)
     const likelyGraphicOrTable = !caption && !hasProseSentence && averageHeight <= bodyHeight * 1.08 && (numericLayout || (!sectionHeading && (
       (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
       || (digitRatio > .18 && matchedItems.length >= 4)
