@@ -5,7 +5,8 @@ const load = async file => {
   const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file)
   return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 }
-const { joinVectorRegions } = await load('src/paper/figureGeometry.ts')
+const { joinBitmapRegions, joinVectorRegions } = await load('src/paper/figureGeometry.ts')
+const { tableMemberIndexes } = await load('src/paper/tableRegions.ts')
 const { mayMaskExcerpt } = await load('src/paper/excerptGeometry.ts')
 const fixture = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p5-table-vectors.json', 'utf8'))
 const area = fixture.page.width * fixture.page.height
@@ -19,6 +20,11 @@ for (const stroke of fixture.rects.filter(rect => rect.top >= 88 && rect.top + r
 }
 assert(regions.some(rect => rect.top > 390 && rect.width === 360), 'Separate lower figure remains a separate region')
 assert.deepEqual(joinVectorRegions(fixture.rects.map(rect => Object.fromEntries(Object.entries(rect).map(([key, value]) => [key, value * .5]))), .5, area * .25), regions.map(rect => Object.fromEntries(Object.entries(rect).map(([key, value]) => [key, value * .5]))))
+const panels = joinBitmapRegions([{left:40,top:100,width:180,height:120},{left:230,top:102,width:180,height:118},{left:40,top:400,width:370,height:110}],1,612*792)
+assert.equal(panels.length,2,'Adjacent aligned bitmap panels join, while a distant figure stays separate')
+assert.deepEqual(panels[0],{left:40,top:100,width:370,height:120})
+const tableSegments = [{kind:'artifact',source:'Earlier damaged prose still ends here.'},{kind:'caption',source:'Table 2. Results.'},{kind:'text',source:'Model Score'},{kind:'artifact',source:'Base 30.1'},{kind:'equation',source:'Ours $x_i$ 33.8'},{kind:'text',source:'The discussion starts here.'}]
+assert.deepEqual(tableMemberIndexes(tableSegments,1),[1,2,3,4],'Table range includes text and math cells but stops at prose')
 assert.equal(mayMaskExcerpt([{ kind: 'artifact', blockId: 'table-row' }], new Set(), new Set()), false)
 assert.equal(mayMaskExcerpt([{ kind: 'table' }], new Set(), new Set()), false)
 assert.equal(mayMaskExcerpt([{ kind: 'equation' }], new Set(), new Set()), false)

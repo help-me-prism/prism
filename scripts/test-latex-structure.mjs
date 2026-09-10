@@ -16,7 +16,7 @@ try {
   await fs.writeFile(path.join(sourceDir, 'main.tex'), String.raw`\documentclass{article}
 \begin{document}
 \section{Method}
-The model uses structured attention.
+The model uses structured attention with $QK^T / \sqrt{d_k}$ scores and \(x_t = x_{t-1} + u_t\) updates.
 ${equation}
 ${table}
 ${algorithm}
@@ -25,6 +25,9 @@ ${algorithm}
   assert(structure, 'LaTeX structure was not parsed.')
   assert.equal(structure.blocks.find((block) => block.kind === 'equation')?.source, equationBody)
   assert.equal(structure.blocks.find((block) => block.kind === 'table')?.source, tableBody)
+  const paragraph = structure.blocks.find((block) => block.kind === 'paragraph')?.source ?? ''
+  assert.match(paragraph, /\$QK\^T \/ \\sqrt\{d_k\}\$/)
+  assert.match(paragraph, /\$x_t = x_\{t-1\} \+ u_t\$/)
   assert(structure.blocks.some((block) => block.kind === 'table' && block.source === algorithmBody), 'Algorithm source was not preserved as a table-like structure.')
   process.stdout.write('LaTeX structure test passed: equation and table source stayed byte-for-byte intact.\n')
 } finally {

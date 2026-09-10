@@ -9,7 +9,7 @@ export type LatexBlock = {
 }
 
 export type LatexStructure = {
-  version: 3
+  version: 4
   rootFile: string
   generatedAt: string
   blocks: LatexBlock[]
@@ -54,7 +54,14 @@ function commandArgument(value: string, command: string) {
 }
 
 function latexToPlain(value: string) {
-  let plain = value
+  const inlineMath: string[] = []
+  let marker = 'PRISM_INLINE_MATH'
+  while (value.includes(marker)) marker += '_'
+  const protectedValue = value.replace(/\\\(([\s\S]*?)\\\)|(?<!\\)\$([^$\n]+?)(?<!\\)\$/g, (_whole, parentheses: string | undefined, dollars: string | undefined) => {
+    const index = inlineMath.push((parentheses ?? dollars ?? '').trim()) - 1
+    return `${marker}${index}END`
+  })
+  let plain = protectedValue
     .replace(/\\(?:begin|end)\s*\{[^}]+\}/g, ' ')
     .replace(/\\(?:label|bibliography|bibliographystyle)\s*\{[^}]*\}/g, ' ')
     .replace(/\\(?:cite\w*|ref|eqref|autoref)\s*\{([^}]*)\}/g, '[$1]')
@@ -67,6 +74,7 @@ function latexToPlain(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
   plain = plain.replace(/\s+([,.;:!?])/g, '$1')
+  plain = plain.replace(new RegExp(`${marker}(\\d+)END`, 'g'), (_whole, index: string) => `$${inlineMath[Number(index)] ?? ''}$`)
   return plain
 }
 
@@ -130,5 +138,5 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     blocks.push({ id: `latex-${protectedBlocks.length + blocks.length + 1}`, kind: 'paragraph', source, section: currentSection })
   }
   if (!blocks.some((block) => block.kind === 'paragraph')) return null
-  return { version: 3, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+  return { version: 4, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
 }

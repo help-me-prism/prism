@@ -48,6 +48,8 @@ const inlineNumber = segmentsFromItems(1,[item('The trial used method',700,false
 assert.equal(new Set(inlineNumber.map(segment=>segment.blockId)).size,1,'Numbered text on the same baseline is not a new paragraph')
 const damagedComparator = segmentsFromItems(11,[item('The proportion of S � 1.2 decreased for the reinforced specimens.',700)])
 assert.equal(damagedComparator[0].kind,'artifact')
+const mathFontEquation = segmentsFromItems(3,[{...item('x',700,false),fontName:'CMMI10'},{...item('i',700,false),fontName:'CMMI10',transform:[10,0,0,10,112,700]},{...item('=',700,false),fontName:'CMSY10',transform:[10,0,0,10,124,700]},{...item('z',700),fontName:'CMMI10',transform:[10,0,0,10,136,700]}])
+assert.equal(mathFontEquation[0].kind,'equation','Math-font display fragments retain one formula boundary even when PDF glyph mapping loses operators')
 const mixedSizes = [item('A smaller sidebar sentence contributes its font size.',720,true,8),item('Another smaller sidebar sentence contributes its font size.',706,true,8),item('The main paragraph ends with a continuation. While',680,true,10)]
 assert.equal(segmentsFromItems(2,mixedSizes).find(s=>s.source==='While').kind,'text')
 console.log('PDF extraction passed: real PLOS engineering dimensions/subscript/caption/footer regressions and section boundaries.')

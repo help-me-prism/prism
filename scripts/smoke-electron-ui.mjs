@@ -160,6 +160,7 @@ try {
   assert(await evaluate(`document.querySelectorAll('.message-body .katex').length >= 3`), 'Bracket-delimited display and inline math were not rendered with KaTeX.')
   assert(await evaluate(`Boolean(document.querySelector('.message-body table'))`), 'Markdown table was not rendered.')
   assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-equation'))`), 'The user reference was not rendered inline with a type icon.')
+  assert(await evaluate(`Boolean(document.querySelector('.message.user .anchor-popover.equation .katex-display'))`), 'Equation reference hover did not contain a rendered KaTeX preview.')
   assert(await evaluate(`Boolean(document.querySelector('.message.user .message-body .type-table'))`), 'The table reference was not rendered inline with a type icon.')
   const placedUserText = await evaluate(`[...document.querySelectorAll('.message.user .message-body')].find((body) => body.querySelector('.type-equation'))?.textContent`)
   assert(placedUserText.indexOf('수식2') < placedUserText.indexOf('수식과') && placedUserText.indexOf('표1') < placedUserText.indexOf('표의'), `Placed references did not remain at their sentence offsets: ${placedUserText}`)

@@ -11,6 +11,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import {
   BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, ExternalLink, FileText, FolderOpen, Image,
@@ -94,9 +95,16 @@ function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?:
   }}>{markdown}</ReactMarkdown>
 }
 
+function equationPreviewHtml(source: string) {
+  const math = source.trim().replace(/^\$\$([\s\S]*)\$\$$/, '$1').replace(/^\\\[([\s\S]*)\\\]$/, '$1')
+  try { return katex.renderToString(math, { displayMode: true, trust: false, strict: 'ignore', throwOnError: true, maxExpand: 100, maxSize: 20 }) }
+  catch { return undefined }
+}
+
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
   const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'table' ? Table2 : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
-  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const equationHtml = anchor.type === 'equation' ? equationPreviewHtml(anchor.source) : undefined
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : equationHtml ? 'equation' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
     : <button type="button" className="anchor-token" title="논문의 해당 위치로 이동" onClick={() => onNavigate?.(anchor)}>{content}</button>

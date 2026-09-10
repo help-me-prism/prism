@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { scientificTranslationParts } from './scientificTranslationParts'
+import { evidenceInlineMathHtml } from '../evidenceInlineMath'
 import type { ScientificSpan } from '../../electron/scientificSource'
 
 function ScientificGlyph({ source, scale, span }: { source: HTMLCanvasElement; scale: number; span: ScientificSpan }) {
@@ -26,7 +27,8 @@ function ScientificGlyph({ source, scale, span }: { source: HTMLCanvasElement; s
 export default function ScientificTranslationText({ sourceText, text, spans, canvas, scale }: {
   sourceText: string; text: string; spans?: unknown; canvas: HTMLCanvasElement | null; scale: number;
 }) {
-  if (!canvas) return <>{text}</>
+  if (!canvas) return <span className="translated-inline-math" dangerouslySetInnerHTML={{ __html: evidenceInlineMathHtml(text) }} />
   return <>{scientificTranslationParts(sourceText, text, spans).map((part, index) => part.science
-    ? <ScientificGlyph key={index} source={canvas} scale={scale} span={part.science} /> : part.text)}</>
+    ? <ScientificGlyph key={index} source={canvas} scale={scale} span={part.science} />
+    : <span key={index} className="translated-inline-math" dangerouslySetInnerHTML={{ __html: evidenceInlineMathHtml(part.text) }} />)}</>
 }

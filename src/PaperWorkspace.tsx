@@ -7,7 +7,8 @@ import { readReadingPosition, saveReadingPosition, type ReadingPosition } from '
 import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { joinVectorRegions } from './paper/figureGeometry'
+import { joinBitmapRegions, joinVectorRegions } from './paper/figureGeometry'
+import { tableMemberIndexes } from './paper/tableRegions'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
 import { useEvidenceCapture } from './paper/useEvidenceCapture'
@@ -86,6 +87,14 @@ function tokenSimilarity(left: string, right: string) {
   return shared / Math.max(1, Math.max(a.size, b.size))
 }
 
+function latexSentenceSource(source: string, pdfSource: string) {
+  const candidates = typeof Intl.Segmenter === 'function'
+    ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(source)].map((part) => part.segment.trim())
+    : source.split(/(?<=[.!?])\s+/)
+  const ranked = candidates.filter((candidate) => /\$[^$\n]+\$/.test(candidate)).map((candidate) => ({ candidate, score: tokenSimilarity(candidate, pdfSource) })).sort((a, b) => b.score - a.score)
+  return ranked[0]?.score >= .45 ? ranked[0].candidate : undefined
+}
+
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
   const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
@@ -104,7 +113,8 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const threshold = tokens.length < 5 ? .78 : .58
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
     matched += 1
-    return { ...segment, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    const inlineSource = best.block.kind === 'paragraph' ? latexSentenceSource(best.block.source, segment.source) : undefined
+    return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
   })
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
   const usedEquations = new Set<number>()
@@ -117,7 +127,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
-  const captionIndexes = enriched.map((segment, index) => segment.kind === 'caption' && /^(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
+  const captionIndexes = enriched.map((segment, index) => ['caption', 'table'].includes(segment.kind) && /(?:^|\n)(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
   const usedCaptions = new Set<number>()
   for (let tableIndex = 0; tableIndex < tableBlocks.length; tableIndex += 1) {
     const { block, index: blockIndex } = tableBlocks[tableIndex]
@@ -127,7 +137,10 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const selected = ranked[0]?.score >= .12 ? ranked[0].index : available[0]
     if (selected === undefined) continue
     usedCaptions.add(selected); const caption = enriched[selected]
-    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source }
+    const members = tableMemberIndexes(enriched, selected)
+    const memberSlices = members.flatMap((memberIndex) => enriched[memberIndex].itemSlices ?? [])
+    for (const memberIndex of members) if (memberIndex !== selected) enriched[memberIndex] = { ...enriched[memberIndex], kind: 'artifact', sourceMode: 'pdf' }
+    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source, itemIndexes: [...new Set(memberSlices.map((slice) => slice.itemIndex))], itemSlices: memberSlices }
   }
   return { segments: enriched, matched }
 }
@@ -138,7 +151,7 @@ async function prepareFigureAsset(asset: PaperFigureAsset): Promise<PaperFigureA
   if (asset.mimeType !== 'application/pdf') return asset
   try {
     const encoded = asset.dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
-    const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(2, 560 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
+    const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(4, 1600 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
     const canvas = window.document.createElement('canvas'); canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height)); await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
     return { ...asset, preview: canvas.toDataURL('image/jpeg', .86) }
   } catch { return asset }
@@ -285,8 +298,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
             const area = width * height; if (width > 72 * scale && height > 55 * scale && area > 7_500 * scale * scale && area < viewport.width * viewport.height * .78) figures.push({ left, top, width, height })
           }
         }
-        figures.push(...joinVectorRegions(vectors, scale, viewport.width * viewport.height))
-        if (!cancelled) setDetectedFigureRects(figures.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
+        const regions = [...joinBitmapRegions(figures, scale, viewport.width * viewport.height), ...joinVectorRegions(vectors, scale, viewport.width * viewport.height)]
+        if (!cancelled) setDetectedFigureRects(regions.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
       } catch { if (!cancelled) setDetectedFigureRects([]) }
     }).catch(reason => { if (!cancelled) setPageError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { cancelled = true; renderTask?.cancel() }
@@ -302,6 +315,15 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     if (![x, y, width, height, sourceWidth, sourceHeight].every(Number.isFinite) || width <= 0 || height <= 0) return
     captureBusy.current = true; setCapturing(true)
     try {
+      if (sourceFigure?.preview && !sourceFigure.compound) {
+        const image = new window.Image()
+        await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('원본 피겨 이미지를 읽지 못했습니다.')); image.src = sourceFigure.preview! })
+        const original = window.document.createElement('canvas'); original.width = image.naturalWidth; original.height = image.naturalHeight; original.getContext('2d')!.drawImage(image, 0, 0)
+        const thumbnail = window.document.createElement('canvas'); const thumbnailScale = Math.min(1, 960 / original.width, 720 / original.height)
+        thumbnail.width = Math.max(1, Math.round(original.width * thumbnailScale)); thumbnail.height = Math.max(1, Math.round(original.height * thumbnailScale)); thumbnail.getContext('2d')!.drawImage(original, 0, 0, thumbnail.width, thumbnail.height)
+        onFigure(pageNumber, original.toDataURL('image/png'), thumbnail.toDataURL('image/jpeg', .86), { x: x / sourceWidth, y: y / sourceHeight, width: width / sourceWidth, height: height / sourceHeight }, sourceFigure)
+        return
+      }
       // Render the PDF region again: enlarging the displayed bitmap cannot recover small labels.
       const quality = Math.min(4, 2000 / Math.max(width, height))
       const crop = window.document.createElement('canvas')
@@ -325,8 +347,25 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     }
     captureFigure(x, y, Math.min(width, pageSize.width - x), Math.min(height, pageSize.height - y))
   }
+  const tableVectorRects = new Map<string, ItemRect>()
+  const claimedFigureRects = new Set<number>()
+  for (const segment of segments.filter((candidate) => candidate.kind === 'table')) {
+    const boxes = segmentRects(segment, itemRects, scale); if (!boxes.length) continue
+    const left = Math.min(...boxes.map((box) => box.left)); const top = Math.min(...boxes.map((box) => box.top)); const right = Math.max(...boxes.map((box) => box.left + box.width)); const bottom = Math.max(...boxes.map((box) => box.top + box.height))
+    const ranked = detectedFigureRects.map((rect, index) => {
+      const overlap = Math.max(0, Math.min(right, rect.left + rect.width) - Math.max(left, rect.left)) / Math.max(1, Math.min(right - left, rect.width))
+      const verticalGap = Math.max(0, Math.max(top, rect.top) - Math.min(bottom, rect.top + rect.height))
+      return { rect, index, score: overlap - verticalGap / Math.max(1, 40 * scale) }
+    }).filter((candidate) => candidate.score >= .35).sort((a, b) => b.score - a.score)
+    if (!ranked[0]) continue
+    const vector = ranked[0].rect; claimedFigureRects.add(ranked[0].index)
+    const unionLeft = Math.min(left, vector.left); const unionTop = Math.min(top, vector.top)
+    tableVectorRects.set(segment.id, { left: unionLeft, top: unionTop, width: Math.max(right, vector.left + vector.width) - unionLeft, height: Math.max(bottom, vector.top + vector.height) - unionTop })
+  }
+  const displayFigureRects = detectedFigureRects.filter((_rect, index) => !claimedFigureRects.has(index))
+  const rectanglesFor = (segment: TranslationSegment) => tableVectorRects.get(segment.id) ? [tableVectorRects.get(segment.id)!] : segmentRects(segment, itemRects, scale)
   const structuredRegions = segments.filter((segment) => ['equation', 'table'].includes(segment.kind)).flatMap((segment) => {
-    const rects = segmentRects(segment, itemRects, scale); if (!rects.length) return []
+    const rects = rectanglesFor(segment); if (!rects.length) return []
     const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top)); const width = Math.max(...rects.map((rect) => rect.left + rect.width)) - left; const height = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
     return [{ segment, rect: { left, top, width, height } }]
   })
@@ -340,15 +379,15 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const height = Math.min(260 * scale, Math.max(90 * scale, captionTop - 24 * scale)); const top = Math.max(8 * scale, captionTop - height - 5 * scale)
     return [{ figure, rect: { left, top, width, height } }]
   })
-  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = detectedFigureRects.length
-    ? [...detectedFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(detectedFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
+  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = displayFigureRects.length
+    ? [...displayFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(displayFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
     : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
   if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, minHeight: translationFormat === 'paper' ? pageSize.height : undefined, fontSize: 15 * scale }}>
     {translationFormat === 'flow' && <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>}
     {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
-    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
+    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={rectanglesFor} figures={displayFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
       if (segment.kind !== 'artifact') { onTag(segment); return }
       const boxes = segmentRects(segment, itemRects, scale)
       if (!boxes.length) return
@@ -468,7 +507,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const pageTranslationLabel = !pageTranslatable.length ? '원문 유지' : !pageTranslated ? '미번역 · 원문 표시' : pageTranslated < pageTranslatable.length ? `${pageTranslated}/${pageTranslatable.length}문장 번역` : '이 페이지 번역됨'
   const pageTranslationDetail = `${pageNumber}쪽: ${pageTranslated}/${pageTranslatable.length}문장 번역. ${!pageTranslatable.length ? '번역할 본문이 없는 페이지는 원문으로 표시합니다.' : pageTranslated < pageTranslatable.length ? '아직 번역하지 않은 문장은 원문으로 표시합니다. 위의 AI 번역 버튼으로 이 페이지를 번역할 수 있습니다.' : '번역문이 저장돼 있습니다.'}${preservedParagraphCount ? ` 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존합니다.` : protectedProseCount ? ` 글자와 기호를 보존한 원문 ${protectedProseCount}곳이 포함돼 있습니다.` : ''}`
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
-  const captionSegments = allSegments.filter((segment) => segment.kind === 'caption')
+  const captionSegments = allSegments.filter((segment) => segment.kind === 'caption' && /^(?:figure|fig\.?)\s*\d+/i.test(segment.source))
   const matchedFigures = figureAssets.map((figure, index) => ({ ...figure, captionAnchorId: captionSegments[index]?.id }))
   const anchorCatalog = useMemo(() => {
     if (!activePaper) return []

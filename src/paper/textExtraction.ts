@@ -112,10 +112,12 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
       || (digitRatio > .18 && matchedItems.length >= 4)
     )))
+    const mathFontRatio = matchedItems.filter((item) => /(?:cmmi|cmsy|cmex|math|symbol|mtmi|mtsy|stmary|msam|msbm)/i.test(item.fontName ?? '')).length / Math.max(1, matchedItems.length)
+    const fontMarkedEquation = !caption && part.text.length < 260 && mathFontRatio >= .45 && (part.text.match(/[A-Za-z]{3,}/g)?.length ?? 0) < 4
     // A missing font mapping can be an inequality or an experimental condition.
     // Preserve the original pixels instead of asking a translator to guess it.
     const kind: TranslationSegment['kind'] = part.text.includes('\uFFFD') ? 'artifact' : caption ? 'caption'
-      : isEquation(part.text) ? 'equation'
+      : isEquation(part.text) || fontMarkedEquation ? 'equation'
         : likelyGraphicOrTable ? 'artifact'
           : sectionHeading || (part.text === part.paragraphContext && punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading' : 'text'
     return { id: `p${page}-s${index}-${shortHash(part.text)}`, page, source: part.text, kind, blockId: part.blockId, paragraphContext: part.paragraphContext, itemIndexes: itemSlices.map((slice) => slice.itemIndex), itemSlices }

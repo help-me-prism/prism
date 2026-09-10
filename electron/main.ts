@@ -891,7 +891,7 @@ async function latexStructure(record: PaperRecord): Promise<LatexStructure | nul
   if (!record.sourcePath) return null
   const paperDir = path.dirname(record.pdfPath)
   const structurePath = path.join(paperDir, 'latex-structure.json')
-  try { const cached = JSON.parse(await fs.readFile(structurePath, 'utf8')) as LatexStructure; if (cached.version === 3) return cached } catch { /* build for libraries saved before source parsing existed */ }
+  try { const cached = JSON.parse(await fs.readFile(structurePath, 'utf8')) as LatexStructure; if (cached.version === 4) return cached } catch { /* build for libraries saved before source parsing existed */ }
   const structure = await parseLatexStructure(path.join(paperDir, 'source'))
   if (structure) await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf8')
   return structure
@@ -908,10 +908,11 @@ async function paperFigures(record: PaperRecord) {
   const sourceRoot = path.resolve(path.dirname(record.pdfPath), 'source')
   const rootDir = path.dirname(path.resolve(sourceRoot, structure.rootFile))
   const blocks = structure.blocks.filter((block) => block.kind === 'figure')
-  const result: Array<{ id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }> = []
+  const result: Array<{ id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string; compound?: boolean }> = []
   for (let order = 0; order < blocks.length && order < 100; order += 1) {
     const block = blocks[order]
-    const requested = block.source.match(/\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/)?.[1]?.trim()
+    const requestedFigures = [...block.source.matchAll(/\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/g)].map((match) => match[1].trim())
+    const requested = requestedFigures[0]
     const caption = block.source.match(/\\caption\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/)?.[1]?.replace(/\\[a-zA-Z]+\s*/g, ' ').replace(/[{}~]/g, ' ').replace(/\s+/g, ' ').trim()
     let sourcePath: string | undefined; let mimeType: string | undefined; let dataUrl: string | undefined
     if (requested && !requested.includes('..') && !requested.includes('\\')) {
@@ -933,7 +934,7 @@ async function paperFigures(record: PaperRecord) {
         if (sourcePath) break
       }
     }
-    result.push({ id: block.id, order, caption, sourcePath, mimeType, dataUrl })
+    result.push({ id: block.id, order, caption, sourcePath, mimeType, dataUrl, compound: requestedFigures.length > 1 })
   }
   return result
 }

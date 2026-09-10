@@ -1,4 +1,25 @@
 export type FigureRect = { left: number; top: number; width: number; height: number }
+
+/** Join raster panels that form one nearby, aligned multi-panel figure. */
+export function joinBitmapRegions(rects: FigureRect[], scale: number, pageArea: number) {
+  const groups: FigureRect[] = []
+  for (const rect of rects) {
+    let next = { ...rect }
+    for (let index = 0; index < groups.length;) {
+      const other = groups[index]
+      const horizontalGap = Math.max(0, Math.max(next.left, other.left) - Math.min(next.left + next.width, other.left + other.width))
+      const verticalGap = Math.max(0, Math.max(next.top, other.top) - Math.min(next.top + next.height, other.top + other.height))
+      const horizontalOverlap = Math.max(0, Math.min(next.left + next.width, other.left + other.width) - Math.max(next.left, other.left)) / Math.max(1, Math.min(next.width, other.width))
+      const verticalOverlap = Math.max(0, Math.min(next.top + next.height, other.top + other.height) - Math.max(next.top, other.top)) / Math.max(1, Math.min(next.height, other.height))
+      const alignedPanels = (verticalOverlap >= .55 && horizontalGap <= 24 * scale) || (horizontalOverlap >= .65 && verticalGap <= 18 * scale)
+      const left = Math.min(next.left, other.left); const top = Math.min(next.top, other.top)
+      const union = { left, top, width: Math.max(next.left + next.width, other.left + other.width) - left, height: Math.max(next.top + next.height, other.top + other.height) - top }
+      if (alignedPanels && union.width * union.height < pageArea * .78) { next = union; groups.splice(index, 1); index = 0 } else index += 1
+    }
+    groups.push(next)
+  }
+  return groups
+}
 /** Join touching vector strokes into regions, without joining neighbouring columns. */
 export function joinVectorRegions(rects: FigureRect[], scale: number, pageArea: number) {
   const groups: FigureRect[] = []
