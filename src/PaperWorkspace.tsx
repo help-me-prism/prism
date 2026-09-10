@@ -7,7 +7,11 @@ import { readReadingPosition, saveReadingPosition, type ReadingPosition } from '
 import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { joinVectorRegions } from './paper/figureGeometry'
+import { figureRegionWithCaption, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
+import { evidenceInlineMathParts } from './evidenceInlineMath'
+import { tableMemberIndexes, tableRegionFromEvidence } from './paper/tableRegions'
+import { monotoneMatches } from './paper/equationAlignment'
+import { matchFigureCaptions } from '../electron/figureCaptionMatching'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
 import { useEvidenceCapture } from './paper/useEvidenceCapture'
@@ -86,9 +90,17 @@ function tokenSimilarity(left: string, right: string) {
   return shared / Math.max(1, Math.max(a.size, b.size))
 }
 
+function latexSentenceSource(source: string, pdfSource: string) {
+  const candidates = typeof Intl.Segmenter === 'function'
+    ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(source)].map((part) => part.segment.trim())
+    : source.split(/(?<=[.!?])\s+/)
+  const ranked = candidates.filter((candidate) => /\$[^$\n]+\$/.test(candidate)).map((candidate) => ({ candidate, score: tokenSimilarity(candidate, pdfSource) })).sort((a, b) => b.score - a.score)
+  return ranked[0]?.score >= .45 ? ranked[0].candidate : undefined
+}
+
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
-  const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
+  const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption', 'theorem'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
   let matched = 0
   const enriched: TranslationSegment[] = segments.map((segment): TranslationSegment => {
     if (!['text', 'heading', 'caption'].includes(segment.kind)) return { ...segment, sourceMode: 'pdf' as const }
@@ -104,20 +116,37 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const threshold = tokens.length < 5 ? .78 : .58
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
     matched += 1
-    return { ...segment, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    const inlineSource = ['paragraph', 'theorem'].includes(best.block.kind) ? latexSentenceSource(best.block.source, segment.source) : undefined
+    return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
   })
+  const theoremBlocks = structure.blocks.filter((block) => block.kind === 'theorem')
+  const pdfTheorems = new Map<string, number[]>()
+  for (const [index, segment] of enriched.entries()) if (segment.blockId && /^(?:Theorem|Lemma|Proposition|Corollary|Definition)\s+\d+/i.test(segment.source.trim())) {
+    pdfTheorems.set(segment.blockId, enriched.map((candidate, candidateIndex) => candidate.blockId === segment.blockId ? candidateIndex : -1).filter(candidateIndex => candidateIndex >= 0))
+  }
+  for (const indexes of pdfTheorems.values()) {
+    const pdfSource = indexes.map(index => enriched[index].source).join(' ')
+    const best = theoremBlocks.map(block => ({ block, score: tokenSimilarity(block.source, pdfSource) })).sort((a, b) => b.score - a.score)[0]
+    if (!best || best.score < .3) continue
+    for (const index of indexes) if (enriched[index].kind === 'equation') {
+      const inlineSource = latexSentenceSource(best.block.source, enriched[index].source)
+      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: 'latex', sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    }
+  }
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
-  const usedEquations = new Set<number>()
-  for (const block of structure.blocks.filter((candidate) => candidate.kind === 'equation')) {
-    const ranked = equationIndexes.filter((index) => !usedEquations.has(index)).map((index) => ({ index, score: tokenSimilarity(block.source, enriched[index].source) })).sort((a, b) => b.score - a.score)
-    const selected = ranked[0]
-    if (!selected || selected.score < .22) continue
-    usedEquations.add(selected.index)
-    enriched[selected.index] = { ...enriched[selected.index], source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
+  const equationBlocks = structure.blocks.filter((candidate) => candidate.kind === 'equation')
+  // A greedy cursor lets one damaged PDF equation shift every later LaTeX
+  // source. Compute the best monotone alignment for the whole paper instead:
+  // either side may skip a damaged/unprinted equation, but accepted pairs can
+  // never cross and a weak earlier block cannot steal a strong later match.
+  const scores = equationBlocks.map(block => equationIndexes.map(index => tokenSimilarity(block.source, enriched[index].source)))
+  for (const match of monotoneMatches(scores, .42)) {
+    const block = equationBlocks[match.leftIndex]; const index = equationIndexes[match.rightIndex]
+    enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
-  const captionIndexes = enriched.map((segment, index) => segment.kind === 'caption' && /^(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
+  const captionIndexes = enriched.map((segment, index) => ['caption', 'table'].includes(segment.kind) && /(?:^|\n)(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
   const usedCaptions = new Set<number>()
   for (let tableIndex = 0; tableIndex < tableBlocks.length; tableIndex += 1) {
     const { block, index: blockIndex } = tableBlocks[tableIndex]
@@ -127,20 +156,31 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const selected = ranked[0]?.score >= .12 ? ranked[0].index : available[0]
     if (selected === undefined) continue
     usedCaptions.add(selected); const caption = enriched[selected]
-    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source }
+    const members = tableMemberIndexes(enriched, selected)
+    const memberSlices = members.flatMap((memberIndex) => enriched[memberIndex].itemSlices ?? [])
+    for (const memberIndex of members) if (memberIndex !== selected) enriched[memberIndex] = { ...enriched[memberIndex], kind: 'artifact', sourceMode: 'pdf' }
+    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source, itemIndexes: [...new Set(memberSlices.map((slice) => slice.itemIndex))], itemSlices: memberSlices }
   }
   return { segments: enriched, matched }
 }
 
 async function prepareFigureAsset(asset: PaperFigureAsset): Promise<PaperFigureAsset & { preview?: string }> {
-  if (!asset.dataUrl) return asset
-  if (asset.mimeType?.startsWith('image/')) return { ...asset, preview: asset.dataUrl }
-  if (asset.mimeType !== 'application/pdf') return asset
-  try {
-    const encoded = asset.dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
-    const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(2, 560 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
+  async function prepared(dataUrl?: string, mimeType?: string) {
+    if (!dataUrl) return undefined
+    if (mimeType?.startsWith('image/')) {
+      const image = new window.Image(); await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('image')); image.src = dataUrl })
+      return { preview: dataUrl, pixelWidth: image.naturalWidth, pixelHeight: image.naturalHeight }
+    }
+    if (mimeType !== 'application/pdf') return undefined
+    const encoded = dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
+    const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(4, 1600 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
     const canvas = window.document.createElement('canvas'); canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height)); await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
-    return { ...asset, preview: canvas.toDataURL('image/jpeg', .86) }
+    return { preview: canvas.toDataURL('image/jpeg', .86), pixelWidth: base.width, pixelHeight: base.height }
+  }
+  try {
+    const first = await prepared(asset.dataUrl, asset.mimeType)
+    const components = asset.components ? await Promise.all(asset.components.map(async component => ({ ...component, ...await prepared(component.dataUrl, component.mimeType) }))) : undefined
+    return { ...asset, ...first, components }
   } catch { return asset }
 }
 
@@ -206,7 +246,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
 
 function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fitWidth, translationFormat, segments, translation, mode, highlighted, figureSelect, sourceFigures, onHighlight, onTag, onFindNotes, onFigure, onCaptureError, focusedFigure }: {
   document: PdfDocument; pageNumber: number; scale: number; fitWidth?: boolean; translationFormat?: 'paper' | 'flow'; segments: TranslationSegment[]; translation: Map<string, string>; mode: 'original' | 'translated'
-  highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void
+  highlighted?: string; figureSelect: boolean; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment, preview?: string) => void; onFindNotes: (segment: TranslationSegment) => void
   sourceFigures: Array<PaperFigureAsset & { captionAnchorId?: string; preview?: string }>
   focusedFigure?: { anchorId: string; rect: { x: number; y: number; width: number; height: number } }
   onCaptureError: (message: string) => void
@@ -285,8 +325,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
             const area = width * height; if (width > 72 * scale && height > 55 * scale && area > 7_500 * scale * scale && area < viewport.width * viewport.height * .78) figures.push({ left, top, width, height })
           }
         }
-        figures.push(...joinVectorRegions(vectors, scale, viewport.width * viewport.height))
-        if (!cancelled) setDetectedFigureRects(figures.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
+        const regions = [...joinBitmapRegions(figures, scale, viewport.width * viewport.height), ...joinVectorRegions(vectors, scale, viewport.width * viewport.height)]
+        if (!cancelled) setDetectedFigureRects(regions.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
       } catch { if (!cancelled) setDetectedFigureRects([]) }
     }).catch(reason => { if (!cancelled) setPageError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { cancelled = true; renderTask?.cancel() }
@@ -315,6 +355,25 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
       onCaptureError(`피겨를 저장하지 못했습니다. 다시 선택해 주세요. ${reason instanceof Error ? reason.message : String(reason)}`)
     } finally { captureBusy.current = false; setCapturing(false) }
   }
+  function captureAnchorPreview(rects: ItemRect[]) {
+    const source = canvasRef.current
+    if (!source || !rendered || !rects.length) return undefined
+    const cssWidth = parseFloat(source.style.width) || source.clientWidth; const cssHeight = parseFloat(source.style.height) || source.clientHeight
+    if (!cssWidth || !cssHeight) return undefined
+    const padding = 5 * scale
+    const left = Math.max(0, Math.min(...rects.map(rect => rect.left)) - padding); const top = Math.max(0, Math.min(...rects.map(rect => rect.top)) - padding)
+    const right = Math.min(cssWidth, Math.max(...rects.map(rect => rect.left + rect.width)) + padding); const bottom = Math.min(cssHeight, Math.max(...rects.map(rect => rect.top + rect.height)) + padding)
+    if (right <= left || bottom <= top) return undefined
+    const pixelRatioX = source.width / cssWidth; const pixelRatioY = source.height / cssHeight
+    const targetScale = Math.min(1, 900 / Math.max(1, (right - left) * pixelRatioX), 520 / Math.max(1, (bottom - top) * pixelRatioY))
+    const crop = window.document.createElement('canvas'); crop.width = Math.max(1, Math.round((right - left) * pixelRatioX * targetScale)); crop.height = Math.max(1, Math.round((bottom - top) * pixelRatioY * targetScale))
+    crop.getContext('2d')!.drawImage(source, left * pixelRatioX, top * pixelRatioY, (right - left) * pixelRatioX, (bottom - top) * pixelRatioY, 0, 0, crop.width, crop.height)
+    return crop.toDataURL('image/jpeg', .88)
+  }
+  function tagWithPreview(segment: TranslationSegment) {
+    const rects = rectanglesFor(segment)
+    onTag(segment, segment.kind === 'equation' ? undefined : captureAnchorPreview(rects))
+  }
   function finishFigure(event: ReactPointerEvent) {
     const current = selectionRef.current
     if (!current || !canvasRef.current) return
@@ -325,8 +384,19 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     }
     captureFigure(x, y, Math.min(width, pageSize.width - x), Math.min(height, pageSize.height - y))
   }
+  const tableVectorRects = new Map<string, ItemRect>()
+  const claimedFigureRects = new Set<number>()
+  for (const segment of segments.filter((candidate) => candidate.kind === 'table')) {
+    const boxes = segmentRects(segment, itemRects, scale); if (!boxes.length) continue
+    const matched = tableRegionFromEvidence(boxes, detectedFigureRects, scale)
+    if (!matched) continue
+    if (matched.index !== undefined) claimedFigureRects.add(matched.index)
+    tableVectorRects.set(segment.id, matched.rect)
+  }
+  const displayFigureRects = detectedFigureRects.filter((_rect, index) => !claimedFigureRects.has(index))
+  const rectanglesFor = (segment: TranslationSegment) => tableVectorRects.get(segment.id) ? [tableVectorRects.get(segment.id)!] : segmentRects(segment, itemRects, scale)
   const structuredRegions = segments.filter((segment) => ['equation', 'table'].includes(segment.kind)).flatMap((segment) => {
-    const rects = segmentRects(segment, itemRects, scale); if (!rects.length) return []
+    const rects = rectanglesFor(segment); if (!rects.length) return []
     const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top)); const width = Math.max(...rects.map((rect) => rect.left + rect.width)) - left; const height = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
     return [{ segment, rect: { left, top, width, height } }]
   })
@@ -334,22 +404,42 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const caption = segments.find((segment) => segment.id === figure.captionAnchorId)
     const rects = caption ? segmentRects(caption, itemRects, scale) : []
     if (!rects.length) return []
-    const captionLeft = Math.min(...rects.map((rect) => rect.left)); const captionTop = Math.min(...rects.map((rect) => rect.top)); const captionWidth = Math.max(...rects.map((rect) => rect.left + rect.width)) - captionLeft
-    const fullWidth = captionWidth > pageSize.width * .58; const width = fullWidth ? pageSize.width * .82 : pageSize.width * .43
-    const left = fullWidth ? pageSize.width * .09 : captionLeft < pageSize.width / 2 ? pageSize.width * .055 : pageSize.width * .515
-    const height = Math.min(260 * scale, Math.max(90 * scale, captionTop - 24 * scale)); const top = Math.max(8 * scale, captionTop - height - 5 * scale)
-    return [{ figure, rect: { left, top, width, height } }]
+    const contentRects = itemRects.filter(rect => rect.width > 20 * scale && rect.left > pageSize.width * .02 && rect.left + rect.width < pageSize.width * .98)
+    const lefts = contentRects.map(rect => rect.left).sort((a, b) => a - b); const rights = contentRects.map(rect => rect.left + rect.width).sort((a, b) => a - b)
+    const contentLeft = lefts[Math.floor(lefts.length * .1)] ?? pageSize.width * .09; const contentRight = rights[Math.min(rights.length - 1, Math.floor(rights.length * .9))] ?? pageSize.width * .91
+    const estimated = sourceFigureRegion(rects, figure.components ?? [], pageSize.width, contentLeft, contentRight, scale, figure.hasPanelLabels)
+    if (estimated) return [{ figure, rect: figureRegionWithCaption(estimated, rects, scale) }]
+    // Without source dimensions, prefer a nearby detected region. A guessed
+    // caption-upward rectangle is deliberately not emitted because it can cover unrelated research content.
+    return []
   })
-  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = detectedFigureRects.length
-    ? [...detectedFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(detectedFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
-    : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
+  const compoundFigureRects = sourceFigureRects.filter(({ figure }) => figure.compound)
+  const insideCompound = (rect: ItemRect) => compoundFigureRects.some(({ rect: compound }) => rect.left >= compound.left - 8 * scale && rect.top >= compound.top - 8 * scale && rect.left + rect.width <= compound.left + compound.width + 8 * scale && rect.top + rect.height <= compound.top + compound.height + 8 * scale)
+  const independentFigureRects = displayFigureRects.filter((rect) => !insideCompound(rect))
+  const availableCaptions = segments.filter(segment => segment.kind === 'caption' && /^(?:figure|fig\.?)\s*\d+/i.test(segment.source)).map(segment => ({ segment, boxes: segmentRects(segment, itemRects, scale) })).filter(item => item.boxes.length)
+  const usedCaptionIds = new Set<string>()
+  const detectedFigures = independentFigureRects.map((rect, index) => {
+    const ranked = availableCaptions.filter(item => !usedCaptionIds.has(item.segment.id)).map(item => {
+      const caption = figureRegionWithCaption(rect, item.boxes, scale)
+      const added = caption.width * caption.height - rect.width * rect.height
+      const sourceMatch = sourceFigures.some(figure => figure.captionAnchorId === item.segment.id) ? 1 : 0
+      return { ...item, caption, score: added > .5 ? sourceMatch * 10 - added / Math.max(1, rect.width * rect.height) : -Infinity }
+    }).sort((a, b) => b.score - a.score)[0]
+    const caption = ranked?.score > -Infinity ? ranked : undefined
+    if (caption) usedCaptionIds.add(caption.segment.id)
+    const figure = sourceFigures.find(source => source.captionAnchorId === caption?.segment.id)
+    return { key: `pdf-${index}`, figure, rect: caption?.caption ?? rect }
+  })
+  const readingFigureRects = [...detectedFigures.map(item => item.rect), ...compoundFigureRects.map(({ rect }) => rect)]
+  const matchedSourceFigures = new Set(detectedFigures.map(({ figure }) => figure?.id).filter(Boolean))
+  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = [...detectedFigures, ...sourceFigureRects.filter(({ figure }) => figure.compound || !matchedSourceFigures.has(figure.id)).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
   if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, minHeight: translationFormat === 'paper' ? pageSize.height : undefined, fontSize: 15 * scale }}>
     {translationFormat === 'flow' && <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>}
     {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
-    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={segment => segmentRects(segment, itemRects, scale)} figures={detectedFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
-      if (segment.kind !== 'artifact') { onTag(segment); return }
+    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={rectanglesFor} figures={readingFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
+      if (segment.kind !== 'artifact') { tagWithPreview(segment); return }
       const boxes = segmentRects(segment, itemRects, scale)
       if (!boxes.length) return
       const left = Math.min(...boxes.map(box => box.left)), top = Math.min(...boxes.map(box => box.top))
@@ -363,8 +453,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
 
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
     {mode === 'original' && <div className="source-figure-layer">{automaticFigures.map(({ key, figure, rect }, index) => <button key={key} style={rect} title={`${figure?.caption || `PDF 피겨 ${index + 1}`} · 클릭하여 채팅에 태그`} onClick={() => captureFigure(rect.left, rect.top, rect.width, rect.height, figure)}><Image size={15} /><span>피겨 {figure ? figure.order + 1 : index + 1}</span></button>)}</div>}
-    <div className="anchor-layer">{segments.filter((segment) => !['artifact', 'equation', 'table'].includes(segment.kind)).flatMap((segment) => segmentRects(segment, itemRects, scale).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭: 채팅 태그 · 우클릭: 노트에 담기" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
-    <div className="structure-anchor-layer">{structuredRegions.map(({ segment, rect }) => <button key={segment.id} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title={`${segment.kind === 'table' ? '표' : '수식'} · 클릭: 채팅 태그 · 우클릭: 노트에 담기`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }}>{segment.kind === 'table' ? <Table2 size={11} /> : <Sigma size={11} />}</button>)}</div>
+    <div className="anchor-layer">{segments.filter((segment) => !['artifact', 'equation', 'table'].includes(segment.kind)).flatMap((segment) => segmentRects(segment, itemRects, scale).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭: 채팅 태그 · 우클릭: 노트에 담기" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => tagWithPreview(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
+    <div className="structure-anchor-layer">{structuredRegions.map(({ segment, rect }) => <button key={segment.id} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title={`${segment.kind === 'table' ? '표' : '수식'} · 클릭: 채팅 태그 · 우클릭: 노트에 담기`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => tagWithPreview(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }}>{segment.kind === 'table' ? <Table2 size={11} /> : <Sigma size={11} />}</button>)}</div>
     {figureSelect && <div className="figure-capture-layer" onPointerDown={(event) => { const value = point(event); const next = { startX: value.x, startY: value.y, x: value.x, y: value.y }; event.currentTarget.setPointerCapture(event.pointerId); selectionRef.current = next; setSelection(next) }} onPointerMove={(event) => { const current = selectionRef.current; if (!current) return; const value = point(event); const next = { ...current, x: value.x, y: value.y }; selectionRef.current = next; setSelection(next) }} onPointerUp={finishFigure}>{selection && <span style={{ left: Math.min(selection.startX, selection.x), top: Math.min(selection.startY, selection.y), width: Math.abs(selection.x - selection.startX), height: Math.abs(selection.y - selection.startY) }} />}</div>}
     {focusedFigure && <span data-saved-figure={focusedFigure.anchorId} style={{ position: 'absolute', pointerEvents: 'none', zIndex: 7, left: focusedFigure.rect.x * pageSize.width, top: focusedFigure.rect.y * pageSize.height, width: focusedFigure.rect.width * pageSize.width, height: focusedFigure.rect.height * pageSize.height, outline: '2px solid #8873cb', outlineOffset: 3 }} />}
     <span className="page-badge">{pageNumber}</span>
@@ -468,15 +558,25 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const pageTranslationLabel = !pageTranslatable.length ? '원문 유지' : !pageTranslated ? '미번역 · 원문 표시' : pageTranslated < pageTranslatable.length ? `${pageTranslated}/${pageTranslatable.length}문장 번역` : '이 페이지 번역됨'
   const pageTranslationDetail = `${pageNumber}쪽: ${pageTranslated}/${pageTranslatable.length}문장 번역. ${!pageTranslatable.length ? '번역할 본문이 없는 페이지는 원문으로 표시합니다.' : pageTranslated < pageTranslatable.length ? '아직 번역하지 않은 문장은 원문으로 표시합니다. 위의 AI 번역 버튼으로 이 페이지를 번역할 수 있습니다.' : '번역문이 저장돼 있습니다.'}${preservedParagraphCount ? ` 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존합니다.` : protectedProseCount ? ` 글자와 기호를 보존한 원문 ${protectedProseCount}곳이 포함돼 있습니다.` : ''}`
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
-  const captionSegments = allSegments.filter((segment) => segment.kind === 'caption')
-  const matchedFigures = figureAssets.map((figure, index) => ({ ...figure, captionAnchorId: captionSegments[index]?.id }))
+  const captionSegments = allSegments.filter((segment) => segment.kind === 'caption' && /^(?:figure|fig\.?)\s*\d+/i.test(segment.source))
+  const matchedFigures = matchFigureCaptions(figureAssets, captionSegments)
   const anchorCatalog = useMemo(() => {
     if (!activePaper) return []
     let sentence = 0; let section = 0; let equation = 0; let table = 0
+    const equationBlocks = new Set<string>()
     const anchors = allSegments.flatMap((segment): ContextAnchor[] => {
       if (segment.kind === 'heading') { section += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'section', page: segment.page, label: `섹션${section}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
-      if (['text', 'caption'].includes(segment.kind)) { sentence += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
-      if (segment.kind === 'equation') { equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
+      if (['text', 'caption'].includes(segment.kind)) {
+        sentence += 1
+        const sentenceAnchor: ContextAnchor = { paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source, scientificSpans: segment.scientificSpans }
+        const inlineAnchors = evidenceInlineMathParts(segment.source).filter(part => part.math).map((part, index): ContextAnchor => ({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `${segment.id}-inline-${index}`, type: 'equation', page: segment.page, label: `문장${sentence}·수식${index + 1}`, source: part.text }))
+        return [sentenceAnchor, ...inlineAnchors]
+      }
+      if (segment.kind === 'equation') {
+        if (segment.blockId && equationBlocks.has(segment.blockId)) return []
+        if (segment.blockId) equationBlocks.add(segment.blockId)
+        equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source, scientificSpans: segment.scientificSpans }]
+      }
       if (segment.kind === 'table') { table += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'table', page: segment.page, label: `표${table}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
       return []
     })
@@ -632,7 +732,11 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
-        const candidates = source.segments.map((segment) => ({ ...segment, translation: (byId.get(segment.id)?.source === segment.source ? byId.get(segment.id)?.translation : undefined) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) }))
+        const candidates = source.segments.map((segment) => {
+          const previous = byId.get(segment.id)
+          const translatedBySource = bySource.get(segment.source.replace(/\s+/g, ' ').trim())
+          return { ...segment, translation: previous?.translation ?? translatedBySource, source: previous?.translation ? previous.source : segment.source }
+        })
         const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)
         setCacheExists(restored.some(segment => ['text', 'heading', 'caption'].includes(segment.kind))); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
@@ -668,7 +772,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
     if (pdfPaperId !== activeIdRef.current || explicitAnchorTarget.current?.paperId === activeIdRef.current) return
     setHighlighted(anchorId)
   }
-  function tagSegment(segment: TranslationSegment, mode: 'original' | 'translated') {
+  function tagSegment(segment: TranslationSegment, mode: 'original' | 'translated', preview?: string) {
     const anchor = anchorCatalog.find(item => item.anchorId === segment.id)
     if (!anchor) return
     explicitAnchorTarget.current = undefined; setHighlighted(segment.id)
@@ -678,7 +782,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
     const fitted = mode === 'original' ? sourceFit : translatedFit
     const readingSize: ReadingSizeSnapshot | undefined = fitted && page?.classList.contains('rendered') && scale >= .15 && scale <= 2 && (mode === 'original' || translationFormat === 'paper')
       ? { paperId: anchor.paperId, mode, scale, anchorId: anchor.anchorId, page: anchor.page } : undefined
-    onTagAnchor(anchor, readingSize)
+    onTagAnchor(preview ? { ...anchor, preview } : anchor, readingSize)
   }
   /** A node in the structure map points at a heading; the reader goes there the same way a note link does. */
   function openAnchorFromMap(anchorId: string, page: number) {
@@ -870,7 +974,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
     requestAnimationFrame(() => { syncLock.current = false })
   }
   const pages = pdf ? Array.from({ length: pdf.numPages }, (_, index) => index + 1) : []
-  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={highlightHoveredAnchor} onTag={segment => tagSegment(segment, mode)} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
+  const pageRenderer = (mode: 'original' | 'translated') => pages.map((page) => <PdfPage key={`${mode}-${page}`} document={pdf!} pageNumber={page} scale={mode === 'original' ? sourceScale : translatedScale} fitWidth={mode === 'original' ? sourceFit : translationFormat === 'paper' && translatedFit} translationFormat={translationFormat} segments={allSegments.filter((segment) => segment.page === page)} translation={translationMap} mode={mode} highlighted={highlighted} figureSelect={figureSelect && mode === 'original'} sourceFigures={matchedFigures.filter((figure) => allSegments.find((segment) => segment.id === figure.captionAnchorId)?.page === page)} onHighlight={highlightHoveredAnchor} onTag={(segment, preview) => tagSegment(segment, mode, preview)} onFindNotes={findSegmentNotes} onCaptureError={setError} focusedFigure={mode === 'original' && focusedFigure && focusedFigure.paperId === activeId && focusedFigure.page === page ? focusedFigure : undefined} onFigure={(targetPage, data, preview, rect, sourceFigure) => void saveFigure(targetPage, data, preview, rect, sourceFigure)} />)
   const comparisonPreference = useRef<'dual' | 'stacked' | undefined>(undefined)
   useEffect(() => {
     const dismissMenus = (event: PointerEvent) => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildTranslationPrompt, validateTranslation, reuseTranslations, inspectTranslationBatch } from '../dist-electron/translationHarness.js'
+import { buildTranslationPrompt, validateTranslation, reuseTranslations, inspectTranslationBatch, prepareTranslationRequest, inspectTranslationRequest } from '../dist-electron/translationHarness.js'
 
 const check = (source, translation) => validateTranslation(JSON.stringify([{ id: 's', translation }]), [{ id: 's', source }])
 // Biology: retain dose, time, gene identity and statistical comparison direction.
@@ -23,7 +23,21 @@ assert.throws(() => check(engineering, engineeringKo.replace('mV', 'V')), /수�
 const cached = [{ id: 's', source: engineering, translation: engineeringKo.replace('mV', 'V') }]
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], cached)[0].translation, undefined)
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], [{ ...cached[0], translation: engineeringKo }])[0].translation, engineeringKo)
+const upgradedMath = reuseTranslations(
+  [{ id: 'macro', source: 'For $x\\in\\mathbb R^d$, use $\\mathcal{L}_{\\text{FM}}$.' }],
+  [{ id: 'macro', source: 'For $x\\in\\Real^d$, use $\\gL_{\\FM}$.', translation: '$x\\in\\Real^d$에서는 $\\gL_{\\FM}$을 사용한다.' }],
+)[0].translation
+assert.equal(upgradedMath, '$x\\in\\mathbb R^d$에서는 $\\mathcal{L}_{\\text{FM}}$을 사용한다.', 'Cached prose survives a source-macro upgrade while its protected math is refreshed.')
 assert.throws(() => check('$x$ and $x$ are repeated [1] and [1].', '$x$는 반복된다 [1].'), /수식/)
+const protectedMath = prepareTranslationRequest([{ id: 'math-heavy', source: String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.` }])
+assert(!protectedMath.modelItems[0].source.includes('$p_t'), 'The translation model must not be asked to reproduce fragile LaTeX.')
+const protectedReply = JSON.stringify([{ id: 't0', translation: `${protectedMath.modelItems[0].source}로 둔다.` }])
+assert.equal(inspectTranslationRequest(protectedReply, protectedMath).accepted.get('math-heavy'), String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.로 둔다.`)
+const protectedHeading = prepareTranslationRequest([{ id: 'heading', source: '3 F LOW M ATCHING' }])
+assert(!protectedHeading.modelItems[0].source.startsWith('3 '), 'Leading section numbers must be protected from model omission.')
+const headingNumberToken = protectedHeading.modelItems[0].source.split(/\s+/)[0]
+assert.equal(inspectTranslationRequest(JSON.stringify([{ id: 't0', translation: `${headingNumberToken} 흐름 매칭` }]), protectedHeading).accepted.get('heading'), '3 흐름 매칭')
+assert.equal(check('3 F LOW M ATCHING', '3 흐름 매칭').size, 1, 'A spaced small-caps heading must not be misread as a 3-farad measurement.')
 
 // Recover only an unambiguous wrapper; malformed or competing content stays rejected.
 const wrapped = { translations: [{ id: 's', translation: '검증할 수 있다.' }] }

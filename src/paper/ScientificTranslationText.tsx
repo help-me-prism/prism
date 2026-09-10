@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { scientificTranslationParts } from './scientificTranslationParts'
+import { evidenceInlineMathHtml, evidenceInlineMathParts } from '../evidenceInlineMath'
 import type { ScientificSpan } from '../../electron/scientificSource'
 
 function ScientificGlyph({ source, scale, span }: { source: HTMLCanvasElement; scale: number; span: ScientificSpan }) {
@@ -23,10 +24,22 @@ function ScientificGlyph({ source, scale, span }: { source: HTMLCanvasElement; s
   }}>{span.text}</canvas>
 }
 
-export default function ScientificTranslationText({ sourceText, text, spans, canvas, scale }: {
+function InteractiveMathText({ text, onInlineMath }: { text: string; onInlineMath: (latex: string, index: number) => void }) {
+  let mathIndex = 0
+  return <>{evidenceInlineMathParts(text).map((part, index) => {
+    if (!part.math) return <span key={index}>{part.text}</span>
+    const current = mathIndex++
+    return <button key={index} type="button" className="inline-math-anchor" title="이 수식을 질문에 추가" onClick={event => { event.stopPropagation(); onInlineMath(part.text, current) }} dangerouslySetInnerHTML={{ __html: evidenceInlineMathHtml(part.text) }} />
+  })}</>
+}
+
+export default function ScientificTranslationText({ sourceText, text, spans, canvas, scale, onInlineMath }: {
   sourceText: string; text: string; spans?: unknown; canvas: HTMLCanvasElement | null; scale: number;
+  onInlineMath?: (latex: string, index: number) => void;
 }) {
-  if (!canvas) return <>{text}</>
+  if (onInlineMath && evidenceInlineMathParts(text).some(part => part.math)) return <InteractiveMathText text={text} onInlineMath={onInlineMath} />
+  if (!canvas) return <span className="translated-inline-math" dangerouslySetInnerHTML={{ __html: evidenceInlineMathHtml(text) }} />
   return <>{scientificTranslationParts(sourceText, text, spans).map((part, index) => part.science
-    ? <ScientificGlyph key={index} source={canvas} scale={scale} span={part.science} /> : part.text)}</>
+    ? <ScientificGlyph key={index} source={canvas} scale={scale} span={part.science} />
+    : <span key={index} className="translated-inline-math" dangerouslySetInnerHTML={{ __html: evidenceInlineMathHtml(part.text) }} />)}</>
 }

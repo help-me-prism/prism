@@ -94,6 +94,8 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-layout-block .original-excerpt, .paper-layout-block figure { width: 100%; margin: 0; }
 .paper-layout-block canvas:not(.inline-scientific-glyph) { display: block; width: 100% !important; height: auto; }
 .reading-translation canvas.inline-scientific-glyph { display: inline-block; max-width: none; }
+.inline-math-anchor { display: inline; padding: 0 .08em; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.inline-math-anchor:hover, .inline-math-anchor:focus-visible { background: color-mix(in srgb, var(--accent, #7157d9) 13%, transparent); outline: 1px solid color-mix(in srgb, var(--accent, #7157d9) 38%, transparent); }
 .translation-format { min-width: 76px; max-width: 105px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font-size: 11px; }
 .flow-loading { color: #65736b; font-size: 12px; }
 
@@ -103,10 +105,6 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-context-bar > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .untouched-paper { position: relative; }
-.figure-attachments { display: flex; gap: 8px; overflow-x: auto; padding: 3px 0 9px; }
-.figure-attachment { flex: 0 0 100px; padding: 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); text-align: left; }
-.figure-attachment img { display: block; width: 90px; height: 58px; object-fit: contain; background: white; }
-.figure-attachment span { display: block; margin-top: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .figure-preview-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: #0009; }
 .figure-preview-dialog { display: flex; flex-direction: column; width: min(1040px, 94vw); max-height: 90vh; overflow: hidden; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
 .figure-preview-dialog header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

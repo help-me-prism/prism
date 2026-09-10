@@ -4,13 +4,14 @@ import { useComposerDraft } from './paper/useComposerDraft'
 import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
 import { readComposerDom } from './paper/composerDom'
 import { answerReferenceAnchors, answerReferences } from './paper/answerReferences'
-import FigureAttachments from './FigureAttachments'
+import FigureAttachments, { openFigurePreview } from './FigureAttachments'
 import { useDialogFocus } from './useDialogFocus'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import {
   BookOpen, Bot, Check, ChevronDown, ChevronUp, Circle, ExternalLink, FileText, FolderOpen, Image,
@@ -18,11 +19,14 @@ import {
   Sparkles, Square, StickyNote, TextQuote, Trash2, Undo2, X,
 } from 'lucide-react'
 import { stableReferences } from './paper/readerContext'
+import { durableAnchorPreview } from './paper/anchorPreview'
 import { composerLease } from './paper/composerDraft'
 import StorageSettings from './StorageSettings'
 import AiUsageHistory from './AiUsageHistory'
 import ThemeControl from './ThemeControl'
 import PaperWorkspace from './PaperWorkspace'
+import { displayMathForPreview } from '../electron/mathRendering'
+import { anchorPopoverPosition } from './paper/anchorPopover'
 
 type JsonRecord = Record<string, unknown>
 
@@ -94,12 +98,41 @@ function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?:
   }}>{markdown}</ReactMarkdown>
 }
 
+function equationPreviewHtml(source: string) {
+  const math = displayMathForPreview(source)
+  try { return katex.renderToString(math, { displayMode: true, trust: false, strict: 'ignore', throwOnError: true, maxExpand: 100, maxSize: 20 }) }
+  catch { return undefined }
+}
+
+/** Anchor previews live in scrollable chat/composer panes. Fixed positioning is
+ * the only way for the preview to escape those clipping ancestors; calculate
+ * its viewport-safe center each time because messages and the composer move. */
+function positionAnchorPopover(anchor: HTMLElement, popover: HTMLElement) {
+  window.requestAnimationFrame(() => {
+    const position = anchorPopoverPosition(anchor.getBoundingClientRect(), popover.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight })
+    popover.style.left = `${position.left}px`; popover.style.top = `${position.top}px`; popover.style.bottom = 'auto'
+  })
+}
+
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
   const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'table' ? Table2 : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
-  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${anchor.preview ? 'image' : ''}`}>{anchor.preview ? <img src={anchor.preview} alt={`${anchor.label} 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const equationHtml = anchor.type === 'equation' ? equationPreviewHtml(anchor.source) : undefined
+  const [loadedFigurePreview, setLoadedFigurePreview] = useState<string>()
+  const imagePreview = anchor.preview?.startsWith('data:image/') ? anchor.preview : loadedFigurePreview
+  const tokenRef = useRef<HTMLButtonElement>(null)
+  const loadFigurePreview = () => {
+    if (anchor.type !== 'figure' || imagePreview) return
+    void window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).then(saved => { if (saved.dataUrl.startsWith('data:image/')) setLoadedFigurePreview(saved.dataUrl) }).catch(() => {})
+  }
+  const showPreview = () => {
+    loadFigurePreview()
+    const token = tokenRef.current; const popover = token?.querySelector<HTMLElement>('.anchor-popover')
+    if (token && popover) positionAnchorPopover(token, popover)
+  }
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`}>{equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : imagePreview ? <img src={imagePreview} alt={`${anchor.label} 원문 미리보기`} onLoad={showPreview} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
-    ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
-    : <button type="button" className="anchor-token" title="논문의 해당 위치로 이동" onClick={() => onNavigate?.(anchor)}>{content}</button>
+    ? <button ref={tokenRef} type="button" className="anchor-token" title={anchor.source} onMouseEnter={showPreview} onFocus={showPreview} onClick={onRemove}>{content}</button>
+    : <button ref={tokenRef} type="button" className="anchor-token" title={anchor.type === 'figure' ? '큰 이미지로 보기' : '논문의 해당 위치로 이동'} onMouseEnter={showPreview} onFocus={showPreview} onClick={() => anchor.type === 'figure' ? openFigurePreview(anchor) : onNavigate?.(anchor)}>{content}</button>
 }
 
 function withoutReferences(text: string) { return text.replace(referencePattern, ' ').replace(/\s{2,}/g, ' ').trim() }
@@ -226,7 +259,16 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
         const paper = document.createElement('small'); paper.className = 'composer-anchor-location'; paper.textContent = presentation.location
         const excerpt = document.createElement('span'); excerpt.className = 'composer-anchor-excerpt'; excerpt.textContent = presentation.excerpt
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
-        chip.append(symbol, label, paper, excerpt); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip);
+        const popover = document.createElement('span'); const equationHtml = anchor.type === 'equation' ? equationPreviewHtml(anchor.source) : undefined; const imagePreview = anchor.preview?.startsWith('data:image/') ? anchor.preview : undefined
+        popover.className = `anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`
+        if (equationHtml) popover.innerHTML = equationHtml
+        else if (imagePreview) { const image = document.createElement('img'); image.src = imagePreview; image.alt = `${anchor.label} 원문 미리보기`; image.addEventListener('load', () => positionAnchorPopover(chip, popover)); popover.append(image) }
+        else if (anchor.type === 'figure') { popover.className = 'anchor-popover image figure'; const image = document.createElement('img'); image.alt = `${anchor.label} 원문 미리보기`; image.addEventListener('load', () => positionAnchorPopover(chip, popover)); popover.append(image); chip.addEventListener('mouseenter', () => { if (!image.src) void window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).then(saved => { image.src = saved.dataUrl }).catch(() => {}) }, { once: true }) }
+        else { const heading = document.createElement('strong'); heading.textContent = anchor.paperTitle; popover.append(heading, document.createTextNode(anchor.source.slice(0, 500))) }
+        const placePopover = () => positionAnchorPopover(chip, popover)
+        chip.addEventListener('mouseenter', placePopover); chip.addEventListener('focus', placePopover)
+        chip.append(symbol, label, paper, excerpt, popover); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip);
+        if (anchor.type === 'figure') chip.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); openFigurePreview(anchor) })
         if (anchor.type !== 'figure') {
           wrapper.classList.add('has-memo-action'); const memo = document.createElement('button'); memo.type = 'button'; memo.className = 'composer-anchor-memo'; memo.textContent = '메모'; memo.title = presentation.location + ' · 이 근거에 메모 남기기'; memo.setAttribute('aria-label', anchor.label + ' 메모 남기기');
           memo.addEventListener('mousedown', event => event.preventDefault());
@@ -413,7 +455,7 @@ function App() {
     if (!hydrated) return
     try { localStorage.setItem('prism.last-chat', activeSessionId) } catch { /* Session data still has its own durable store. */ }
     const timeout = window.setTimeout(() => {
-      const compactSessions = [...sessions, ...trashedSessions].map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
+      const compactSessions = [...sessions, ...trashedSessions].map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(durableAnchorPreview) })) }))
       window.prism.saveSessions(compactSessions).catch((reason) => {
         console.error('Session save failed:', reason)
         if (activeSessionId) setErrors((current) => ({ ...current, [activeSessionId]: `대화를 자동 저장하지 못했습니다: ${String(reason)}` }))
@@ -802,7 +844,7 @@ function App() {
             {!activeProvider?.available && <div className="cli-warning">{activeProvider?.name ?? activeSession.provider} CLI를 설치하고 로그인해 주세요.</div>}
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
-              <FigureAttachments anchors={contextAnchors} />
+              <FigureAttachments />
               {composerDraft.error && <p role="alert">{composerDraft.error}</p>}
               <InlineComposer onMemo={anchor => runWorkspaceCommand('memo-anchor', anchor.paperId, anchor)} text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">

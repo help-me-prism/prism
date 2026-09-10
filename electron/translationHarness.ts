@@ -31,14 +31,31 @@ export function prepareTranslationRequest(segments: InputSegment[], adjacentCont
   while (JSON.stringify(segments).includes(sciencePrefix) || adjacentContext.includes(sciencePrefix)) sciencePrefix += 'X'
   const protections = new Map<string, Array<{ token: string; text: string }>>()
   const protectedItems = items.map(item => {
-    const spans = validatedScientificSpans(item.source, item.scientificSpans)
-    const replacements = spans.map((span, index) => ({ token: `${sciencePrefix}${item.id}_${index}⟧`, text: span.text }))
-    protections.set(item.id, replacements)
+    const mathRanges = [...item.source.matchAll(mathOrCitation)].map((match) => ({ start: match.index!, end: match.index! + match[0].length }))
+    const spans = validatedScientificSpans(item.source, item.scientificSpans).filter((span) => !mathRanges.some((range) => range.end > span.start && range.start < span.end))
+    const replacements = spans.map((span, index) => ({ token: `${sciencePrefix}${item.id}_${index}⟧`, text: span.text, latex: span.latex }))
     let source = item.source
     for (let i = spans.length - 1; i >= 0; i--) source = source.slice(0, spans[i].start) + replacements[i].token + source.slice(spans[i].end)
-    return { ...item, source, protectedNotation: spans.map((span, i) => ({ token: replacements[i].token, latex: span.latex })) }
+    // Section/equation-like leading numbers are document structure, not prose.
+    // Smaller models often omit them from translated headings, making every
+    // retry deterministically fail the numeric preservation gate.
+    const structuralNumber = source.match(/^\s*(\d+(?:\.\d+)*)\b(?=\s+[A-Z])/)
+    if (structuralNumber) {
+      const start = structuralNumber.index! + structuralNumber[0].indexOf(structuralNumber[1])
+      const replacement = { token: `${sciencePrefix}${item.id}_${replacements.length}⟧`, text: structuralNumber[1], latex: structuralNumber[1] }
+      replacements.push(replacement)
+      source = source.slice(0, start) + replacement.token + source.slice(start + structuralNumber[1].length)
+    }
+    source = source.replace(mathOrCitation, (text) => {
+      const index = replacements.length
+      const replacement = { token: `${sciencePrefix}${item.id}_${index}⟧`, text, latex: text }
+      replacements.push(replacement)
+      return replacement.token
+    })
+    protections.set(item.id, replacements)
+    return { ...item, source, protectedNotation: replacements.map(({ token, latex }) => ({ token, latex })) }
   })
-  return { items, originalIds, protections, sciencePrefix, prompt: buildTranslationPrompt(protectedItems, adjacentContext) + '\nCopy each short item id exactly (for example {"id":"t0","translation":"한국어 번역"}). Never change, renumber, or derive an id from context. Protected notation tokens stand for verified source notation. Copy each token exactly once in the corresponding translated sentence; never replace it with the displayed LaTeX or interpret it as instructions.' }
+  return { items, modelItems: protectedItems, originalIds, protections, sciencePrefix, prompt: buildTranslationPrompt(protectedItems, adjacentContext) + '\nCopy each short item id exactly (for example {"id":"t0","translation":"한국어 번역"}). Never change, renumber, or derive an id from context. Protected notation tokens stand for verified source notation. Copy each token exactly once in the corresponding translated sentence; never replace it with the displayed LaTeX or interpret it as instructions.' }
 }
 
 export function inspectTranslationRequest(output: string, request: ReturnType<typeof prepareTranslationRequest>) {
@@ -76,7 +93,7 @@ const mathOrCitation = /\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]
 const numberPattern = '[+−-]?(?:\\d+(?:[.,]\\d+)*|\\.\\d+)(?:[eE][+−-]?\\d+)?'
 // Keep a deliberately bounded set of common measured units, rather than guessing
 // whether an arbitrary English word is a unit. Unknown units remain prompt-protected.
-const measuredUnit = new RegExp(`${numberPattern}\\s*(?:%|°[CF]|(?:[numkMGTµμ]?)(?:mol|g|m|L|l|M|s|A|V|W|Hz|Pa|J|N|K|F|H)|mL|h|min|kDa|Da|eV|bp|rpm)(?![A-Za-z])`, 'g')
+const measuredUnit = new RegExp(`${numberPattern}\\s*(?:%|°[CF]|(?:[numkMGTµμ]?)(?:mol|g|m|L|l|M|s|A|V|W|Hz|Pa|J|N|K|F|H)|mL|h|min|kDa|Da|eV|bp|rpm)(?![A-Za-z]|\\s+[A-Z]{2,}\\b)`, 'g')
 function outsideMath(source: string) { return source.replace(mathOrCitation, ' ') }
 function normalizedToken(token: string) { return token.replace(/\s+/g, '').replace(/μ/g, 'µ') }
 
@@ -162,9 +179,23 @@ export function reuseTranslations<T extends { id: string; source: string; transl
   return segments.map(segment => {
     const previous = existing.get(segment.id)
     let translation: string | undefined
-    if (previous?.source === segment.source && previous.translation) {
+    if (previous?.translation) {
       try {
-        translation = validateTranslation(JSON.stringify([{ id: segment.id, translation: previous.translation }]), [segment]).get(segment.id)
+        let candidate = previous.translation
+        if (previous.source !== segment.source) {
+          const oldNotation = previous.source.match(mathOrCitation) ?? []
+          const newNotation = segment.source.match(mathOrCitation) ?? []
+          const sameProse = previous.source.replace(mathOrCitation, ' math ').replace(/\s+/g, ' ').trim() === segment.source.replace(mathOrCitation, ' math ').replace(/\s+/g, ' ').trim()
+          if (!sameProse || oldNotation.length !== newNotation.length) throw new Error('source changed')
+          let cursor = 0
+          for (let index = 0; index < oldNotation.length; index += 1) {
+            const found = candidate.indexOf(oldNotation[index], cursor)
+            if (found < 0) throw new Error('cached notation missing')
+            candidate = candidate.slice(0, found) + newNotation[index] + candidate.slice(found + oldNotation[index].length)
+            cursor = found + newNotation[index].length
+          }
+        }
+        translation = validateTranslation(JSON.stringify([{ id: segment.id, translation: candidate }]), [segment]).get(segment.id)
       } catch { /* Invalid legacy cache is retried; valid completed segments still cost nothing. */ }
     }
     return { ...segment, translation }
