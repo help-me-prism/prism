@@ -2,7 +2,9 @@ name: Build desktop apps
 
 on:
   push:
-    branches: [main, 'codex/**']
+    # Feature branches are checked through pull_request; running both events
+    # cancels duplicate checks on the same commit and leaves a red PR status.
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
