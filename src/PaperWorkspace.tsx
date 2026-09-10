@@ -7,7 +7,7 @@ import { readReadingPosition, saveReadingPosition, type ReadingPosition } from '
 import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { joinBitmapRegions, joinVectorRegions } from './paper/figureGeometry'
+import { joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { tableMemberIndexes } from './paper/tableRegions'
 import { matchFigureCaptions } from '../electron/figureCaptionMatching'
@@ -181,14 +181,22 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
 }
 
 async function prepareFigureAsset(asset: PaperFigureAsset): Promise<PaperFigureAsset & { preview?: string }> {
-  if (!asset.dataUrl) return asset
-  if (asset.mimeType?.startsWith('image/')) return { ...asset, preview: asset.dataUrl }
-  if (asset.mimeType !== 'application/pdf') return asset
-  try {
-    const encoded = asset.dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
+  async function prepared(dataUrl?: string, mimeType?: string) {
+    if (!dataUrl) return undefined
+    if (mimeType?.startsWith('image/')) {
+      const image = new window.Image(); await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('image')); image.src = dataUrl })
+      return { preview: dataUrl, pixelWidth: image.naturalWidth, pixelHeight: image.naturalHeight }
+    }
+    if (mimeType !== 'application/pdf') return undefined
+    const encoded = dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
     const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(4, 1600 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
     const canvas = window.document.createElement('canvas'); canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height)); await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
-    return { ...asset, preview: canvas.toDataURL('image/jpeg', .86) }
+    return { preview: canvas.toDataURL('image/jpeg', .86), pixelWidth: base.width, pixelHeight: base.height }
+  }
+  try {
+    const first = await prepared(asset.dataUrl, asset.mimeType)
+    const components = asset.components ? await Promise.all(asset.components.map(async component => ({ ...component, ...await prepared(component.dataUrl, component.mimeType) }))) : undefined
+    return { ...asset, ...first, components }
   } catch { return asset }
 }
 
@@ -408,11 +416,14 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const caption = segments.find((segment) => segment.id === figure.captionAnchorId)
     const rects = caption ? segmentRects(caption, itemRects, scale) : []
     if (!rects.length) return []
-    const captionLeft = Math.min(...rects.map((rect) => rect.left)); const captionTop = Math.min(...rects.map((rect) => rect.top)); const captionWidth = Math.max(...rects.map((rect) => rect.left + rect.width)) - captionLeft
-    const fullWidth = captionWidth > pageSize.width * .58; const width = fullWidth ? pageSize.width * .82 : pageSize.width * .43
-    const left = fullWidth ? pageSize.width * .09 : captionLeft < pageSize.width / 2 ? pageSize.width * .055 : pageSize.width * .515
-    const height = Math.min(260 * scale, Math.max(90 * scale, captionTop - 24 * scale)); const top = Math.max(8 * scale, captionTop - height - 5 * scale)
-    return [{ figure, rect: { left, top, width, height } }]
+    const contentRects = itemRects.filter(rect => rect.width > 20 * scale && rect.left > pageSize.width * .02 && rect.left + rect.width < pageSize.width * .98)
+    const lefts = contentRects.map(rect => rect.left).sort((a, b) => a - b); const rights = contentRects.map(rect => rect.left + rect.width).sort((a, b) => a - b)
+    const contentLeft = lefts[Math.floor(lefts.length * .1)] ?? pageSize.width * .09; const contentRight = rights[Math.min(rights.length - 1, Math.floor(rights.length * .9))] ?? pageSize.width * .91
+    const estimated = sourceFigureRegion(rects, figure.components ?? [], pageSize.width, contentLeft, contentRight, scale, figure.hasPanelLabels)
+    if (estimated) return [{ figure, rect: estimated }]
+    // Without source dimensions, prefer a nearby detected region. A guessed
+    // caption-upward rectangle is deliberately not emitted because it can cover unrelated research content.
+    return []
   })
   const compoundFigureRects = sourceFigureRects.filter(({ figure }) => figure.compound)
   const insideCompound = (rect: ItemRect) => compoundFigureRects.some(({ rect: compound }) => rect.left >= compound.left - 8 * scale && rect.top >= compound.top - 8 * scale && rect.left + rect.width <= compound.left + compound.width + 8 * scale && rect.top + rect.height <= compound.top + compound.height + 8 * scale)

@@ -5,7 +5,7 @@ const load = async file => {
   const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file)
   return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 }
-const { joinBitmapRegions, joinVectorRegions } = await load('src/paper/figureGeometry.ts')
+const { joinBitmapRegions, joinVectorRegions, sourceFigureRegion } = await load('src/paper/figureGeometry.ts')
 const { tableMemberIndexes } = await load('src/paper/tableRegions.ts')
 const { mayMaskExcerpt } = await load('src/paper/excerptGeometry.ts')
 const fixture = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p5-table-vectors.json', 'utf8'))
@@ -23,6 +23,11 @@ assert.deepEqual(joinVectorRegions(fixture.rects.map(rect => Object.fromEntries(
 const panels = joinBitmapRegions([{left:40,top:100,width:180,height:120},{left:230,top:102,width:180,height:118},{left:40,top:400,width:370,height:110}],1,612*792)
 assert.equal(panels.length,2,'Adjacent aligned bitmap panels join, while a distant figure stays separate')
 assert.deepEqual(panels[0],{left:40,top:100,width:370,height:120})
+const wrapped = sourceFigureRegion([{left:385,top:457,width:119,height:10}],[{relativeWidth:.13,row:0,pixelWidth:600,pixelHeight:600},{relativeWidth:.13,row:0,pixelWidth:600,pixelHeight:600}],612,108,504,1,true)
+assert(wrapped && wrapped.top > 370 && wrapped.height < 80 && wrapped.left >= 380,'A short wrapped two-panel figure stays near its caption instead of covering the column above it')
+const fullWidth = sourceFigureRegion([{left:108,top:269,width:396,height:10}],[{relativeWidth:.32,row:0,pixelWidth:596,pixelHeight:200},{relativeWidth:.32,row:0,pixelWidth:596,pixelHeight:200},{relativeWidth:.32,row:0,pixelWidth:596,pixelHeight:200}],612,108,504,1,true)
+assert(fullWidth && fullWidth.top > 195 && fullWidth.height < 75 && fullWidth.left >= 105,'A wide three-panel figure does not absorb the preceding table or prose')
+assert.equal(sourceFigureRegion([{left:108,top:269,width:396,height:10}],[],612,108,504,1,true),undefined,'Unknown figure dimensions never trigger a broad guessed crop')
 const tableSegments = [{kind:'artifact',source:'Earlier damaged prose still ends here.'},{kind:'caption',source:'Table 2. Results.'},{kind:'text',source:'Model Score'},{kind:'artifact',source:'Base 30.1'},{kind:'equation',source:'Ours $x_i$ 33.8'},{kind:'text',source:'The discussion starts here.'}]
 assert.deepEqual(tableMemberIndexes(tableSegments,1),[1,2,3,4],'Table range includes text and math cells but stops at prose')
 assert.equal(mayMaskExcerpt([{ kind: 'artifact', blockId: 'table-row' }], new Set(), new Set()), false)

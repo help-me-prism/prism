@@ -1,4 +1,36 @@
 export type FigureRect = { left: number; top: number; width: number; height: number }
+export type FigureComponentMetrics = { relativeWidth?: number; row?: number; pixelWidth?: number; pixelHeight?: number }
+
+/** Estimate the printed bounds from the source's declared panel widths and
+ * intrinsic aspect ratios. Unlike a fixed caption-upward crop, this cannot
+ * swallow arbitrary prose or tables above a short figure. */
+export function sourceFigureRegion(captionRects: FigureRect[], components: FigureComponentMetrics[], pageWidth: number, contentLeft: number, contentRight: number, scale: number, hasPanelLabels = false): FigureRect | undefined {
+  if (!captionRects.length || !components.length || components.some(component => !component.pixelWidth || !component.pixelHeight)) return undefined
+  const captionLeft = Math.min(...captionRects.map(rect => rect.left)); const captionTop = Math.min(...captionRects.map(rect => rect.top))
+  const captionRight = Math.max(...captionRects.map(rect => rect.left + rect.width)); const contentWidth = Math.max(1, contentRight - contentLeft)
+  const rows = new Map<number, FigureComponentMetrics[]>()
+  for (const component of components) { const row = component.row ?? 0; rows.set(row, [...(rows.get(row) ?? []), component]) }
+  const declared = components.every(component => typeof component.relativeWidth === 'number')
+  const captionSpansPage = captionRight - captionLeft > pageWidth * .58
+  const fallbackWidth = captionSpansPage ? contentWidth : Math.min(contentWidth * .48, pageWidth * .43)
+  let width = 0; let height = 0
+  for (const row of [...rows.values()]) {
+    const relativeTotal = row.reduce((sum, component) => sum + (component.relativeWidth ?? 0), 0)
+    const rowTarget = declared ? Math.min(contentWidth, relativeTotal * contentWidth) : fallbackWidth
+    const weights = row.map(component => declared ? component.relativeWidth! : component.pixelWidth! / row.reduce((sum, item) => sum + item.pixelWidth!, 0))
+    const rowWidths = weights.map(weight => declared ? weight * contentWidth : weight * rowTarget)
+    const gap = Math.min(8 * scale, Math.max(2 * scale, rowTarget * .025)); const rowWidth = rowWidths.reduce((sum, value) => sum + value, 0) + gap * Math.max(0, row.length - 1)
+    const rowHeight = Math.max(...row.map((component, index) => rowWidths[index] * component.pixelHeight! / component.pixelWidth!))
+    width = Math.max(width, rowWidth); height += rowHeight + (hasPanelLabels ? 14 * scale : 3 * scale)
+  }
+  height += 6 * scale * Math.max(0, rows.size - 1)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 20 * scale || height < 15 * scale) return undefined
+  const left = captionSpansPage || width > contentWidth * .68
+    ? contentLeft + (contentWidth - width) / 2
+    : Math.max(contentLeft, Math.min(contentRight - width, captionLeft - (width - (captionRight - captionLeft)) / 2))
+  const bottom = captionTop - 4 * scale
+  return { left: Math.max(0, left), top: Math.max(4 * scale, bottom - height), width: Math.min(width, pageWidth), height }
+}
 
 /** Join raster panels that form one nearby, aligned multi-panel figure. */
 export function joinBitmapRegions(rects: FigureRect[], scale: number, pageArea: number) {

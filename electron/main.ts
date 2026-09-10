@@ -908,33 +908,51 @@ async function paperFigures(record: PaperRecord) {
   const sourceRoot = path.resolve(path.dirname(record.pdfPath), 'source')
   const rootDir = path.dirname(path.resolve(sourceRoot, structure.rootFile))
   const blocks = structure.blocks.filter((block) => block.kind === 'figure')
-  const result: Array<{ id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string; compound?: boolean }> = []
+  type Component = { sourcePath: string; mimeType: string; dataUrl: string; relativeWidth?: number; row: number }
+  const result: Array<{ id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string; compound?: boolean; components?: Component[]; hasPanelLabels?: boolean }> = []
   for (let order = 0; order < blocks.length && order < 100; order += 1) {
     const block = blocks[order]
-    const requestedFigures = [...block.source.matchAll(/\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}/g)].map((match) => match[1].trim())
-    const requested = requestedFigures[0]
+    const graphicMatches = [...block.source.matchAll(/\\includegraphics(?:\s*\[([^\]]*)\])?\s*\{([^}]+)\}/g)]
+    let row = 0; let previousEnd = 0
+    const requestedFigures = graphicMatches.map((match) => {
+      if (previousEnd && /\\\\(?:\s|\[)/.test(block.source.slice(previousEnd, match.index))) row += 1
+      previousEnd = match.index! + match[0].length
+      const option = match[1] ?? ''; const width = option.match(/\bwidth\s*=\s*(\d*\.?\d*)?\s*\\(textwidth|columnwidth|linewidth)\b/)
+      let relativeWidth = width ? Number(width[1] || 1) : undefined
+      if (width?.[2] === 'linewidth') {
+        const prefix = block.source.slice(0, match.index); const begin = [...prefix.matchAll(/\\begin\s*\{subfigure\}(?:\[[^\]]*\])?\s*\{(\d*\.?\d+)\\linewidth\}/g)].at(-1)
+        const lastEnd = prefix.lastIndexOf('\\end{subfigure}')
+        if (begin && begin.index! > lastEnd) relativeWidth = (relativeWidth ?? 1) * Number(begin[1])
+      }
+      return { requested: match[2].trim(), relativeWidth: Number.isFinite(relativeWidth) && relativeWidth! > 0 && relativeWidth! <= 1.2 ? relativeWidth : undefined, row }
+    })
     const caption = block.source.match(/\\caption\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/)?.[1]?.replace(/\\[a-zA-Z]+\s*/g, ' ').replace(/[{}~]/g, ' ').replace(/\s+/g, ' ').trim()
-    let sourcePath: string | undefined; let mimeType: string | undefined; let dataUrl: string | undefined
-    if (requested && !requested.includes('..') && !requested.includes('\\')) {
-      const raw = requested.replace(/\//g, path.sep)
+    const components: Component[] = []; let totalBytes = 0
+    for (const request of requestedFigures) {
+      if (!request.requested || request.requested.includes('..') || request.requested.includes('\\')) continue
+      const raw = request.requested.replace(/\//g, path.sep)
       const candidates = path.extname(raw) ? [raw] : [...figureMime.keys()].map((extension) => `${raw}${extension}`)
+      let found: Component | undefined
       for (const candidate of candidates) {
         for (const base of [rootDir, sourceRoot]) {
           const resolved = path.resolve(base, candidate)
           if (!(resolved === sourceRoot || resolved.startsWith(`${sourceRoot}${path.sep}`))) continue
           try {
             const stat = await fs.stat(resolved)
-            if (!stat.isFile() || stat.size > 20_000_000) continue
+            if (!stat.isFile() || stat.size > 20_000_000 || totalBytes + stat.size > 40_000_000) continue
             const mime = figureMime.get(path.extname(resolved).toLowerCase())
             if (!mime) continue
-            const bytes = await fs.readFile(resolved); sourcePath = resolved; mimeType = mime; dataUrl = `data:${mime};base64,${bytes.toString('base64')}`
+            const bytes = await fs.readFile(resolved); totalBytes += bytes.length
+            found = { sourcePath: resolved, mimeType: mime, dataUrl: `data:${mime};base64,${bytes.toString('base64')}`, relativeWidth: request.relativeWidth, row: request.row }
             break
           } catch { /* try another extension or base directory */ }
         }
-        if (sourcePath) break
+        if (found) break
       }
+      if (found) components.push(found)
     }
-    result.push({ id: block.id, order, caption, sourcePath, mimeType, dataUrl, compound: requestedFigures.length > 1 })
+    const first = components[0]
+    result.push({ id: block.id, order, caption, sourcePath: first?.sourcePath, mimeType: first?.mimeType, dataUrl: first?.dataUrl, compound: requestedFigures.length > 1, components: components.length ? components : undefined, hasPanelLabels: /\\caption\*|\\scriptsize|\\footnotesize/.test(block.source) })
   }
   return result
 }
