@@ -5,7 +5,7 @@ import path from 'node:path'
 import { refreshPaperDigest } from '../dist-electron/paperDigest.js'
 import { migratePaperNotes } from '../dist-electron/knowledge.js'
 
-const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-local-digest-'))
+const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'prism-local-digest-')))
 try {
   await fs.mkdir(path.join(root, '.prism', 'anchors'), { recursive: true })
   for (const hasAbstract of [true, false]) {

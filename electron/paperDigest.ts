@@ -394,11 +394,16 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
 }
 
 /** Chat lives in Electron's userData, outside the vault; the digest reads it without the renderer passing it along. */
-export async function readChatMessages(sessionsPath: string): Promise<DigestChatMessage[]> {
+export async function readChatMessages(sessionsPath: string, libraryPath?: string): Promise<DigestChatMessage[]> {
   try {
-    const value = JSON.parse(await fs.readFile(sessionsPath, 'utf8')) as Array<{ deletedAt?: number; messages?: DigestChatMessage[] }>
+    const value = JSON.parse(await fs.readFile(sessionsPath, 'utf8')) as Array<{ libraryPath?: string | null; deletedAt?: number; messages?: DigestChatMessage[] }>
     if (!Array.isArray(value)) return []
-    return value.filter((session) => !session.deletedAt).flatMap((session) => Array.isArray(session.messages) ? session.messages : [])
+    const scope = libraryPath ? await fs.realpath(libraryPath) : undefined
+    const scoped = await Promise.all(value.filter(session => !session.deletedAt).map(async session => {
+      if (scope && (!session.libraryPath || await fs.realpath(session.libraryPath).catch(() => undefined) !== scope)) return []
+      return Array.isArray(session.messages) ? session.messages : []
+    }))
+    return scoped.flat()
   } catch { return [] }
 }
 

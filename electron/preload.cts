@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('prism', {
   savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),
   startTranslation: (arxivId: string, segments: unknown, options?: unknown) => ipcRenderer.invoke('translation:start', arxivId, segments, options),
   cancelTranslation: (arxivId: string) => ipcRenderer.invoke('translation:cancel', arxivId),
+  readAiUsage: () => ipcRenderer.invoke('ai:usage'),
   sendMessage: (request: unknown) => ipcRenderer.invoke('chat:send', request),
   cancelMessage: (sessionId: string) => ipcRenderer.invoke('chat:cancel', sessionId),
   onChatEvent: (callback: (event: unknown) => void) => subscribe('chat:event', callback),

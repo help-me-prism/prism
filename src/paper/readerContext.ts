@@ -51,7 +51,8 @@ export function messagePaperIds(primary: string | undefined, papers: string[], a
 }
 
 export function readingEvidence(anchors: ContextAnchor[], paperIds: string[], question: string, budget = 9000, history: ContextAnchor[] = []) {
-  const ids = [...new Set(paperIds)].slice(0, 8)
+  const ids = [...new Set(paperIds)]
+  if (ids.length > 8) throw new Error('한 질문에는 논문을 최대 8편까지 포함할 수 있습니다. 질문 범위나 첨부 근거를 줄여 주세요.')
   const portions = ids.map(paperId => readerExcerpts(anchors.filter(anchor => anchor.paperId === paperId), question, Math.floor(budget / Math.max(1, ids.length))))
   const chosen = portions.flat()
   const references = stableReferences(chosen.flatMap(excerpt => {

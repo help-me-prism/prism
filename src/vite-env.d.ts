@@ -14,8 +14,8 @@ type ChatUsage = { context?: ChatContextUsage }
 // 계산해서 보여줄 수 있으면 resetsAt 을, 아니면 받은 문장을 그대로 쓴다.
 type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDurationMins?: number; resetsAt?: number; resetsText?: string }
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
-type ChatSession = { id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
-type ChatRequest = { figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
+type ChatSession = { libraryPath?: string | null; id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
+type ChatRequest = { libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
@@ -188,6 +188,7 @@ interface Window {
     savePaperAnchors: (arxivId: string, anchors: TranslationSegment[]) => Promise<boolean>
     startTranslation: (arxivId: string, segments: TranslationSegment[], options?: { force?: boolean; pages?: number[] }) => Promise<{ started: boolean }>
     cancelTranslation: (arxivId: string) => Promise<boolean>
+    readAiUsage: () => Promise<import('../electron/aiUsageTypes').AiRun[]>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>
     onChatEvent: (callback: (event: unknown) => void) => () => void

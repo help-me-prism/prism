@@ -31,7 +31,10 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
         if (Number.isFinite(delay) && delay > 0 && delay <= 5000) await new Promise(resolve => setTimeout(resolve, delay))
       }
     }
-    if (channel === 'chat:send') { fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls') }
+    if (channel === 'chat:send') {
+      if (fs.existsSync(path.join(root, 'inspect-context.txt'))) { fs.writeFileSync(path.join(root, 'inspected-context.json'), JSON.stringify(args[1])); throw new Error('Offline context inspection completed') }
+      fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls')
+    }
     return listener(...args)
   })
 }
