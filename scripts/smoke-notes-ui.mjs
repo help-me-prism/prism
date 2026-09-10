@@ -268,6 +268,9 @@ try {
 
   await notesConnection.evaluate(`(() => { const trigger = document.querySelector('button[aria-label="노트 설정"]'); trigger.focus(); trigger.click() })()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-settings-dialog select'))`), 'Notes settings did not open inside the Notes window.')
+  assert(await notesConnection.evaluate(`Boolean([...document.querySelectorAll('.note-settings-dialog button')].find(button => button.textContent.includes('보관함 전체 정리') && !button.disabled))`), 'Free vault refresh must be discoverable in Notes settings.')
+  await notesConnection.evaluate(`[...document.querySelectorAll('.note-settings-dialog button')].find(button => button.textContent.includes('보관함 전체 정리')).click()`)
+  await waitFor(() => notesConnection.evaluate(`document.body.innerText.includes('AI는 사용하지 않았습니다')`), 'Free vault refresh did not finish with a visible result.')
   for (const theme of ['dark', 'light']) {
     await notesConnection.evaluate(`(() => { const select = document.querySelector('.note-settings-dialog select'); select.value = '${theme}'; select.dispatchEvent(new Event('change', { bubbles: true })) })()`)
     await waitFor(() => notesConnection.evaluate(`document.documentElement.dataset.theme === '${theme}'`), 'Notes theme did not update.')

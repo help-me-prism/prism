@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs'
 import { readPaperBody, type PaperBody } from './paperBody.js'
 import path from 'node:path'
-import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, updateKnowledgeProperties, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
+import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
-import { assertOnlyAutoChanged, autoHeadings, autoMarkers, hasOwnWriting, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
 import { claimedByChat, listChatMemory, type ChatMemoryMap } from './chatMemory.js'
 
 export { noteAutomation, type NoteSectionRule } from './noteContract.js'
@@ -658,24 +658,5 @@ export async function refreshVaultDigests(libraryPath: string, messages: DigestC
     try { if ((await refreshNoteDigest(libraryPath, node.id, messages, undefined, context)).updated) updated.push(node.id) }
     catch { /* it will catch up on the next sweep */ }
   }
-  return { scanned: targets.length, updated, understood: await promoteUnderstood(libraryPath, targets) }
-}
-
-/**
- * Status was a dropdown nobody touched, so a library of a hundred notes could not say how much of itself the
- * researcher had actually taken in. A note earns `understood` the moment it holds a sentence only they could
- * have written — the one piece of evidence that a concept landed — and nothing ever takes it away again,
- * because deleting a line you wrote is not the same as ceasing to understand it.
- */
-async function promoteUnderstood(libraryPath: string, records: KnowledgeNodeRecord[]) {
-  const promoted: string[] = []
-  for (const node of records) {
-    if (node.status !== 'inbox' && node.status !== 'developing') continue
-    try {
-      const snapshot = await readKnowledgeNode(libraryPath, node.id)
-      if (!hasOwnWriting(node.nodeType, snapshot.content)) continue
-      if ((await updateKnowledgeProperties(libraryPath, node.id, { status: 'understood' }, snapshot.revision)).saved) promoted.push(node.id)
-    } catch { /* renamed, deleted, or mid-edit: the next sweep will find it */ }
-  }
-  return promoted
+  return { scanned: targets.length, updated, understood: [] as string[] }
 }

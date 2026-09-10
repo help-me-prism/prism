@@ -1,5 +1,23 @@
 import { validatedScientificSpans } from './scientificSource.js'
 type InputSegment = { id: string; source: string; blockId?: string; paragraphContext?: string; sectionTitle?: string; scientificSpans?: unknown; protectedNotation?: Array<{ token: string; latex: string }> }
+export const translationPromptCharacterLimit = 24_000
+/** Budget the serialized prompt, including notation and context, before any paid call. */
+export function translationBatches<T extends InputSegment>(segments: T[], context: (items: T[]) => string) {
+  const batches: T[][] = []
+  let batch: T[] = []
+  for (const segment of segments) {
+    let candidate = [...batch, segment]
+    if (batch.length && (candidate.reduce((sum, item) => sum + item.source.length, 0) > 9000
+      || prepareTranslationRequest(candidate, context(candidate)).prompt.length > translationPromptCharacterLimit)) {
+      batches.push(batch); candidate = [segment]
+    }
+    if (prepareTranslationRequest(candidate, context(candidate)).prompt.length > translationPromptCharacterLimit)
+      throw new Error('한 문장의 번역 입력이 너무 큽니다. 해당 페이지의 원문을 확인해 주세요. 번역은 실행하지 않았습니다.')
+    batch = candidate
+  }
+  if (batch.length) batches.push(batch)
+  return batches
+}
 /** Keep long cache anchors out of the model's copy task; identity stays exact. */
 export function prepareTranslationRequest(segments: InputSegment[], adjacentContext = '') {
   if (new Set(segments.map(segment => segment.id)).size !== segments.length) throw new Error('번역 요청에 중복된 문장 ID가 있습니다.')

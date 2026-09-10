@@ -2,8 +2,17 @@ import { promises as fs } from 'node:fs'
 import { atomicWriteFile } from './atomicFile.js'
 
 import type { AiUsage, AiRun } from './aiUsageTypes.js'
+import type { InputComposition } from './aiUsageTypes.js'
 export type { AiUsage, AiRun } from './aiUsageTypes.js'
 const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+export function parseInputComposition(value: unknown, length: number): InputComposition | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Record<string, unknown>
+  const keys = ['question', 'paperEvidence', 'selectedEvidence', 'instructions'] as const
+  if (keys.some(key => !Number.isSafeInteger(source[key]) || Number(source[key]) < 0)) return undefined
+  if (keys.reduce((sum, key) => sum + Number(source[key]), 0) !== length) return undefined
+  return Object.fromEntries(keys.map(key => [key, source[key]])) as InputComposition
+}
 export function parseAiUsage(provider: string, value: Record<string, unknown> | undefined): AiUsage {
   if (!value) return {}
   if (provider === 'claude') {

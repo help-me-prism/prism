@@ -4,7 +4,7 @@ type ProviderId = 'codex' | 'claude'
 type ProviderModel = { id: string; name: string; description: string }
 type ProviderInfo = { id: ProviderId; name: string; installed: boolean; available: boolean; status: string; models: ProviderModel[] }
 type ContextAnchor = { scientificSpans?: import('../electron/scientificSource').ScientificSpan[]; paperId: string; paperTitle: string; anchorId: string; type: 'sentence' | 'section' | 'equation' | 'table' | 'figure' | 'page'; page: number; label: string; source: string; preview?: string; placementId?: string; textOffset?: number }
-type ChatMessage = { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[]; primaryPaperId?: string; provider?: ProviderId; model?: string }
+type ChatMessage = { savedNote?: { libraryPath: string; paperId: string; title: string; blockId?: string }; id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: number; anchors?: ContextAnchor[]; paperIds?: string[]; primaryPaperId?: string; provider?: ProviderId; model?: string }
 type PaperDigestResult = { updated: boolean; chatMessages: number; sections: Array<'overview' | 'confusion' | 'focus'>; usedModel: boolean }
 // 컨텍스트 점유량은 "직전 요청이 실제로 보낸 대화 전체" 다. 턴마다 쌓이는 누적 토큰과는 다른 값이라
 // 누적치로 계산하면 대화가 길어질수록 잔량을 과대하게 깎아 보여준다.
@@ -15,7 +15,7 @@ type ChatUsage = { context?: ChatContextUsage }
 type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDurationMins?: number; resetsAt?: number; resetsText?: string }
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
 type ChatSession = { libraryPath?: string | null; id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
-type ChatRequest = { libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
+type ChatRequest = { inputComposition?: import('../electron/aiUsageTypes').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
@@ -145,7 +145,7 @@ interface Window {
     listAutoUnread: () => Promise<Record<string, { at: number; sections: string[] }>>
     clearAutoUnread: (id: string) => Promise<{ cleared: boolean }>
     refreshPaperDigest: (paperNodeId: string, options?: { useModel?: boolean }) => Promise<PaperDigestResult>
-    refreshVaultDigests: () => Promise<{ scanned: number; updated: string[]; understood: string[] }>
+    refreshVaultDigests: (libraryPath?: string) => Promise<{ scanned: number; updated: string[]; understood: string[] }>
     onVaultChanged: (callback: (event: { paths: string[] }) => void) => () => void
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
@@ -190,6 +190,7 @@ interface Window {
     cancelTranslation: (arxivId: string) => Promise<boolean>
     readAiUsage: () => Promise<import('../electron/aiUsageTypes').AiRun[]>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
+    compactChat: (request: { sessionId: string; libraryPath: string | null; model: string }) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>
     onChatEvent: (callback: (event: unknown) => void) => () => void
     onChatDone: (callback: (event: unknown) => void) => () => void

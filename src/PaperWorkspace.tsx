@@ -647,7 +647,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   }
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { const papers = await window.prism.listLibrary(); setSettings(next); setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId); if (!papers.length) setFinderOpen(true) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
-  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); if (force) setTranslation([]); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: !force && translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
+  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function highlightHoveredAnchor(anchorId?: string) {
     // Centering an explicit source can move another sentence under a stationary
@@ -945,7 +945,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
               <label><span>모델</span><select aria-label="번역 모델" value={settings.translationModel} disabled={translating} onChange={event => void updateSettings({ translationModel: event.target.value })}>{translationProvider?.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
               <label className="auto-translate-toggle"><input type="checkbox" checked={settings.autoTranslate} onChange={event => void updateSettings({ autoTranslate: event.target.checked })} /> 새 논문 자동 번역 · AI 사용</label>
               {hasCachedTranslation && <small>{translatedCount}문장 저장됨</small>}
-              {hasCachedTranslation && <button disabled={translating} onClick={event => { closeToolbarMenu(event.currentTarget); void startTranslation(true) }}>본문 처음부터 다시 번역 · AI 사용</button>}
+              {hasCachedTranslation && <button disabled={translating} onClick={event => { closeToolbarMenu(event.currentTarget); void startTranslation(true) }}>{translationScope === 'page' ? `현재 ${pageNumber}페이지` : '본문 전체'} 다시 번역 · AI 사용</button>}
             </div>
           </details>
         </div>

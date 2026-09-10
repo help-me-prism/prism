@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { readEvidenceDraft, writeEvidenceDraft } from './evidenceDraft'
 
 type Panel = { anchor: ContextAnchor; items: EvidenceBacklink[]; loading: boolean; error?: string }
 type Draft = { memo: string; concept: string; status: string; version: number; saving: boolean }
 type View = { scope: object; key: string; panel: Panel; conceptOptions: string[] }
 
-/** Session-only drafts are owned by a vault, paper, and exact source anchor. */
+/** Persistent drafts are owned by a vault, paper, and exact source anchor. */
 export function useEvidenceCapture({ libraryPath, activePaperId }: { libraryPath?: string; activePaperId?: string }) {
   const scopeKey = JSON.stringify([libraryPath, activePaperId])
   const scope = useRef({ key: scopeKey, owner: {} })
@@ -21,8 +22,17 @@ export function useEvidenceCapture({ libraryPath, activePaperId }: { libraryPath
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current++ } }, [])
   const draftFor = (key: string) => {
     let draft = drafts.current.get(key)
-    if (!draft) { draft = { memo: '', concept: '', status: '', version: 0, saving: false }; drafts.current.set(key, draft) }
+    if (!draft) {
+      draft = { memo: '', concept: '', status: '', version: 0, saving: false }
+      try { Object.assign(draft, readEvidenceDraft(window.localStorage, key)) }
+      catch { draft.status = '저장된 초안을 읽지 못했습니다. 기존 저장 데이터는 유지됩니다.' }
+      drafts.current.set(key, draft)
+    }
     return draft
+  }
+  const persist = (key: string, draft: Draft) => {
+    try { writeEvidenceDraft(window.localStorage, key, draft) }
+    catch { draft.status = '초안을 기기에 보관하지 못했습니다. 앱을 닫기 전에 내용을 복사하거나 노트에 저장해 주세요.' }
   }
   const refresh = () => { if (mounted.current) redraw(value => value + 1) }
   const owns = (expected: object, run: number, key: string) => mounted.current && scope.current.owner === expected && request.current === run && currentView.current?.key === key
@@ -51,7 +61,7 @@ export function useEvidenceCapture({ libraryPath, activePaperId }: { libraryPath
   function edit(field: 'memo' | 'concept', value: string) {
     const active = currentView.current
     if (!active || active.scope !== scope.current.owner) return
-    const draft = draftFor(active.key); draft[field] = value; draft.version++; draft.status = ''; refresh()
+    const draft = draftFor(active.key); draft[field] = value; draft.version++; draft.status = ''; persist(active.key, draft); refresh()
   }
   async function capture() {
     const active = currentView.current
@@ -70,6 +80,7 @@ export function useEvidenceCapture({ libraryPath, activePaperId }: { libraryPath
         draft.memo = ''; draft.concept = ''
         draft.status = result.warning ?? (result.concept ? `논문 노트와 개념 '${result.concept}'의 정의 비교 표에 담았습니다.` : '논문 노트의 메모 섹션에 담았습니다.')
       } else draft.status = [result.warning, '제출한 메모를 저장했습니다. 저장 중 작성한 내용은 입력창에 남아 있습니다.'].filter(Boolean).join(' ')
+      persist(active.key, draft)
       if (owns(active.scope, run, active.key)) void load(active.panel.anchor, active.key, active.scope, run)
     } catch (reason) { draft.status = reason instanceof Error ? reason.message : String(reason) }
     finally { draft.saving = false; refresh() }

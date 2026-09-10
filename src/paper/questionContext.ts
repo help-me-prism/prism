@@ -42,7 +42,8 @@ export function buildQuestionContext(question: string, selected: ContextAnchor[]
       papers: ids.map(id => { const paper = papers.find(item => item.arxivId === id); return { id, title: paper?.title ?? selected.find(anchor => anchor.paperId === id)?.paperTitle, abstract: paper?.summary.slice(0, Math.floor(1200 * fraction)) ?? '' } }),
       excerpts: evidence.excerpts })
     const prompt = [instruction, 'User question:', question, 'Paper evidence:', paperContext, explicit].filter(Boolean).join('\n\n')
-    if (prompt.length <= questionCharacterLimit) return { prompt, references: evidence.references, selected: expanded, paperIds: ids, reduced: fraction < 1 }
+    if (prompt.length <= questionCharacterLimit) return { prompt, references: evidence.references, selected: expanded, paperIds: ids, reduced: fraction < 1,
+      inputComposition: { question: question.length, paperEvidence: paperContext.length, selectedEvidence: explicit.length, instructions: prompt.length - question.length - paperContext.length - explicit.length } }
   }
   throw new Error('질문과 직접 첨부한 근거가 너무 깁니다. 질문을 나누거나 첨부 근거를 줄여 주세요. 작성 중인 내용은 유지됩니다.')
 }

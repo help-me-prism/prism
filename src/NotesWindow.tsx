@@ -36,6 +36,7 @@ const noteGuides: Record<KnowledgeNodeType, { hint: string; example: string }> =
  */
 export default function NotesWindow() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [vaultDigesting, setVaultDigesting] = useState(false)
   const searchMounted = useRef(true)
   useEffect(() => {
     searchMounted.current = true
@@ -115,6 +116,18 @@ export default function NotesWindow() {
   const understoodCount = useMemo(() => nodes.filter((node) => node.status === 'understood' || node.status === 'established').length, [nodes])
 
   function notify(text: string, tone: 'info' | 'error' = 'info', undo?: { label: string; run: () => void | Promise<void> }) { setNotice({ text, tone, undo }) }
+  async function refreshVault() {
+    if (!libraryPath || vaultDigesting) return
+    const owner = contextOwnerRef.current
+    setVaultDigesting(true)
+    try {
+      const result = await window.prism.refreshVaultDigests(libraryPath)
+      if (contextOwnerRef.current !== owner) return
+      await reloadNodes()
+      notify(`${result.scanned}개 노트를 확인하고 ${result.updated.length}개를 갱신했습니다. AI는 사용하지 않았습니다.`)
+    } catch (reason) { if (contextOwnerRef.current === owner) notify(String(reason), 'error') }
+    finally { setVaultDigesting(false) }
+  }
   useEffect(() => { if (!notice || notice.tone === 'error') return; const timer = window.setTimeout(() => setNotice(undefined), notice.undo ? 12000 : 6000); return () => window.clearTimeout(timer) }, [notice])
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
 
@@ -492,6 +505,8 @@ export default function NotesWindow() {
         <div className="note-settings-body"><ThemeControl /><p>리더와 노트에 함께 적용합니다. 원문 PDF는 인쇄 색상을 유지합니다.</p>
           <button onClick={() => { setSettingsOpen(false); void chooseLibrary() }}><FolderOpen size={14} /> 노트 폴더 선택</button>
           <p>같은 폴더를 Obsidian 볼트로 열 수 있습니다.</p>
+          <button disabled={!libraryPath || vaultDigesting} onClick={() => void refreshVault()}>{vaultDigesting ? '보관함 정리 중…' : '보관함 전체 정리 · AI 사용 없음'}</button>
+          <p>저장된 대화와 근거를 바탕으로 자동 관리 영역을 갱신합니다. 직접 쓴 내용은 보존합니다.</p>
         </div>
       </section>
     </div>}

@@ -263,7 +263,16 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     })
   }
 
-  async function updateProperty(patch: KnowledgePropertyPatch) {
+  const propertyWrites = useRef(Promise.resolve())
+  function updateProperty(patch: KnowledgePropertyPatch) {
+    const id = node.id, vault = vaultIdRef.current
+    propertyWrites.current = propertyWrites.current.catch(() => undefined).then(async () => {
+      if (nodeIdRef.current !== id || vaultIdRef.current !== vault) return
+      await writeProperty(patch)
+    })
+    return propertyWrites.current
+  }
+  async function writeProperty(patch: KnowledgePropertyPatch) {
     if (dirtyRef.current && !(await save())) return
     try {
       // The properties render before the file finishes loading; fetch the revision rather than dropping the edit.
@@ -620,6 +629,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
 
     <div className="note-doc-scroll">
       <div className="note-doc-inner">
+        {node.nodeType === 'paper' && <p>내 이해 상태: <button disabled={!ready || node.status === 'understood'} onClick={() => void updateProperty({ status: 'understood' })}>이해함</button> <button disabled={!ready} onClick={async () => { await updateProperty({ status: 'developing' }); await openMineSection('unresolved') }}>아직 모르겠음 · 메모</button></p>}
+        {node.nodeType === 'paper' && node.readingStatus === 'read' && <p>읽은 논문을 기존 지식과 연결해 보세요. <button disabled={!ready || suggesting || digesting} onClick={() => void runModelSuggestions()}>{suggesting ? '연결 후보 생성 중…' : '연결 후보 만들기 · AI 사용'}</button> 후보는 검토 후 승인할 수 있습니다.</p>}
         <details className="note-props" open={propsOpen} onToggle={(event) => { const open = (event.currentTarget as HTMLDetailsElement).open; setPropsOpen(open); window.localStorage.setItem('prism.notes.propsOpen', open ? 'on' : 'off') }}>
           <summary><ChevronDown size={12} /> 속성 {properties.length + relationGroups.length}개</summary>
           <table>

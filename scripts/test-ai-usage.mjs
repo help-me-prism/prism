@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { parseAiUsage, recordAiRun, readAiRuns } from '../dist-electron/aiUsage.js'
+import { parseAiUsage, parseInputComposition, recordAiRun, readAiRuns } from '../dist-electron/aiUsage.js'
+assert.deepEqual(parseInputComposition({ question: 1, paperEvidence: 2, selectedEvidence: 3, instructions: 4, source: 'must not enter journal' }, 10), { question: 1, paperEvidence: 2, selectedEvidence: 3, instructions: 4 })
+assert.equal(parseInputComposition({ question: 'private prompt', paperEvidence: 0, selectedEvidence: 0, instructions: 0 }, 10), undefined)
+assert.equal(parseInputComposition({ question: 1, paperEvidence: 2, selectedEvidence: 3, instructions: 4 }, 11), undefined)
 assert.deepEqual(parseAiUsage('codex', { input_tokens: 100, cached_input_tokens: 60, output_tokens: 20 }), { inputTokens: 100, cachedInputTokens: 60, outputTokens: 20 })
 assert.deepEqual(parseAiUsage('claude', { input_tokens: 10, cache_read_input_tokens: 60, cache_creation_input_tokens: 30, output_tokens: 20 }), { inputTokens: 100, cachedInputTokens: 60, outputTokens: 20 })
 assert.deepEqual(parseAiUsage('codex'), {})

@@ -1,4 +1,5 @@
 import { buildQuestionContext } from './paper/questionContext'
+import { useComposerDraft } from './paper/useComposerDraft'
 import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
 import { readComposerDom } from './paper/composerDom'
 import { answerReferenceAnchors, answerReferences } from './paper/answerReferences'
@@ -256,22 +257,23 @@ function App() {
   const [rateLimits, setRateLimits] = useState<Partial<Record<ProviderId, ProviderRateLimits>>>({})
   const [runningIds, setRunningIds] = useState<string[]>([])
   const composerRevision = useRef(0)
-  const [input, updateInput] = useState('')
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
+  const composerDraft = useComposerDraft(JSON.stringify([workspaceState.libraryPath ?? null, activeSessionId]))
+  const { input, setInput: updateInput, anchors: contextAnchors, setAnchors: updateContextAnchors } = composerDraft
   function setInput(value: string) { composerRevision.current += 1; updateInput(value) }
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [contextAnchors, updateContextAnchors] = useState<ContextAnchor[]>([])
   function setContextAnchors(value: Parameters<typeof updateContextAnchors>[0]) { composerRevision.current += 1; updateContextAnchors(value) }
   const [anchorCatalog, setAnchorCatalog] = useState<ContextAnchor[]>([])
-  const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
   const [autoIncludePaper, setAutoIncludePaper] = useState(true)
   useEffect(() => {
-    setContextPaperIds([]); setAutoIncludePaper(true); setContextAnchors([])
+    setContextPaperIds([]); setAutoIncludePaper(true)
   }, [workspaceState.libraryPath])
-  const [noteSaved, setNoteSaved] = useState<Record<string, { paperId: string; title: string; blockId?: string }>>({})
+  const noteSaved = useMemo(() => Object.fromEntries(sessions.flatMap(session => session.messages.flatMap(message => message.savedNote && message.savedNote.libraryPath === workspaceState.libraryPath
+    ? [[JSON.stringify([workspaceState.libraryPath, session.id, message.id]), message.savedNote]] : []))), [sessions, workspaceState.libraryPath])
   const savingAnswerIds = useRef(new Set<string>())
   const [savingAnswers, setSavingAnswers] = useState<Record<string, boolean>>({})
   const [paperContextOpen, setPaperContextOpen] = useState(false)
@@ -337,14 +339,16 @@ function App() {
       const initial = active.length ? active : [makeSession('codex', providerList.find((item) => item.id === 'codex')?.models[0]?.id)]
       setSessions(initial)
       setTrashedSessions(restoredTrash)
-      setActiveSessionId(initial[0].id)
+      const lastSessionId = localStorage.getItem('prism.last-chat')
+      setActiveSessionId(initial.find(session => session.id === lastSessionId)?.id ?? initial[0].id)
       setHydrated(true)
     }).catch((reason) => {
       const initial = makeSession()
       setSessions([initial])
       setActiveSessionId(initial.id)
       setErrors({ [initial.id]: String(reason) })
-      setHydrated(true)
+      // Do not replace unreadable on-disk sessions with an empty recovery session.
+      setHydrated(false)
     })
 
     const offEvent = window.prism.onChatEvent((payload) => {
@@ -404,6 +408,7 @@ function App() {
 
   useEffect(() => {
     if (!hydrated) return
+    try { localStorage.setItem('prism.last-chat', activeSessionId) } catch { /* Session data still has its own durable store. */ }
     const timeout = window.setTimeout(() => {
       const compactSessions = [...sessions, ...trashedSessions].map((session) => ({ ...session, messages: session.messages.map((message) => ({ ...message, anchors: message.anchors?.map(({ preview: _preview, ...anchor }) => anchor) })) }))
       window.prism.saveSessions(compactSessions).catch((reason) => {
@@ -437,8 +442,6 @@ function App() {
     const session = makeSession(provider, model ?? providerData?.models[0]?.id)
     setSessions((current) => [session, ...current])
     setActiveSessionId(session.id)
-    setInput('')
-    setContextAnchors([])
     setComposerCaret(0); setFocusPlacementId(undefined)
   }
 
@@ -568,7 +571,7 @@ function App() {
     }))
       pending.dispatched = true
       await window.prism.sendMessage({
-        prompt: promptWithContext, libraryPath, sessionId, messageId: assistantId, provider: activeSession.provider,
+        prompt: promptWithContext, inputComposition: context.inputComposition, libraryPath, sessionId, messageId: assistantId, provider: activeSession.provider,
         model: activeSession.model, providerThreadId: activeSession.providerThreadId,
         figures: selectedAnchors.filter((anchor, index) => anchor.type === 'figure' && selectedAnchors.findIndex(other => other.paperId === anchor.paperId && other.anchorId === anchor.anchorId) === index).map(({ paperId, anchorId, label }) => ({ paperId, anchorId, label })),
       })
@@ -599,6 +602,13 @@ function App() {
   }
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
+  async function compactChat() {
+    if (!activeSession || isRunning) return
+    const sessionId = activeSession.id
+    setRunningIds(ids => [...ids, sessionId])
+    try { await window.prism.compactChat({ sessionId, libraryPath: workspaceState.libraryPath ?? null, model: activeSession.model }) }
+    catch (reason) { setRunningIds(ids => ids.filter(id => id !== sessionId)); setErrors(errors => ({ ...errors, [sessionId]: String(reason) })) }
+  }
   async function openReadingNote(paperId = workspaceState.activePaperId, blockId?: string) {
     const owner = noteActionScope.current.owner, libraryPath = workspaceState.libraryPath, sessionId = activeSession?.id
     const current = () => noteActionScope.current.owner === owner
@@ -689,7 +699,7 @@ function App() {
     savingAnswerIds.current.add(key); setSavingAnswers(current => ({ ...current, [key]: true }))
     try {
       const captured = await window.prism.capturePaperNote(request)
-      setNoteSaved((current) => ({ ...current, [key]: { paperId, title: paper?.title ?? paperId, blockId: captured.blockId } }))
+      updateSession(sessionId, session => ({ ...session, messages: session.messages.map(item => item.id === message.id ? { ...item, savedNote: { libraryPath, paperId, title: paper?.title ?? paperId, blockId: captured.blockId } } : item) }))
     } catch (reason) { if (current()) setErrors(errors => noteActionScope.current.owner === owner ? ({ ...errors, [sessionId]: reason instanceof Error ? reason.message : String(reason) }) : errors) }
     finally { savingAnswerIds.current.delete(key); setSavingAnswers(current => { const next = { ...current }; delete next[key]; return next }) }
   }
@@ -758,6 +768,7 @@ function App() {
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
+          {activeSession.provider === 'codex' && activeSession.providerThreadId && <div className="session-usage"><button disabled={isRunning} onClick={() => void compactChat()} title="Codex가 이전 대화를 요약해 문맥을 줄입니다. AI 사용량이 소모되며 화면의 대화 기록은 보존됩니다. 세부 내용이 필요하면 해당 근거를 다시 첨부하세요.">대화 문맥 정리 · AI 사용</button></div>}
           {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
           <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
 
@@ -788,6 +799,7 @@ function App() {
             <form className="composer" onSubmit={onSubmit}>
               {tagSuggestions.length > 0 && <div className="tag-suggestions" role="listbox" aria-label="논문 참조 추천">{tagSuggestions.map((anchor, index) => <button type="button" role="option" aria-selected={index === tagSuggestionIndex} className={index === tagSuggestionIndex ? 'active' : ''} key={`${anchor.paperId}-${anchor.anchorId}`} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setTagSuggestionIndex(index)} onClick={() => chooseTag(anchor)}><span>@</span><div><strong>{anchor.label}</strong><small>{anchor.paperId} · p.{anchor.page}</small></div></button>)}</div>}
               <FigureAttachments anchors={contextAnchors} />
+              {composerDraft.error && <p role="alert">{composerDraft.error}</p>}
               <InlineComposer onMemo={anchor => runWorkspaceCommand('memo-anchor', anchor.paperId, anchor)} text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
                 <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>

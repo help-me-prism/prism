@@ -35,6 +35,7 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
       if (fs.existsSync(path.join(root, 'inspect-context.txt'))) { fs.writeFileSync(path.join(root, 'inspected-context.json'), JSON.stringify(args[1])); throw new Error('Offline context inspection completed') }
       fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls')
     }
+    if (channel === 'chat:compact') throw new Error('Offline UI test prevents paid compaction calls')
     return listener(...args)
   })
 }
