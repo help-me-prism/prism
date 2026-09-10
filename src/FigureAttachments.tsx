@@ -3,23 +3,23 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useDialogFocus } from './useDialogFocus'
 
-/** The image preview never replaces the source reference sent to the backend. */
-export default function FigureAttachments({ anchors }: { anchors: ContextAnchor[] }) {
+const openFigureEvent = 'prism-open-figure-preview'
+
+export function openFigurePreview(anchor: ContextAnchor) {
+  window.dispatchEvent(new CustomEvent<ContextAnchor>(openFigureEvent, { detail: anchor }))
+}
+
+/** Hosts the shared full-size viewer without rendering a persistent attachment
+ * strip. Figure thumbnails now live only in the tag's hover popover. */
+export default function FigureAttachments() {
   const [selected, setSelected] = useState<ContextAnchor>()
   useEffect(() => {
-    if (selected && !anchors.some(anchor => anchor.paperId === selected.paperId && anchor.anchorId === selected.anchorId)) setSelected(undefined)
-  }, [anchors, selected])
+    const open = (event: Event) => setSelected((event as CustomEvent<ContextAnchor>).detail)
+    window.addEventListener(openFigureEvent, open)
+    return () => window.removeEventListener(openFigureEvent, open)
+  }, [])
   useDialogFocus(Boolean(selected), '.figure-preview-dialog', '.composer-editor')
-  const figures = anchors.filter((anchor, index) => anchor.type === 'figure' &&
-    anchors.findIndex(other => other.paperId === anchor.paperId && other.anchorId === anchor.anchorId) === index)
-  if (!figures.length) return null
   return <>
-    <div className="figure-attachments" aria-label="질문에 첨부할 이미지">
-      {figures.map(anchor => <button type="button" key={`${anchor.paperId}:${anchor.anchorId}`} className="figure-attachment" title={`${anchor.label} · ${anchor.page}쪽 이미지 확인`} onClick={() => setSelected(anchor)}>
-        {anchor.preview?.startsWith('data:image/') && <img src={anchor.preview} alt="" />}
-        <span>{anchor.label} · {anchor.page}쪽</span>
-      </button>)}
-    </div>
     {selected && createPortal(<div className="figure-preview-backdrop" onClick={event => { if (event.target === event.currentTarget) setSelected(undefined) }}>
       <section className="figure-preview-dialog" role="dialog" aria-modal="true" aria-label="첨부 이미지 확인" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setSelected(undefined) } }}>
         <header><span>{selected.label} · {selected.page}쪽</span><button type="button" aria-label="이미지 확인 닫기" onClick={() => setSelected(undefined)}><X size={18} /></button></header>

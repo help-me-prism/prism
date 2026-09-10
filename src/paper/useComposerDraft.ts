@@ -1,4 +1,5 @@
 import { useEffect, useState, type SetStateAction } from 'react'
+import { durableAnchorPreview } from './anchorPreview'
 type Draft = { text: string; anchors: ContextAnchor[] }
 const blank = (): Draft => ({ text: '', anchors: [] })
 const prefix = 'prism.composer-draft.v1:'
@@ -19,7 +20,7 @@ export function useComposerDraft(key: string) {
   useEffect(() => {
     if (!state.edited) return
     try {
-      const draft = { text: state.draft.text, anchors: state.draft.anchors.map(({ preview: _preview, ...anchor }) => anchor) }
+      const draft = { text: state.draft.text, anchors: state.draft.anchors.map(durableAnchorPreview) }
       if (!draft.text && !draft.anchors.length) localStorage.removeItem(prefix + state.key)
       else localStorage.setItem(prefix + state.key, JSON.stringify(draft))
     } catch { setState(value => value.key === state.key ? { ...value, edited: false, error: '질문 초안을 기기에 보관하지 못했습니다. 앱을 닫기 전에 내용을 복사해 주세요.' } : value) }

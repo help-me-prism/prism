@@ -105,10 +105,6 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-context-bar > button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 .untouched-paper { position: relative; }
-.figure-attachments { display: flex; gap: 8px; overflow-x: auto; padding: 3px 0 9px; }
-.figure-attachment { flex: 0 0 100px; padding: 4px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink); text-align: left; }
-.figure-attachment img { display: block; width: 90px; height: 58px; object-fit: contain; background: white; }
-.figure-attachment span { display: block; margin-top: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .figure-preview-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: #0009; }
 .figure-preview-dialog { display: flex; flex-direction: column; width: min(1040px, 94vw); max-height: 90vh; overflow: hidden; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }
 .figure-preview-dialog header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

@@ -1,6 +1,20 @@
 export type FigureRect = { left: number; top: number; width: number; height: number }
 export type FigureComponentMetrics = { relativeWidth?: number; row?: number; pixelWidth?: number; pixelHeight?: number }
 
+/** Include an adjacent caption above or below a figure. Horizontal alignment
+ * and a bounded gap prevent unrelated prose from being absorbed. */
+export function figureRegionWithCaption(figure: FigureRect, captionRects: FigureRect[], scale = 1): FigureRect {
+  if (!captionRects.length) return figure
+  const captionLeft = Math.min(...captionRects.map(rect => rect.left)); const captionTop = Math.min(...captionRects.map(rect => rect.top))
+  const captionRight = Math.max(...captionRects.map(rect => rect.left + rect.width)); const captionBottom = Math.max(...captionRects.map(rect => rect.top + rect.height))
+  const figureRight = figure.left + figure.width; const figureBottom = figure.top + figure.height
+  const overlap = Math.max(0, Math.min(figureRight, captionRight) - Math.max(figure.left, captionLeft)) / Math.max(1, Math.min(figure.width, captionRight - captionLeft))
+  const gap = Math.max(0, Math.max(figure.top, captionTop) - Math.min(figureBottom, captionBottom))
+  if (overlap < .18 || gap > 72 * scale) return figure
+  const left = Math.min(figure.left, captionLeft); const top = Math.min(figure.top, captionTop)
+  return { left, top, width: Math.max(figureRight, captionRight) - left, height: Math.max(figureBottom, captionBottom) - top }
+}
+
 /** Estimate the printed bounds from the source's declared panel widths and
  * intrinsic aspect ratios. Unlike a fixed caption-upward crop, this cannot
  * swallow arbitrary prose or tables above a short figure. */
