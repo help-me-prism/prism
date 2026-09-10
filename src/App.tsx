@@ -24,6 +24,7 @@ import StorageSettings from './StorageSettings'
 import AiUsageHistory from './AiUsageHistory'
 import ThemeControl from './ThemeControl'
 import PaperWorkspace from './PaperWorkspace'
+import { displayMathForPreview } from '../electron/mathRendering'
 
 type JsonRecord = Record<string, unknown>
 
@@ -96,7 +97,7 @@ function MessageContent({ text, anchors, onNavigate }: { text: string; anchors?:
 }
 
 function equationPreviewHtml(source: string) {
-  const math = source.trim().replace(/^\$\$([\s\S]*)\$\$$/, '$1').replace(/^\\\[([\s\S]*)\\\]$/, '$1')
+  const math = displayMathForPreview(source)
   try { return katex.renderToString(math, { displayMode: true, trust: false, strict: 'ignore', throwOnError: true, maxExpand: 100, maxSize: 20 }) }
   catch { return undefined }
 }

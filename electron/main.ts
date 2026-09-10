@@ -891,7 +891,7 @@ async function latexStructure(record: PaperRecord): Promise<LatexStructure | nul
   if (!record.sourcePath) return null
   const paperDir = path.dirname(record.pdfPath)
   const structurePath = path.join(paperDir, 'latex-structure.json')
-  try { const cached = JSON.parse(await fs.readFile(structurePath, 'utf8')) as LatexStructure; if (cached.version === 5) return cached } catch { /* build for libraries saved before source parsing existed */ }
+  try { const cached = JSON.parse(await fs.readFile(structurePath, 'utf8')) as LatexStructure; if (cached.version === 6) return cached } catch { /* build for libraries saved before source parsing existed */ }
   const structure = await parseLatexStructure(path.join(paperDir, 'source'))
   if (structure) await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf8')
   return structure

@@ -9,7 +9,7 @@ export type LatexBlock = {
 }
 
 export type LatexStructure = {
-  version: 5
+  version: 6
   rootFile: string
   generatedAt: string
   blocks: LatexBlock[]
@@ -92,9 +92,11 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
   const root = candidates.filter((candidate) => /\\begin\s*\{document\}/.test(candidate.text))
     .sort((left, right) => right.text.length - left.text.length)[0] ?? candidates.sort((left, right) => right.text.length - left.text.length)[0]
   let content = await expandInputs(root.file, sourceDir)
+  const macros = latexMacros(content)
   const documentStart = content.search(/\\begin\s*\{document\}/)
   if (documentStart >= 0) content = content.slice(documentStart).replace(/^.*?\\begin\s*\{document\}/s, '')
   content = content.replace(/\\end\s*\{document\}[\s\S]*$/, '')
+  content = expandLatexMacros(content, macros)
   content = content.replace(/\\begin\s*\{abstract\}([\s\S]*?)\\end\s*\{abstract\}/g, '\n\n\\section*{Abstract}\n\n$1\n\n')
 
   const protectedBlocks: LatexBlock[] = []
@@ -140,5 +142,82 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     blocks.push({ id: `latex-${protectedBlocks.length + blocks.length + 1}`, kind: 'paragraph', source, section: currentSection })
   }
   if (!blocks.some((block) => block.kind === 'paragraph')) return null
-  return { version: 5, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+  return { version: 6, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+}
+
+type LatexMacro = { arguments: number; body: string }
+
+function braceGroup(value: string, from: number, open = '{', close = '}'): { body: string; end: number } | undefined {
+  if (value[from] !== open) return undefined
+  let depth = 0
+  for (let index = from; index < value.length; index += 1) {
+    if (value[index] === '\\') { index += 1; continue }
+    if (value[index] === open) depth += 1
+    else if (value[index] === close && --depth === 0) return { body: value.slice(from + 1, index), end: index + 1 }
+  }
+  return undefined
+}
+
+function latexMacros(value: string) {
+  const macros = new Map<string, LatexMacro>()
+  const remember = (name: string, argumentsCount: number, body: string) => {
+    if (macros.size < 500 && argumentsCount <= 4 && body.length <= 2_000) macros.set(name, { arguments: argumentsCount, body })
+  }
+  for (const match of value.matchAll(/\\(?:re)?newcommand\s*\{\\([A-Za-z@]+)\}/g)) {
+    let cursor = match.index! + match[0].length
+    while (/\s/.test(value[cursor] ?? '')) cursor += 1
+    let argumentsCount = 0
+    if (value[cursor] === '[') {
+      const count = braceGroup(value, cursor, '[', ']')
+      if (!count || !/^\d+$/.test(count.body.trim())) continue
+      argumentsCount = Number(count.body.trim()); cursor = count.end
+      while (/\s/.test(value[cursor] ?? '')) cursor += 1
+      if (value[cursor] === '[') continue
+    }
+    const body = braceGroup(value, cursor)
+    if (body) remember(match[1], argumentsCount, body.body)
+  }
+  for (const match of value.matchAll(/\\(?:global\s*)?(?:def|gdef|edef|xdef)\s*\\([A-Za-z@]+)/g)) {
+    const cursor = match.index! + match[0].length
+    const bodyStart = value.indexOf('{', cursor)
+    if (bodyStart < 0 || bodyStart - cursor > 40) continue
+    const signature = value.slice(cursor, bodyStart)
+    if (!/^(?:\s*#\d\s*)*$/.test(signature)) continue
+    const body = braceGroup(value, bodyStart)
+    const argumentNumbers = [...signature.matchAll(/#(\d)/g)].map(item => Number(item[1]))
+    if (body) remember(match[1], argumentNumbers.length ? Math.max(...argumentNumbers) : 0, body.body)
+  }
+  return macros
+}
+
+/** Expand bounded document-local macros into portable LaTeX without executing TeX. */
+function expandLatexMacros(value: string, macros: Map<string, LatexMacro>) {
+  let expanded = value
+  for (let pass = 0; pass < 12; pass += 1) {
+    let changed = false; let result = ''
+    for (let index = 0; index < expanded.length;) {
+      if (expanded[index] !== '\\' || !/[A-Za-z@]/.test(expanded[index + 1] ?? '')) { result += expanded[index++]; continue }
+      let end = index + 1
+      while (/[A-Za-z@]/.test(expanded[end] ?? '')) end += 1
+      const macro = macros.get(expanded.slice(index + 1, end))
+      if (!macro) { result += expanded.slice(index, end); index = end; continue }
+      let cursor = end; const args: string[] = []
+      for (let argument = 0; argument < macro.arguments; argument += 1) {
+        while (/\s/.test(expanded[cursor] ?? '')) cursor += 1
+        const group = braceGroup(expanded, cursor)
+        if (!group) break
+        args.push(group.body); cursor = group.end
+      }
+      if (args.length !== macro.arguments) { result += expanded.slice(index, end); index = end; continue }
+      let replacement = macro.body
+      // Braces preserve TeX token boundaries: `\Vert#1` with argument `x`
+      // must become `\Vert{x}`, not the unrelated command `\Vertx`.
+      for (let argument = args.length; argument >= 1; argument -= 1) replacement = replacement.replaceAll(`#${argument}`, `{${args[argument - 1]}}`)
+      if (result.length + replacement.length > 5_000_000) return expanded
+      result += replacement; index = cursor; changed = true
+    }
+    expanded = result
+    if (!changed) break
+  }
+  return expanded
 }

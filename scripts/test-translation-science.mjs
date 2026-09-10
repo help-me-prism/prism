@@ -23,6 +23,11 @@ assert.throws(() => check(engineering, engineeringKo.replace('mV', 'V')), /수�
 const cached = [{ id: 's', source: engineering, translation: engineeringKo.replace('mV', 'V') }]
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], cached)[0].translation, undefined)
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], [{ ...cached[0], translation: engineeringKo }])[0].translation, engineeringKo)
+const upgradedMath = reuseTranslations(
+  [{ id: 'macro', source: 'For $x\\in\\mathbb R^d$, use $\\mathcal{L}_{\\text{FM}}$.' }],
+  [{ id: 'macro', source: 'For $x\\in\\Real^d$, use $\\gL_{\\FM}$.', translation: '$x\\in\\Real^d$에서는 $\\gL_{\\FM}$을 사용한다.' }],
+)[0].translation
+assert.equal(upgradedMath, '$x\\in\\mathbb R^d$에서는 $\\mathcal{L}_{\\text{FM}}$을 사용한다.', 'Cached prose survives a source-macro upgrade while its protected math is refreshed.')
 assert.throws(() => check('$x$ and $x$ are repeated [1] and [1].', '$x$는 반복된다 [1].'), /수식/)
 const protectedMath = prepareTranslationRequest([{ id: 'math-heavy', source: String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.` }])
 assert(!protectedMath.modelItems[0].source.includes('$p_t'), 'The translation model must not be asked to reproduce fragile LaTeX.')

@@ -179,9 +179,23 @@ export function reuseTranslations<T extends { id: string; source: string; transl
   return segments.map(segment => {
     const previous = existing.get(segment.id)
     let translation: string | undefined
-    if (previous?.source === segment.source && previous.translation) {
+    if (previous?.translation) {
       try {
-        translation = validateTranslation(JSON.stringify([{ id: segment.id, translation: previous.translation }]), [segment]).get(segment.id)
+        let candidate = previous.translation
+        if (previous.source !== segment.source) {
+          const oldNotation = previous.source.match(mathOrCitation) ?? []
+          const newNotation = segment.source.match(mathOrCitation) ?? []
+          const sameProse = previous.source.replace(mathOrCitation, ' math ').replace(/\s+/g, ' ').trim() === segment.source.replace(mathOrCitation, ' math ').replace(/\s+/g, ' ').trim()
+          if (!sameProse || oldNotation.length !== newNotation.length) throw new Error('source changed')
+          let cursor = 0
+          for (let index = 0; index < oldNotation.length; index += 1) {
+            const found = candidate.indexOf(oldNotation[index], cursor)
+            if (found < 0) throw new Error('cached notation missing')
+            candidate = candidate.slice(0, found) + newNotation[index] + candidate.slice(found + oldNotation[index].length)
+            cursor = found + newNotation[index].length
+          }
+        }
+        translation = validateTranslation(JSON.stringify([{ id: segment.id, translation: candidate }]), [segment]).get(segment.id)
       } catch { /* Invalid legacy cache is retried; valid completed segments still cost nothing. */ }
     }
     return { ...segment, translation }

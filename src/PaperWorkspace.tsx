@@ -10,6 +10,7 @@ import { useDialogFocus } from './useDialogFocus'
 import { joinBitmapRegions, joinVectorRegions } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { tableMemberIndexes } from './paper/tableRegions'
+import { matchFigureCaptions } from '../electron/figureCaptionMatching'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
 import { useEvidenceCapture } from './paper/useEvidenceCapture'
@@ -546,7 +547,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const pageTranslationDetail = `${pageNumber}쪽: ${pageTranslated}/${pageTranslatable.length}문장 번역. ${!pageTranslatable.length ? '번역할 본문이 없는 페이지는 원문으로 표시합니다.' : pageTranslated < pageTranslatable.length ? '아직 번역하지 않은 문장은 원문으로 표시합니다. 위의 AI 번역 버튼으로 이 페이지를 번역할 수 있습니다.' : '번역문이 저장돼 있습니다.'}${preservedParagraphCount ? ` 글자 위치가 불확실한 ${preservedParagraphCount}개 문단은 원문으로 보존합니다.` : protectedProseCount ? ` 글자와 기호를 보존한 원문 ${protectedProseCount}곳이 포함돼 있습니다.` : ''}`
   const zoomLevels = [.7, .85, 1, 1.15, 1.3, 1.5, 1.75, 2]
   const captionSegments = allSegments.filter((segment) => segment.kind === 'caption' && /^(?:figure|fig\.?)\s*\d+/i.test(segment.source))
-  const matchedFigures = figureAssets.map((figure, index) => ({ ...figure, captionAnchorId: captionSegments[index]?.id }))
+  const matchedFigures = matchFigureCaptions(figureAssets, captionSegments)
   const anchorCatalog = useMemo(() => {
     if (!activePaper) return []
     let sentence = 0; let section = 0; let equation = 0; let table = 0
@@ -719,7 +720,11 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
-        const candidates = source.segments.map((segment) => ({ ...segment, translation: (byId.get(segment.id)?.source === segment.source ? byId.get(segment.id)?.translation : undefined) ?? bySource.get(segment.source.replace(/\s+/g, ' ').trim()) }))
+        const candidates = source.segments.map((segment) => {
+          const previous = byId.get(segment.id)
+          const translatedBySource = bySource.get(segment.source.replace(/\s+/g, ' ').trim())
+          return { ...segment, translation: previous?.translation ?? translatedBySource, source: previous?.translation ? previous.source : segment.source }
+        })
         const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)
         setCacheExists(restored.some(segment => ['text', 'heading', 'caption'].includes(segment.kind))); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
