@@ -2,7 +2,17 @@ export type PdfTextItem = { str: string; width: number; height: number; transfor
 
 // A figure reference such as "Fig 2)" can begin a PDF text item in the middle
 // of body prose. Only a caption label delimiter (or a label alone) starts a block.
-const captionStart = /^(?:figure|fig\.?|table|algorithm)\s*\d+(?:\s*[.:](?:\s|$)|\s*$)/i
+// Many captions put the title straight after the label with only a space
+// ("Algorithm 1 Plot Inverse Loewner Map"). What separates those from a running
+// reference is the case of the next letter: a title starts capitalised, while
+// prose continues in lower case ("Figure 3 illustrates ..."). Matching must
+// therefore be case-sensitive, so the label's own spellings are listed out.
+const captionStart = /^(?:[Ff]igure|FIGURE|[Ff]ig\.?|FIG\.?|[Tt]able|TABLE|[Aa]lgorithm|ALGORITHM)\s*\d+(?:\s*[.:](?:\s|$)|\s*$|\s+(?=[A-Z]))/
+// Stands in for a full stop that must not end a sentence. It is exactly one
+// character so offsets survive masking: segments address PDF glyph ranges by
+// character position, so never drop it or replace it with a longer string.
+const sentenceGuard = '\u0001'
+
 function isPublicationFurniture(text: string) {
   return /^PLOS\s+(?:ONE|BIOLOGY|GENETICS|MEDICINE|PATHOGENS|COMPUTATIONAL BIOLOGY)\b/i.test(text)
     || /^arXiv:\d{4}\.\d{4,5}v\d+\b/i.test(text)
@@ -60,7 +70,11 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       // Empty PDF.js items can carry the only EOL between centered displays and
       // prose. Use a slightly stronger gap for those markers so ordinary compact
       // table rows retain their established source identity.
-      const currentParagraph = combined.slice(combined.lastIndexOf('\n\n') + 2)
+      // With no paragraph break yet lastIndexOf returns -1, and adding 2 sliced the
+      // first character off. Every rule below reads this value, so the opening
+      // paragraph of each page was judged against text missing its first letter.
+      const paragraphStartAt = combined.lastIndexOf('\n\n')
+      const currentParagraph = paragraphStartAt < 0 ? combined : combined.slice(paragraphStartAt + 2)
       // PDF text order walks tall delimiters and fractions vertically even though
       // they belong to one visual display. Do not turn those short nearby glyphs
       // into separate paragraphs merely because their baseline moves upward/downward.
@@ -79,7 +93,14 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value) && !equationContinuation
       const numberedDisplayToProse = previous.hasEOL && /^\(\d{1,4}\)$/.test(previous.str.trim()) && verticalGap > height * .9
       const centeredDisplayAfterProse = startsDisplayMath
-      const paragraphGap = (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
+      // A section title is only slightly larger than body text and its leading sits
+      // just under both thresholds above (measured: 1.54x against 1.55x, and 0.83x
+      // against 0.80x), so the title kept absorbing the paragraph that follows it.
+      // A numbered title followed by a real change in glyph size is a boundary.
+      const headingToBody = !equationContinuation && verticalGap > height * .75
+        && /^\d+(?:\.\d+)*\s+[A-Z]/.test(currentParagraph) && !/[.!?]$/.test(currentParagraph)
+        && currentParagraph.length < 120 && Math.abs(nextHeight - height) > height * .08
+      const paragraphGap = headingToBody || (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
         || (!equationContinuation && pendingEOL && verticalGap > height * 1.64) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
       // A number at an inline font boundary is often a subscript or a measured
       // dimension, not a section number (e.g. rho + "0 of ...", 300 mm × 300 mm).
@@ -92,7 +113,11 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
         || (verticalGap > height * .75 && /^\(\d{1,3}\)\s+[A-Z][^.!?]{1,100}[.:]$/.test(value) && value.split(/\s+/).length <= 9)
       const displayGap = !equationContinuation && verticalGap > height * 1.8
       const fontSizeBoundary = !equationContinuation && verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
-      const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset
+      // An empty table cell arrives as a lone '-'. A word broken across lines keeps a
+      // letter in front of its hyphen, so only join in that case. Otherwise one
+      // empty cell swallows the caption boundary that follows it, because a true
+      // joinHyphen skips every boundary test below, and table and caption merge.
+      const joinHyphen = /[A-Za-zÀ-ɏ가-힣]-$/.test(previous.str.trimEnd()) && !columnReset
       if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
       combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
       if (startsDisplayMath) displayMathRun = true
@@ -119,9 +144,19 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph)) {
       parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
     }
+    // The English sentence segmenter reads the full stop in "0 . 5" or "Fig. 2" as
+    // an ending and chops formulas and abbreviations apart. Masking keeps the same
+    // length, so offsets hold and each cut can be read back out of the original.
+    const masked = paragraph
+      .replace(/(\d)(\s*)\.(\s*)(\d)/g, `$1$2${sentenceGuard}$3$4`)
+      .replace(/\b(?:Fig|Figs|Eq|Eqs|Sec|Ref|Refs|Tab|No|vs|cf|al|approx|resp|etc)\./gi, (whole) => `${whole.slice(0, -1)}${sentenceGuard}`)
     const sentences = typeof Intl.Segmenter === 'function'
-      ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(paragraph)]
-      : paragraph.split(/(?<=[.!?])\s+/).map((segment, index, all) => ({ segment, index: all.slice(0, index).join(' ').length + (index ? 1 : 0) }))
+      ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(masked)]
+        .map((part) => ({ segment: paragraph.slice(part.index, part.index + part.segment.length), index: part.index }))
+      : masked.split(/(?<=[.!?])\s+/).map((segment, index, all) => {
+        const at = all.slice(0, index).join(' ').length + (index ? 1 : 0)
+        return { segment: paragraph.slice(at, at + segment.length), index: at }
+      })
     for (const sentence of sentences) {
       const text = sentence.segment.trim()
       if (text.length < 2) continue
@@ -149,7 +184,17 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     const digitRatio = digits / Math.max(1, part.text.length)
     const numericLayout = digits >= 6 && digitRatio > .12 && matchedItems.length >= 5
     const proseWordCount = part.text.match(/[A-Za-z]{2,}/g)?.length ?? 0
-    const hasProseSentence = (/[.!?]$/.test(part.text) && proseWordCount >= 4) || (/[,;:]$/.test(part.text) && proseWordCount >= 6)
+    // A short emphasised phrase ("Arti-PG toolbox.") arrives as several bold runs
+    // and looks like table debris, yet it sits inside a paragraph of full
+    // sentences. Tables and bibliography entries never form such a paragraph, so
+    // require a long, multi-sentence context before granting the exception. One
+    // fragment misread here drops its whole paragraph from translation.
+    const digitShare = (part.text.match(/\d/g)?.length ?? 0) / Math.max(1, part.text.length)
+    const inProseParagraph = (part.paragraphContext.match(/[A-Za-z]{2,}/g)?.length ?? 0) >= 60
+      && (part.paragraphContext.match(/[.!?]\s/g)?.length ?? 0) >= 3
+    const proseLooking = inProseParagraph && /\b[a-z]{4,}\b/.test(part.text)
+      && !/[=+×÷∑∫√∞≈≠≤≥∈⊂⊆∀∃∇∂]/.test(part.text) && digitShare < .08
+    const hasProseSentence = (/[.!?]$/.test(part.text) && (proseWordCount >= 4 || proseLooking)) || (/[,;:]$/.test(part.text) && proseWordCount >= 6)
     const likelyGraphicOrTable = !caption && !hasProseSentence && averageHeight <= bodyHeight * 1.08 && (numericLayout || (!sectionHeading && (
       (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
       || (digitRatio > .18 && matchedItems.length >= 4)
