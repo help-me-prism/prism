@@ -267,9 +267,9 @@ function App() {
   const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
-  const [excludedPaperIds, setExcludedPaperIds] = useState<string[]>([])
+  const [autoIncludePaper, setAutoIncludePaper] = useState(true)
   useEffect(() => {
-    setContextPaperIds([]); setExcludedPaperIds([]); setContextAnchors([])
+    setContextPaperIds([]); setAutoIncludePaper(true); setContextAnchors([])
   }, [workspaceState.libraryPath])
   const [noteSaved, setNoteSaved] = useState<Record<string, { paperId: string; title: string; blockId?: string }>>({})
   const savingAnswerIds = useRef(new Set<string>())
@@ -283,6 +283,7 @@ function App() {
   }, [chatVisible, workspaceState.activePaperId, workspaceState.libraryPath])
   useEffect(() => { localStorage.setItem('prism.chat-visible', String(chatVisible)) }, [chatVisible])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPanel, setSettingsPanel] = useState<'general' | 'usage'>('general')
   useDialogFocus(settingsOpen, '.app-settings', 'button[aria-label="설정"]')
   const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
@@ -307,7 +308,7 @@ function App() {
   if (composerSession.current !== (activeSession?.id ?? '')) { composerSession.current = activeSession?.id ?? ''; composerRevision.current += 1 }
   const activeProvider = providers.find((provider) => provider.id === activeSession?.provider)
   const isRunning = activeSession ? runningIds.includes(activeSession.id) : false
-  const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId) || (paper.arxivId === workspaceState.activePaperId && !excludedPaperIds.includes(paper.arxivId)))
+  const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId) || (autoIncludePaper && paper.arxivId === workspaceState.activePaperId))
   const historicalReferences = activeSession?.messages.flatMap(message => message.anchors ?? []).filter(anchor => /^근거\d+$/.test(anchor.label)) ?? []
   const composerReferences = [...anchorCatalog, ...historicalReferences.filter((anchor, index, all) => all.findIndex(item => item.label === anchor.label) === index)]
   const tagMatch = input.slice(0, composerCaret).match(/(?:^|\s)@([^\s@]*)$/)
@@ -421,10 +422,6 @@ function App() {
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: 'auto' }))
   }, [activeSessionId])
 
-  useEffect(() => {
-    const id = workspaceState.activePaperId
-    if (id) setContextPaperIds((current) => current.includes(id) ? current : [...current, id])
-  }, [workspaceState.activePaperId])
   useEffect(() => { setContextPaperIds((current) => current.filter((id) => workspaceState.library.some((paper) => paper.arxivId === id))) }, [workspaceState.library])
 
   const canSend = useMemo(() => Boolean(input.trim() && activeSession && !isRunning && activeProvider?.available), [input, activeSession, isRunning, activeProvider])
@@ -762,7 +759,7 @@ function App() {
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
           {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
-          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setContextPaperIds(current => selected ? current.filter(id => id !== paper.arxivId) : [...current, paper.arxivId]); setExcludedPaperIds(current => selected ? [...current, paper.arxivId] : current.filter(id => id !== paper.arxivId)) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
+          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>
             {activeSession.messages.length === 0 ? (
@@ -803,6 +800,8 @@ function App() {
       </div>
       {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
         <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
+        <div className="settings-tabs" role="tablist" aria-label="설정 항목"><button role="tab" aria-selected={settingsPanel === 'general'} onClick={() => setSettingsPanel('general')}>연결 및 설정</button><button role="tab" aria-selected={settingsPanel === 'usage'} onClick={() => setSettingsPanel('usage')}>AI 사용 기록</button></div>
+        {settingsPanel === 'usage' ? <AiUsageHistory /> : <>
         <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>Codex 또는 Claude CLI로 채팅과 번역을 사용합니다.</small></div><button onClick={() => void refreshProviders()} disabled={authInProgress !== null}><RefreshCw size={14} /> 다시 확인</button></div>
           <div className="provider-list">{providers.map((provider) => (
             <div key={provider.id}>
@@ -823,9 +822,9 @@ function App() {
           {authMessage && <p className="provider-auth-message">{authMessage}</p>}
         </div>
         <StorageSettings onChooseVault={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }} />
-        <AiUsageHistory />
         <div className="settings-section"><ThemeControl /><p>원문 PDF는 인쇄 색상을 유지합니다.</p></div>
         <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
+        </>}
       </section></div>}
       {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 휴지통으로 옮겼습니다.</strong><small>휴지통에서도 언제든 복원할 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
     </main>

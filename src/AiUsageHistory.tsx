@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AiRun } from '../electron/aiUsageTypes'
 
 const labels: Record<string, string> = { chat: '질문', translation: '번역', digest: '노트 정리', knowledge: '연결 제안', structure: '구조 분석' }
@@ -10,6 +10,7 @@ export default function AiUsageHistory() {
     try { setRuns((await window.prism.readAiUsage()).slice(-10).reverse()); setError('') }
     catch { setError('사용 기록을 읽지 못했습니다.') }
   }
+  useEffect(() => { void refresh() }, [])
   return <div className="settings-section"><strong>AI 사용 기록</strong>
     <p>최근 작업의 입력·캐시·출력 토큰과 시간을 확인합니다. 캐시 토큰은 입력에 포함됩니다. CLI가 제공하지 않은 값은 추정하지 않습니다.</p>
     <button className="settings-action" onClick={() => void refresh()}>최근 사용 기록 {runs ? '새로고침' : '보기'}</button>
