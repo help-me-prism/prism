@@ -214,6 +214,8 @@ try {
   await fs.mkdir(path.dirname(visualPath), { recursive: true }); await fs.writeFile(visualPath, Buffer.from(visual.data, 'base64'))
 
   await evaluate(`document.querySelector('button[aria-label="설정"]').click()`)
+  await evaluate("document.querySelector('[data-settings-tab=appearance]').click()")
+  await waitFor('Boolean(document.querySelector("[aria-label=\\"화면 테마\\"]"))', 'The appearance panel did not open.')
   await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   assert(await evaluate(`document.documentElement.style.colorScheme === 'dark'`), 'Dark theme was not applied.')
   assert(await evaluate(`localStorage.getItem('prism.appearance') === 'dark'`), 'Theme preference was not persisted.')

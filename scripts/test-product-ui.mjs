@@ -90,7 +90,7 @@ try {
   await wait('document.querySelector(".ai-reading-popover")?.textContent.includes("실험의 대조 조건")')
   const highlightedSelector = `[data-anchor="${guide.points[0].anchorId}"]`
   await wait(`Boolean(document.querySelector(${JSON.stringify(highlightedSelector)}))`)
-  assert.notEqual(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(highlightedSelector)})).backgroundColor`), 'rgba(0, 0, 0, 0)')
+  await wait(`getComputedStyle(document.querySelector(${JSON.stringify(highlightedSelector)})).backgroundColor === 'rgba(97, 160, 210, 0.21)'`)
   await evaluate('document.querySelector(".ai-reading-bar input").click()')
   await wait(`getComputedStyle(document.querySelector(${JSON.stringify(highlightedSelector)})).backgroundColor === 'rgba(0, 0, 0, 0)'`)
   assert((await fs.readFile(paper.notePath,'utf8')).includes(guide.summary), 'Hiding highlights must preserve the reading note')
