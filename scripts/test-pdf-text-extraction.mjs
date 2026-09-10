@@ -32,6 +32,7 @@ assert.deepEqual(segmentsFromItems(4, fixture.furniture), [])
 
 // Preserve genuine section and paragraph boundaries while joining inline quantities.
 const item = (str, y, hasEOL = true, height = 10) => ({str,y,width:120,height,transform:[height,0,0,height,100,y],hasEOL})
+assert.deepEqual(segmentsFromItems(1,[item('Preprint',756),{...item('arXiv:2210.02747v2 [cs.LG] 8 Feb 2023',237),transform:[0,20,-20,0,32,237]}]),[],'Preprint headers and rotated arXiv stamps are page furniture, not translation prose')
 const section = segmentsFromItems(1, [item('A preceding sentence.',700), item('2 Methods',674, true,12), item('We compared specimens.',655)])
 assert(section.some(s=>s.kind==='heading' && s.source==='2 Methods'))
 for (const label of ['Fig 3. Test setup.', 'Fig. 3. Test setup.', 'Figure 3. Test setup.', 'Table 3. Test setup.']) {
@@ -50,6 +51,10 @@ const damagedComparator = segmentsFromItems(11,[item('The proportion of S � 1.
 assert.equal(damagedComparator[0].kind,'artifact')
 const mathFontEquation = segmentsFromItems(3,[{...item('x',700,false),fontName:'CMMI10'},{...item('i',700,false),fontName:'CMMI10',transform:[10,0,0,10,112,700]},{...item('=',700,false),fontName:'CMSY10',transform:[10,0,0,10,124,700]},{...item('z',700),fontName:'CMMI10',transform:[10,0,0,10,136,700]}])
 assert.equal(mathFontEquation[0].kind,'equation','Math-font display fragments retain one formula boundary even when PDF glyph mapping loses operators')
+const separatedDisplay = segmentsFromItems(4,[item('We define the objective,',636,false),{...item('',619),transform:[0,0,0,0,209,619]}, {...item('L(θ) = E ||v-u||²',619),transform:[10,0,0,10,209,619]},item('where samples are unbiased.',604)])
+assert.deepEqual(separatedDisplay.map(segment=>segment.source),['We define the objective,','L(θ) = E ||v-u||²','where samples are unbiased.'],'Blank PDF line markers separate centered display math from surrounding prose')
+const numberedDisplay = segmentsFromItems(4,[item('L(θ) = E ||v-u||²',619,false),item('(9) where samples are unbiased.',604)])
+assert.deepEqual(numberedDisplay.map(segment=>segment.source),['L(θ) = E ||v-u||² (9)','where samples are unbiased.'],'A display equation number ends the formula before its explanatory prose')
 const mixedSizes = [item('A smaller sidebar sentence contributes its font size.',720,true,8),item('Another smaller sidebar sentence contributes its font size.',706,true,8),item('The main paragraph ends with a continuation. While',680,true,10)]
 assert.equal(segmentsFromItems(2,mixedSizes).find(s=>s.source==='While').kind,'text')
 console.log('PDF extraction passed: real PLOS engineering dimensions/subscript/caption/footer regressions and section boundaries.')

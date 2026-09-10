@@ -8,6 +8,7 @@ import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
 import { joinBitmapRegions, joinVectorRegions } from './paper/figureGeometry'
+import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { tableMemberIndexes } from './paper/tableRegions'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
@@ -97,7 +98,7 @@ function latexSentenceSource(source: string, pdfSource: string) {
 
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
-  const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
+  const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption', 'theorem'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
   let matched = 0
   const enriched: TranslationSegment[] = segments.map((segment): TranslationSegment => {
     if (!['text', 'heading', 'caption'].includes(segment.kind)) return { ...segment, sourceMode: 'pdf' as const }
@@ -113,17 +114,50 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const threshold = tokens.length < 5 ? .78 : .58
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
     matched += 1
-    const inlineSource = best.block.kind === 'paragraph' ? latexSentenceSource(best.block.source, segment.source) : undefined
+    const inlineSource = ['paragraph', 'theorem'].includes(best.block.kind) ? latexSentenceSource(best.block.source, segment.source) : undefined
     return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
   })
+  const theoremBlocks = structure.blocks.filter((block) => block.kind === 'theorem')
+  const pdfTheorems = new Map<string, number[]>()
+  for (const [index, segment] of enriched.entries()) if (segment.blockId && /^(?:Theorem|Lemma|Proposition|Corollary|Definition)\s+\d+/i.test(segment.source.trim())) {
+    pdfTheorems.set(segment.blockId, enriched.map((candidate, candidateIndex) => candidate.blockId === segment.blockId ? candidateIndex : -1).filter(candidateIndex => candidateIndex >= 0))
+  }
+  for (const indexes of pdfTheorems.values()) {
+    const pdfSource = indexes.map(index => enriched[index].source).join(' ')
+    const best = theoremBlocks.map(block => ({ block, score: tokenSimilarity(block.source, pdfSource) })).sort((a, b) => b.score - a.score)[0]
+    if (!best || best.score < .3) continue
+    for (const index of indexes) if (enriched[index].kind === 'equation') {
+      const inlineSource = latexSentenceSource(best.block.source, enriched[index].source)
+      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: 'latex', sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    }
+  }
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
   const usedEquations = new Set<number>()
+  let equationCursor = -1
   for (const block of structure.blocks.filter((candidate) => candidate.kind === 'equation')) {
-    const ranked = equationIndexes.filter((index) => !usedEquations.has(index)).map((index) => ({ index, score: tokenSimilarity(block.source, enriched[index].source) })).sort((a, b) => b.score - a.score)
+    // PDF math extraction is lossy, but equation order is not. Restrict each
+    // match to a short forward window and reject weak matches instead of ever
+    // attaching an unrelated LaTeX block from another page.
+    const available = equationIndexes.filter((index) => index > equationCursor && !usedEquations.has(index)).slice(0, 8)
+    const ranked = available.flatMap((index) => {
+      const indexes = [index]
+      for (let next = index + 1; next < enriched.length && indexes.length < 5; next += 1) {
+        const candidate = enriched[next]
+        if (candidate.kind === 'equation' || (candidate.kind === 'artifact' && /^[\]\[().,;:]+$/.test(candidate.source.trim())) || /^[,;:]?\s*\(\d+\)$/.test(candidate.source.trim())) indexes.push(next)
+        else break
+      }
+      return indexes.map((_ignored, length) => {
+        const group = indexes.slice(0, length + 1)
+        return { indexes: group, score: tokenSimilarity(block.source, group.map(candidate => enriched[candidate].source).join(' ')) }
+      })
+    }).sort((a, b) => b.score - a.score)
     const selected = ranked[0]
-    if (!selected || selected.score < .22) continue
-    usedEquations.add(selected.index)
-    enriched[selected.index] = { ...enriched[selected.index], source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
+    if (!selected || selected.score < .42) continue
+    for (const index of selected.indexes) {
+      usedEquations.add(index)
+      enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
+    }
+    equationCursor = selected.indexes.at(-1)!
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
@@ -379,15 +413,19 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const height = Math.min(260 * scale, Math.max(90 * scale, captionTop - 24 * scale)); const top = Math.max(8 * scale, captionTop - height - 5 * scale)
     return [{ figure, rect: { left, top, width, height } }]
   })
-  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = displayFigureRects.length
-    ? [...displayFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect })), ...sourceFigureRects.slice(displayFigureRects.length).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
-    : sourceFigureRects.map(({ figure, rect }) => ({ key: figure.id, figure, rect }))
+  const compoundFigureRects = sourceFigureRects.filter(({ figure }) => figure.compound)
+  const insideCompound = (rect: ItemRect) => compoundFigureRects.some(({ rect: compound }) => rect.left >= compound.left - 8 * scale && rect.top >= compound.top - 8 * scale && rect.left + rect.width <= compound.left + compound.width + 8 * scale && rect.top + rect.height <= compound.top + compound.height + 8 * scale)
+  const independentFigureRects = displayFigureRects.filter((rect) => !insideCompound(rect))
+  const readingFigureRects = [...independentFigureRects, ...compoundFigureRects.map(({ rect }) => rect)]
+  const detectedFigures = independentFigureRects.map((rect, index) => ({ key: `pdf-${index}`, figure: sourceFigures.find(figure => { const caption = segments.find(segment => segment.id === figure.captionAnchorId); const boxes = caption ? segmentRects(caption, itemRects, scale) : []; return boxes.some(box => box.top >= rect.top + rect.height - 8 * scale && box.top - rect.top - rect.height < 70 * scale && box.left < rect.left + rect.width && box.left + box.width > rect.left) }), rect }))
+  const matchedSourceFigures = new Set(detectedFigures.map(({ figure }) => figure?.id).filter(Boolean))
+  const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = [...detectedFigures, ...sourceFigureRects.filter(({ figure }) => figure.compound || !matchedSourceFigures.has(figure.id)).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
   if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, minHeight: translationFormat === 'paper' ? pageSize.height : undefined, fontSize: 15 * scale }}>
     {translationFormat === 'flow' && <header className="flow-page-heading"><span>한국어 읽기 · {pageNumber}쪽</span><small>{segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id)) ? '아직 번역하지 않은 문장은 원문으로 표시합니다' : '수식·표는 원문을 보존합니다'}</small></header>}
     {translationFormat === 'flow' ? <details className="flow-original"><summary>이 페이지 원문 펼치기</summary><canvas ref={canvasRef} /></details> : <canvas ref={canvasRef} style={{ display: 'none' }} />}
     {!rendered && <p className="flow-loading">{pageError || "페이지를 준비하고 있습니다…"}{pageError && <button onClick={() => setRenderAttempt(value => value + 1)}>다시 시도</button>}</p>}
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
-    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={rectanglesFor} figures={displayFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
+    <ReadingTranslation format={translationFormat} fontScale={1} sourceScale={scale} segments={segments} translation={translation} source={canvasRef.current} ready={rendered} sourceRects={itemRects} rectangles={rectanglesFor} figures={readingFigureRects} highlighted={highlighted} onHighlight={onHighlight} onFigureRect={rect => captureFigure(rect.left, rect.top, rect.width, rect.height)} onTag={segment => {
       if (segment.kind !== 'artifact') { onTag(segment); return }
       const boxes = segmentRects(segment, itemRects, scale)
       if (!boxes.length) return
@@ -512,10 +550,20 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const anchorCatalog = useMemo(() => {
     if (!activePaper) return []
     let sentence = 0; let section = 0; let equation = 0; let table = 0
+    const equationBlocks = new Set<string>()
     const anchors = allSegments.flatMap((segment): ContextAnchor[] => {
       if (segment.kind === 'heading') { section += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'section', page: segment.page, label: `섹션${section}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
-      if (['text', 'caption'].includes(segment.kind)) { sentence += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
-      if (segment.kind === 'equation') { equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
+      if (['text', 'caption'].includes(segment.kind)) {
+        sentence += 1
+        const sentenceAnchor: ContextAnchor = { paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'sentence', page: segment.page, label: `문장${sentence}`, source: segment.source, scientificSpans: segment.scientificSpans }
+        const inlineAnchors = evidenceInlineMathParts(segment.source).filter(part => part.math).map((part, index): ContextAnchor => ({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `${segment.id}-inline-${index}`, type: 'equation', page: segment.page, label: `문장${sentence}·수식${index + 1}`, source: part.text }))
+        return [sentenceAnchor, ...inlineAnchors]
+      }
+      if (segment.kind === 'equation') {
+        if (segment.blockId && equationBlocks.has(segment.blockId)) return []
+        if (segment.blockId) equationBlocks.add(segment.blockId)
+        equation += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'equation', page: segment.page, label: `수식${equation}`, source: segment.source, scientificSpans: segment.scientificSpans }]
+      }
       if (segment.kind === 'table') { table += 1; return [{ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: segment.id, type: 'table', page: segment.page, label: `표${table}`, source: segment.source, scientificSpans: segment.scientificSpans }] }
       return []
     })

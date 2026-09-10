@@ -5,6 +5,8 @@ export type PdfTextItem = { str: string; width: number; height: number; transfor
 const captionStart = /^(?:figure|fig\.?|table|algorithm)\s*\d+(?:\s*[.:](?:\s|$)|\s*$)/i
 function isPublicationFurniture(text: string) {
   return /^PLOS\s+(?:ONE|BIOLOGY|GENETICS|MEDICINE|PATHOGENS|COMPUTATIONAL BIOLOGY)\b/i.test(text)
+    || /^arXiv:\d{4}\.\d{4,5}v\d+\b/i.test(text)
+    || /^Preprint$/i.test(text)
     || /^https?:\/\/(?:dx\.)?doi\.org\/\S+$/i.test(text)
 }
 
@@ -39,16 +41,23 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
   const bodyHeights = items.filter((item) => item.str.trim().length > 20).map((item) => Math.max(1, Math.abs(item.height || item.transform[3]))).sort((a, b) => a - b)
   const bodyHeight = bodyHeights[Math.floor(bodyHeights.length / 2)] ?? 10
   let previous: PdfTextItem | undefined
+  let pendingEOL = false
   for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
     const item = items[itemIndex]; const value = item.str.trim()
-    if (!value || isPdfMetadataArtifact(value)) continue
+    if (!value || isPdfMetadataArtifact(value)) { if (item.hasEOL) pendingEOL = true; continue }
     if (previous && combined) {
       const previousY = previous.transform[5]; const nextY = item.transform[5]
       const height = Math.max(5, Math.abs(previous.height || previous.transform[3]))
       const nextHeight = Math.max(1, Math.abs(item.height || item.transform[3]))
       const verticalGap = Math.abs(previousY - nextY)
       const columnReset = nextY > previousY + height * 1.2
-      const paragraphGap = previous.hasEOL && Math.abs(previousY - nextY) > height * 1.55
+      // Empty PDF.js items can carry the only EOL between centered displays and
+      // prose. Use a slightly stronger gap for those markers so ordinary compact
+      // table rows retain their established source identity.
+      const currentParagraph = combined.slice(combined.lastIndexOf('\n\n') + 2)
+      const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value)
+      const paragraphGap = (previous.hasEOL && verticalGap > height * 1.55)
+        || (pendingEOL && verticalGap > height * 1.64) || displayToProse
       // A number at an inline font boundary is often a subscript or a measured
       // dimension, not a section number (e.g. rho + "0 of ...", 300 mm × 300 mm).
       const headingBoundary = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix)\b/i.test(value)
@@ -65,7 +74,7 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
     }
     const start = combined.length; combined += value
-    ranges.push({ start, end: combined.length, itemIndex }); previous = item
+    ranges.push({ start, end: combined.length, itemIndex }); previous = item; pendingEOL = false
   }
 
   const parts: Array<{ text: string; start: number; end: number; blockId: string; paragraphContext: string }> = []
@@ -75,6 +84,13 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     if (!paragraph || isPublicationFurniture(paragraph)) continue
     const blockId = `pdf-p${page}-b${paragraphIndex++}`
     const paragraphStart = paragraphMatch.index + paragraphMatch[0].indexOf(paragraph)
+    const displayWithProse = paragraph.match(/^([\s\S]*?\(\d+\))\s+((?:where|when|since|which)\b[\s\S]+)$/i)
+    if (displayWithProse && (isEquation(displayWithProse[1]) || isEquation(parts.at(-1)?.text ?? ''))) {
+      const proseOffset = paragraph.indexOf(displayWithProse[2], displayWithProse[1].length)
+      parts.push({ text: displayWithProse[1], start: paragraphStart, end: paragraphStart + displayWithProse[1].length, blockId, paragraphContext: displayWithProse[1] })
+      parts.push({ text: displayWithProse[2], start: paragraphStart + proseOffset, end: paragraphStart + proseOffset + displayWithProse[2].length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: displayWithProse[2] })
+      continue
+    }
     if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph)) {
       parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
     }

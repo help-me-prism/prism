@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildTranslationPrompt, validateTranslation, reuseTranslations, inspectTranslationBatch } from '../dist-electron/translationHarness.js'
+import { buildTranslationPrompt, validateTranslation, reuseTranslations, inspectTranslationBatch, prepareTranslationRequest, inspectTranslationRequest } from '../dist-electron/translationHarness.js'
 
 const check = (source, translation) => validateTranslation(JSON.stringify([{ id: 's', translation }]), [{ id: 's', source }])
 // Biology: retain dose, time, gene identity and statistical comparison direction.
@@ -24,6 +24,10 @@ const cached = [{ id: 's', source: engineering, translation: engineeringKo.repla
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], cached)[0].translation, undefined)
 assert.equal(reuseTranslations([{ id: 's', source: engineering }], [{ ...cached[0], translation: engineeringKo }])[0].translation, engineeringKo)
 assert.throws(() => check('$x$ and $x$ are repeated [1] and [1].', '$x$는 반복된다 [1].'), /수식/)
+const protectedMath = prepareTranslationRequest([{ id: 'math-heavy', source: String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.` }])
+assert(!protectedMath.modelItems[0].source.includes('$p_t'), 'The translation model must not be asked to reproduce fragile LaTeX.')
+const protectedReply = JSON.stringify([{ id: 't0', translation: `${protectedMath.modelItems[0].source}로 둔다.` }])
+assert.equal(inspectTranslationRequest(protectedReply, protectedMath).accepted.get('math-heavy'), String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.로 둔다.`)
 
 // Recover only an unambiguous wrapper; malformed or competing content stays rejected.
 const wrapped = { translations: [{ id: 's', translation: '검증할 수 있다.' }] }

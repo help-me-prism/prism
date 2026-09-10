@@ -20,6 +20,13 @@ The model uses structured attention with $QK^T / \sqrt{d_k}$ scores and \(x_t = 
 ${equation}
 ${table}
 ${algorithm}
+\begin{restatable}{theorem}{stable}\label{thm:stable}
+For every $x\in\mathbb{R}^d$, the update satisfies $f(x)=x$.
+\end{restatable}
+\begin{wrapfigure}[4]{r}{0.3\textwidth}
+\includegraphics{figures/panel.png}
+\caption{Wrapped example}
+\end{wrapfigure}
 \end{document}`)
   const structure = await parseLatexStructure(sourceDir)
   assert(structure, 'LaTeX structure was not parsed.')
@@ -28,6 +35,8 @@ ${algorithm}
   const paragraph = structure.blocks.find((block) => block.kind === 'paragraph')?.source ?? ''
   assert.match(paragraph, /\$QK\^T \/ \\sqrt\{d_k\}\$/)
   assert.match(paragraph, /\$x_t = x_\{t-1\} \+ u_t\$/)
+  assert.match(structure.blocks.find((block) => block.kind === 'theorem')?.source ?? '', /\$f\(x\)=x\$/)
+  assert(structure.blocks.some((block) => block.kind === 'figure' && block.source.includes('figures/panel.png')), 'Wrapped figures participate in source/caption order.')
   assert(structure.blocks.some((block) => block.kind === 'table' && block.source === algorithmBody), 'Algorithm source was not preserved as a table-like structure.')
   process.stdout.write('LaTeX structure test passed: equation and table source stayed byte-for-byte intact.\n')
 } finally {

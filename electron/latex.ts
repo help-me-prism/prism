@@ -3,13 +3,13 @@ import path from 'node:path'
 
 export type LatexBlock = {
   id: string
-  kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table'
+  kind: 'heading' | 'paragraph' | 'caption' | 'equation' | 'figure' | 'table' | 'theorem'
   source: string
   section?: string
 }
 
 export type LatexStructure = {
-  version: 4
+  version: 5
   rootFile: string
   generatedAt: string
   blocks: LatexBlock[]
@@ -80,7 +80,7 @@ function latexToPlain(value: string) {
 
 function environmentKind(name: string): LatexBlock['kind'] {
   if (/^(?:equation|align|gather|multline|displaymath|eqnarray)/.test(name)) return 'equation'
-  if (/^figure/.test(name)) return 'figure'
+  if (/figure/.test(name)) return 'figure'
   return 'table'
 }
 
@@ -108,7 +108,9 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     const main = protect('table', body)
     return caption ? `${main}\n\n${protect('caption', `Algorithm ${latexToPlain(caption)}`)}` : main
   })
-  const environment = /\\begin\s*\{(equation\*?|align\*?|gather\*?|multline\*?|displaymath|eqnarray\*?|figure\*?|table\*?|tabular\*?|longtable)\}([\s\S]*?)\\end\s*\{\1\}/g
+  content = content.replace(/\\begin\s*\{restatable\}\s*\{(?:theorem|lemma|proposition|corollary|definition)\}\s*\{[^}]+\}([\s\S]*?)\\end\s*\{restatable\}/g, (_whole, body: string) => protect('theorem', latexToPlain(body)))
+  content = content.replace(/\\begin\s*\{(theorem|lemma|proposition|corollary|definition)\*?\}([\s\S]*?)\\end\s*\{\1\*?\}/g, (_whole, _name: string, body: string) => protect('theorem', latexToPlain(body)))
+  const environment = /\\begin\s*\{(equation\*?|align\*?|gather\*?|multline\*?|displaymath|eqnarray\*?|figure\*?|wrapfigure|table\*?|wraptable|tabular\*?|longtable)\}(?:\[[^\]]*\])?(?:\{[^{}]*\}){0,2}([\s\S]*?)\\end\s*\{\1\}/g
   content = content.replace(environment, (_whole, name: string, body: string) => {
     const kind = environmentKind(name)
     if (kind === 'figure' && /@@latex-\d+@@/.test(body)) return body
@@ -138,5 +140,5 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     blocks.push({ id: `latex-${protectedBlocks.length + blocks.length + 1}`, kind: 'paragraph', source, section: currentSection })
   }
   if (!blocks.some((block) => block.kind === 'paragraph')) return null
-  return { version: 4, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+  return { version: 5, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
 }
