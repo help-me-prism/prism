@@ -180,8 +180,8 @@ interface Window {
     openEvidenceAnchor: (anchor: EvidenceAnchorRef) => Promise<boolean>
     onOpenEvidenceAnchor: (callback: (anchor: EvidenceAnchorRef) => void) => () => void
     listEvidenceBacklinks: (anchor: EvidenceAnchorRef) => Promise<EvidenceBacklink[]>
-    openKnowledgeNodeInNotes: (id: string) => Promise<boolean>
-    onOpenKnowledgeNode: (callback: (id: string) => void) => () => void
+    openKnowledgeNodeInNotes: (id: string, options?: { blockId?: string; libraryPath?: string }) => Promise<boolean>
+    onOpenKnowledgeNode: (callback: (request: string | { id: string; blockId?: string; libraryPath?: string }) => void) => () => void
     readSavedFigure: (paperId: string, anchorId: string) => Promise<{ dataUrl: string; rect?: { x: number; y: number; width: number; height: number }; page?: number }>
     savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => Promise<string>
     readTranslation: (arxivId: string) => Promise<TranslationCache | null>

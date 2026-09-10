@@ -43,7 +43,12 @@ try {
   assert(content.indexOf('두 번째 메모') < content.indexOf('핵심 문장. score matching 관점.'), 'The second memo did not sit directly under the card.')
 
   // Chat capture is a collapsed AI callout with provenance metadata, not user text.
-  await captureToPaperNote(root, paper, { kind: 'chat', paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\n\n둘째 줄 $x$', provider: 'codex', model: 'gpt-x', anchors: [{ paperId: 'test.0001', anchorId: 'equation-p2-3', label: '수식1', page: 2 }] })
+  const capturedAnswer = await captureToPaperNote(root, paper, { kind: 'chat', paperId: 'test.0001', question: '이 목적함수는 왜 가중 score matching인가?', answer: '첫 줄\n\n둘째 줄 $x$', provider: 'codex', model: 'gpt-x', anchors: [{ paperId: 'test.0001', anchorId: 'equation-p2-3', label: '수식1', page: 2 }] })
+  assert.match(capturedAnswer.blockId, /^ai-answer-[a-f0-9-]{36}$/)
+  assert(capturedAnswer.snapshot.content.includes(`\n^${capturedAnswer.blockId}\n`), 'Saved answer has a stable Obsidian block target')
+  assert(capturedAnswer.snapshot.content.includes(`\n\n^${capturedAnswer.blockId}\n\n<!-- prism-ai-answer:`), 'Structured callout IDs require blank lines on both sides, with metadata after the ID')
+  const beforeId = capturedAnswer.snapshot.content.split(`\n\n^${capturedAnswer.blockId}`)[0]
+  assert(beforeId.split('\n').at(-1).startsWith('>'), 'The block marker must immediately follow the actual callout, not an HTML metadata block')
   content = await fs.readFile(notePath, 'utf8')
   assert(content.includes('> [!ai]- AI 답변 ·') && content.includes('> **Q:** 이 목적함수는 왜 가중 score matching인가?') && content.includes('> 첫 줄\n>\n> 둘째 줄 $x$') && content.includes('> 참조: [수식1 · Capture fixture · p.2](prism://paper/test.0001?anchor=equation-p2-3&page=2)') && content.includes('<!-- prism-ai-answer:'), `The chat capture block is malformed:\n${content}`)
   const reference={paperId:'test.0001',anchorId:'equation-p2-3',label:'근거1',page:2}

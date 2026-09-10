@@ -564,6 +564,10 @@ try {
   await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-anchor="${biologyTitle.id}"]'))`)
   await wait('Boolean(document.querySelector(".reader-evidence-backlinks"))')
   assert.equal(await evaluate('document.querySelector(".reader-capture-source").textContent'), citedSource.source)
+  await wait(`Boolean(document.querySelector('[data-pane=original] [data-anchor="${citedSource.id}"].highlighted'))`)
+  await evaluate(`(() => { const other = [...document.querySelectorAll('[data-pane=original] [data-anchor]')].find(node => node.dataset.anchor !== ${JSON.stringify(citedSource.id)}); other.dispatchEvent(new MouseEvent('mouseover', {bubbles:true})); other.dispatchEvent(new MouseEvent('mouseout', {bubbles:true})); })()`)
+  await sleep(100)
+  assert(await evaluate(`Boolean(document.querySelector('[data-pane=original] [data-anchor="${citedSource.id}"].highlighted'))`), 'Scroll-induced hover must not replace or erase the exact memo source highlight')
   assert((await evaluate('document.querySelector(".reader-evidence-backlinks header").textContent')).includes(paper.title))
   assert.deepEqual(await evaluate('({text:document.querySelector(".composer-editor").textContent,anchors:[...document.querySelectorAll(".composer-anchor")].map(node=>node.dataset.placementId)})'), composerBeforeMemo)
   await evaluate('document.querySelector("[aria-label=\\"관련 노트 닫기\\"]").click()')
@@ -662,6 +666,66 @@ try {
   const beforeWrongVaultAnswer = await fs.readFile(paper.notePath, 'utf8')
   assert(await evaluate(`window.prism.capturePaperNote(${JSON.stringify(crossVaultAnswer)}).then(() => false, error => error.message.includes('라이브러리가 변경'))`), 'Chat captures must enforce the same source-vault boundary as evidence memos')
   assert.equal(await fs.readFile(paper.notePath, 'utf8'), beforeWrongVaultAnswer)
+  // Exercise the real answer button and the separate Notes renderer, including
+  // the initial window load. Synthetic history avoids any paid model call.
+  const savedAnswerText = 'Round40 saved answer: sequencing coverage limits this conclusion.'
+  const nextAnswerText = 'Round40 second answer: verify the latest block in the already open note.'
+  const answerContext = { provider: 'codex', model: 'gpt-5.6-luna', primaryPaperId: paper.arxivId, paperIds: [paper.arxivId] }
+  const answerSession = { id: 'answer-navigation-fixture', title: 'Saved answer navigation', ...answerContext, createdAt: Date.now(), updatedAt: Date.now(), messages: [
+    { id: 'answer-navigation-question', role: 'user', text: 'Offline fixture question.', anchors: [{ paperId: paper.arxivId, paperTitle: paper.title, anchorId: citedSource.id, type: 'sentence', page: citedSource.page, label: '근거1', source: citedSource.source }], createdAt: Date.now(), ...answerContext },
+    { id: 'answer-navigation-answer', role: 'assistant', text: savedAnswerText + ' [@근거1]', createdAt: Date.now(), ...answerContext },
+    { id: 'answer-navigation-next-question', role: 'user', text: 'Another offline fixture question.', createdAt: Date.now(), ...answerContext },
+    { id: 'answer-navigation-next-answer', role: 'assistant', text: nextAnswerText, createdAt: Date.now(), ...answerContext },
+  ] }
+  await evaluate(`window.prism.saveSessions(${JSON.stringify([answerSession])})`)
+  await reload()
+  await wait('Boolean(document.querySelector(".message-actions button"))')
+  await evaluate('document.querySelector(".message-actions button").click()')
+  await wait('document.querySelector(".message-actions button")?.textContent.includes("저장한")')
+  const noteAfterAnswer = await fs.readFile(paper.notePath, 'utf8')
+  assert.equal(noteAfterAnswer.split(savedAnswerText).length - 1, 1, 'The answer button must save exactly once')
+  assert(/\^ai-answer-[a-zA-Z0-9-]+/m.test(noteAfterAnswer), 'Saved answers need an Obsidian-compatible navigation target')
+  await evaluate('document.querySelector(".message-actions button").click()')
+  let notesTarget
+  for (let attempt = 0; attempt < 150 && !notesTarget; attempt++) {
+    notesTarget = (await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())).find(page => page.title === 'Prism Notes')
+    if (!notesTarget) await sleep(100)
+  }
+  assert(notesTarget?.webSocketDebuggerUrl, 'The saved answer must open the Notes window')
+  const notesSocket = new WebSocket(notesTarget.webSocketDebuggerUrl), notesPending = new Map()
+  let notesSequence = 0
+  notesSocket.addEventListener('message', event => {
+    const message = JSON.parse(event.data), handler = notesPending.get(message.id)
+    if (!handler) return
+    notesPending.delete(message.id)
+    message.error ? handler.reject(new Error(message.error.message)) : handler.resolve(message.result)
+  })
+  await new Promise((resolve, reject) => { notesSocket.addEventListener('open', resolve, { once: true }); notesSocket.addEventListener('error', reject, { once: true }) })
+  const notesEvaluate = async expression => {
+    const response = await new Promise((resolve, reject) => { const id = ++notesSequence; notesPending.set(id, { resolve, reject }); notesSocket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } })) })
+    assert(!response.exceptionDetails, JSON.stringify(response.exceptionDetails))
+    return response.result.value
+  }
+  try {
+    const visibleAnswer = `(() => { const line = [...document.querySelectorAll('.cm-line')].find(line => line.textContent.includes(${JSON.stringify(savedAnswerText)})); if (!line) return false; const box = line.getBoundingClientRect(), viewport = line.closest('.cm-scroller').getBoundingClientRect(); return box.height > 0 && box.top >= viewport.top && box.bottom <= viewport.bottom; })()`
+    let found = false
+    for (let attempt = 0; attempt < 150 && !found; attempt++) { found = await notesEvaluate(visibleAnswer); if (!found) await sleep(100) }
+    assert(found, 'Opening a saved answer must reveal its expanded text in the editor viewport without another click')
+    assert(await notesEvaluate(`(() => { const line = [...document.querySelectorAll('.cm-line')].find(line => line.textContent.includes(${JSON.stringify(savedAnswerText)})); return !line.textContent.includes('prism://'); })()`), 'Reading navigation must keep source links formatted instead of entering raw Markdown editing')
+    // The existing Notes-open digest refresh adds managed overview sections.
+    // Authored content and every captured block must remain byte-identical.
+    assert.equal((await fs.readFile(paper.notePath, 'utf8')).split('## Notes\n')[1], noteAfterAnswer.split('## Notes\n')[1], 'Opening the saved answer must preserve the authored note and captured blocks')
+    await evaluate('document.querySelectorAll(".message-actions button")[1].click()')
+    await wait('document.querySelectorAll(".message-actions button")[1]?.textContent.includes("저장한")')
+    await evaluate('document.querySelectorAll(".message-actions button")[1].click()')
+    let nextFound = false
+    const visibleNextAnswer = visibleAnswer.replace(JSON.stringify(savedAnswerText), JSON.stringify(nextAnswerText))
+    for (let attempt = 0; attempt < 150 && !nextFound; attempt++) { nextFound = await notesEvaluate(visibleNextAnswer); if (!nextFound) await sleep(100) }
+    assert(nextFound, 'An already open note must refresh and reveal the newly saved answer on the first click')
+    assert.equal((await fs.readFile(paper.notePath, 'utf8')).split(nextAnswerText).length - 1, 1)
+    await notesEvaluate('window.close(); true')
+  } finally { notesSocket.close() }
+  await openCaptureSource(external)
   const oldStorage = path.join(root, 'external-papers'), movedStorage = path.join(root, 'moved-papers')
   assert.equal(path.dirname(path.resolve(oldStorage)), path.resolve(root))
   assert.equal(path.dirname(path.resolve(movedStorage)), path.resolve(root))

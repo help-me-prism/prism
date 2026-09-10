@@ -16,3 +16,6 @@ stop();ipc.emit('knowledge:open-requested',{},'paper-remount')
 const remounted=[];bridge.onOpenKnowledgeNode(id=>remounted.push(id));assert.deepEqual(remounted,['paper-remount'])
 const duplicate=[];bridge.onOpenKnowledgeNode(id=>duplicate.push(id));assert.deepEqual(duplicate,[],'Consumed requests must not replay during later subscriptions')
 console.log('notes-open-buffer: actual preload early navigation, latest intent, live delivery, unsubscribe gap and no duplicate replay passed')
+const blockRequest={id:'paper-latest',blockId:'ai-answer-example',libraryPath:'C:/vault'}
+ipc.emit('knowledge:open-requested',{},blockRequest)
+assert.equal(remounted.at(-1),blockRequest,'Structured block navigation retains exact target and vault')

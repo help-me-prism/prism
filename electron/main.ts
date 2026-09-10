@@ -1590,14 +1590,17 @@ ipcMain.handle('evidence:backlinks', async (_event, anchor: { paperId?: unknown;
   if (!anchor || typeof anchor.paperId !== 'string' || !/^[a-zA-Z0-9._-]{1,160}$/.test(anchor.paperId) || typeof anchor.anchorId !== 'string' || anchor.anchorId.length < 1 || anchor.anchorId.length > 300) throw new Error('PDF 근거 위치가 올바르지 않습니다.')
   return listEvidenceBacklinks(settings.libraryPath, anchor.paperId, anchor.anchorId)
 })
-ipcMain.handle('knowledge:open-in-notes', async (_event, id: string) => {
+ipcMain.handle('knowledge:open-in-notes', async (_event, id: string, options?: { blockId?: string; libraryPath?: string }) => {
   const settings = await readSettings()
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
+  if (options?.libraryPath !== undefined && options.libraryPath !== settings.libraryPath) throw new Error('보관함이 변경됐습니다. 현재 보관함에서 다시 열어 주세요.')
+  if (options?.blockId !== undefined && (typeof options.blockId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(options.blockId))) throw new Error('노트 블록 위치가 올바르지 않습니다.')
   if (typeof id !== 'string' || !/^[a-z]+-[a-zA-Z0-9._-]{6,80}$/.test(id)) throw new Error('지식 노트 ID가 올바르지 않습니다.')
   await readKnowledgeNode(settings.libraryPath, id)
+  if ((await readSettings()).libraryPath !== settings.libraryPath) throw new Error('보관함이 변경됐습니다. 현재 보관함에서 다시 열어 주세요.')
   openNotesWindow()
   const target = notesWindow
-  const notify = () => { if (target && !target.isDestroyed()) target.webContents.send('knowledge:open-requested', id) }
+  const notify = () => { if (target && !target.isDestroyed()) target.webContents.send('knowledge:open-requested', options ? { id, blockId: options.blockId, libraryPath: settings.libraryPath } : id) }
   if (target?.webContents.isLoading()) target.webContents.once('did-finish-load', notify); else notify()
   notesWindow?.show(); notesWindow?.focus()
   return true

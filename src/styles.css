@@ -136,14 +136,14 @@ button { color: inherit; }
 .reader-evidence-backlinks > header > div { min-width: 0; display: flex; align-items: center; gap: 8px; color: light-dark(#66a693, #67a794); }
 .reader-evidence-backlinks > header span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .reader-evidence-backlinks > header strong, .reader-evidence-backlinks > header small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reader-evidence-backlinks > header strong { color: light-dark(#46404b, #b2abb8); font-size: 10px; }.reader-evidence-backlinks > header small { color: light-dark(#88818c, #89828d); font-size: 7px; }
+.reader-evidence-backlinks > header strong { color: light-dark(#46404b, #ded9e2); font-size: 13px; }.reader-evidence-backlinks > header small { color: light-dark(#746e79, #aaa3af); font-size: 11px; }
 .reader-evidence-backlinks > header button { width: 26px; height: 26px; display: grid; flex: 0 0 auto; place-items: center; border: 0; border-radius: 5px; background: transparent; color: light-dark(#817a85, #89828c); cursor: pointer; }
 .reader-evidence-backlinks > div { min-height: 90px; overflow-y: auto; padding: 6px; }
-.reader-evidence-backlinks > div > p { margin: 0; padding: 28px 15px; color: light-dark(#85808a, #87828c); font-size: 9px; line-height: 1.5; text-align: center; }
+.reader-evidence-backlinks > div > p { margin: 0; padding: 20px 15px; color: light-dark(#746e79, #aaa3af); font-size: 12px; line-height: 1.5; text-align: center; }
 .reader-evidence-backlinks > div > button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 9px; border: 0; border-radius: 7px; background: transparent; color: light-dark(#5d9181, #6fa393); text-align: left; cursor: pointer; }
 .reader-evidence-backlinks > div > button:hover { background: light-dark(#eaf4f1, #1b322b); }.reader-evidence-backlinks > div > button span { min-width: 0; flex: 1; }
 .reader-evidence-backlinks > div > button small, .reader-evidence-backlinks > div > button strong, .reader-evidence-backlinks > div > button p { display: block; overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
-.reader-evidence-backlinks > div > button small { color: light-dark(#799f94, #739b8f); font-size: 7px; }.reader-evidence-backlinks > div > button strong { margin-top: 3px; color: light-dark(#48434b, #b1acb5); font-size: 9px; }.reader-evidence-backlinks > div > button p { margin-top: 3px; color: light-dark(#8b858d, #89838b); font: 8px/1.4 Georgia, "Noto Serif KR Variable", serif; }
+.reader-evidence-backlinks > div > button small { color: light-dark(#527d70, #8db8aa); font-size: 11px; }.reader-evidence-backlinks > div > button strong { margin-top: 3px; color: light-dark(#48434b, #ded9e2); font-size: 13px; }.reader-evidence-backlinks > div > button p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; margin-top: 5px; color: light-dark(#6d6672, #b7b0bc); font-size: 12px; line-height: 1.55; }
 .editor-tabs { height: 38px; flex: 0 0 38px; display: flex; align-items: stretch; border-bottom: 1px solid light-dark(#d9d6ce, #3f3e3b); background: light-dark(#eeece7, #2c2b29); }
 .editor-tabs > .icon-button { margin: 2px 4px; flex: 0 0 34px; }
 .tab-strip { min-width: 0; flex: 1; display: flex; align-items: stretch; overflow-x: auto; scrollbar-width: none; }
@@ -256,13 +256,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .slash-command-menu { width: 270px; max-height: 330px; position: absolute; z-index: 20; overflow-y: auto; padding: 5px; border: 1px solid light-dark(#d8d3ca, #42403d); border-radius: 9px; background: light-dark(#fffefb, #1c1b1a); box-shadow: 0 10px 30px light-dark(#37332a2b, #c5c4c12b); font-family: Inter, Arial, sans-serif; }.slash-command-menu button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: light-dark(#47443f, #b6b4b1); text-align: left; cursor: pointer; }.slash-command-menu button:hover, .slash-command-menu button.active { background: light-dark(#ebf4f1, #1b322b); color: light-dark(#478b76, #75b4a1); }.slash-command-menu strong { font-size: 9px; }.slash-command-menu small { color: light-dark(#969088, #8c8883); font-size: 7px; }.slash-command-menu p { margin: 8px; color: light-dark(#918c84, #8b8883); font-size: 8px; }
 
 /* Reading-time capture (Reader right-click panel) */
-.reader-capture-source { max-height: 72px; overflow-y: auto; margin: 0; padding: 8px 10px 0; border-left: 3px solid light-dark(#c0dfd6, #2d5448); color: light-dark(#55505d, #a29dab); font-size: 10px; line-height: 1.65; }
-.reader-capture { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-bottom: 1px solid light-dark(#e0eae7, #263832); background: light-dark(#fafcfc, #142520); }
+.reader-capture-source { max-height: 100px; flex-shrink: 0; overflow-y: auto; margin: 0; padding: 10px 12px; border-left: 3px solid light-dark(#c0dfd6, #2d5448); color: light-dark(#55505d, #c6bfce); font-size: 13px; line-height: 1.55; }
+.reader-capture { display: flex; flex-shrink: 0; flex-direction: column; gap: 6px; padding: 8px 10px; border-bottom: 1px solid light-dark(#e0eae7, #263832); background: light-dark(#fafcfc, #142520); }
 .reader-capture-row { display: flex; gap: 6px; }
-.reader-capture input { min-width: 0; flex: 1; height: 28px; padding: 0 9px; border: 1px solid light-dark(#cfddd9, #31453f); border-radius: 7px; outline: 0; background: light-dark(#fff, #1a1a1a); color: light-dark(#48434f, #aea8b5); font-size: 9px; }
+.reader-capture input { min-width: 0; flex: 1; height: 32px; padding: 0 9px; border: 1px solid light-dark(#cfddd9, #31453f); border-radius: 7px; outline: 0; background: light-dark(#fff, #1a1a1a); color: light-dark(#48434f, #d0c9d7); font-size: 12px; }
 .reader-capture input:focus { border-color: light-dark(#8fc6b5, #63ab96); }
-.reader-capture button { height: 28px; display: flex; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid light-dark(#60aa94, #63ab96); border-radius: 7px; background: light-dark(#60aa94, #63ab96); color: light-dark(#fff, #1a1a1a); font-size: 8px; white-space: nowrap; cursor: pointer; }
-.reader-capture-status { margin: 0; padding: 5px 11px; color: light-dark(#5f7a4a, #97b382); font-size: 8px; background: light-dark(#f2f8ee, #212e19); border-bottom: 1px solid light-dark(#e0ebd8, #2f4123); }
+.reader-capture > input { flex: 0 0 32px; }
+.reader-capture input::placeholder { color: light-dark(#79727e, #a29baa); opacity: 1; }
+.reader-capture button { height: 32px; display: flex; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid light-dark(#367b66, #63ab96); border-radius: 7px; background: light-dark(#367b66, #63ab96); color: light-dark(#fff, #1a1a1a); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.reader-capture-status { margin: 0; padding: 7px 11px; color: light-dark(#526b40, #b3cda0); font-size: 12px; line-height: 1.5; background: light-dark(#f2f8ee, #212e19); border-bottom: 1px solid light-dark(#e0ebd8, #2f4123); }
 
 /* Evidence remains a single bounded line inside the scrolling composer. */
 .composer-anchor { max-width: calc(100% - 6px); }

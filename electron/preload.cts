@@ -8,10 +8,10 @@ function subscribe(channel: string, callback: (payload: unknown) => void) {
 
 // The main process can finish loading before React mounts its listener. Keep the
 // newest navigation intent until a subscriber exists; ordinary events need no replay.
-let pendingKnowledgeOpen: string | undefined
+let pendingKnowledgeOpen: unknown
 const knowledgeOpenListeners = new Set<(id: unknown) => void>()
 ipcRenderer.on('knowledge:open-requested', (_event: Electron.IpcRendererEvent, id: unknown) => {
-  if (typeof id !== 'string') return
+  if (typeof id !== 'string' && !(id && typeof id === 'object' && typeof (id as { id?: unknown }).id === 'string')) return
   pendingKnowledgeOpen = id
   if (knowledgeOpenListeners.size) {
     pendingKnowledgeOpen = undefined
@@ -106,7 +106,7 @@ contextBridge.exposeInMainWorld('prism', {
   openEvidenceAnchor: (anchor: unknown) => ipcRenderer.invoke('evidence:open', anchor),
   onOpenEvidenceAnchor: (callback: (anchor: unknown) => void) => subscribe('evidence:open-requested', callback),
   listEvidenceBacklinks: (anchor: unknown) => ipcRenderer.invoke('evidence:backlinks', anchor),
-  openKnowledgeNodeInNotes: (id: string) => ipcRenderer.invoke('knowledge:open-in-notes', id),
+  openKnowledgeNodeInNotes: (id: string, options?: { blockId?: string; libraryPath?: string }) => ipcRenderer.invoke('knowledge:open-in-notes', id, options),
   onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribeKnowledgeOpen(callback),
   readSavedFigure: (paperId: string, anchorId: string) => ipcRenderer.invoke('paper:figure:read', paperId, anchorId),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),

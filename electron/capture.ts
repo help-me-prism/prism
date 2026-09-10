@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSnapshot } from './notes.js'
 import { listEvidenceAnchors, type EvidenceAnchor, type EvidencePaper } from './evidence.js'
 import { createKnowledgeNode, listKnowledgeNodes, paperNodeId, readKnowledgeNode, saveKnowledgeNode, type KnowledgeNodeRecord } from './knowledge.js'
@@ -151,14 +152,15 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
       if (memo) { lines.splice(existing + 1, 0, '', memo); content = lines.join('\n') }
     } else content = appendToNotesSection(content, memo ? `${card.markdown}\n\n${memo}` : card.markdown)
   } else {
+    blockId = `ai-answer-${randomUUID()}`
     const capturedAt = new Date().toISOString()
     const question = request.question.replace(/\s+/g, ' ').trim().slice(0, 300)
     const provenance = chatCaptureProvenance(request.answer, request.anchors ?? [], paper)
     const answer = provenance.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
     const references = provenance.references
     const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt, anchors: provenance.anchors }))
-    const block = `> [!ai]- AI 답변 · ${capturedAt.slice(0, 10)} · ${request.provider}/${request.model}\n> **Q:** ${question || '(질문 없음)'}\n>\n${answer}${references ? `\n>\n> 참조: ${references}` : ''}\n<!-- prism-ai-answer:${metadata} -->`
-    content = appendToNotesSection(content, block)
+    const block = `> [!ai]- AI 답변 · ${capturedAt.slice(0, 10)} · ${request.provider}/${request.model}\n> **Q:** ${question || '(질문 없음)'}\n>\n${answer}${references ? `\n>\n> 참조: ${references}` : ''}`
+    content = appendToNotesSection(content, `${block}\n\n^${blockId}\n\n<!-- prism-ai-answer:${metadata} -->`)
   }
   const result = await saveNoteSnapshot(paper.notePath, { content, expectedRevision: snapshot.revision })
   if (!result.saved) throw new Error('노트가 방금 외부에서 변경되었습니다. 다시 시도해 주세요.')

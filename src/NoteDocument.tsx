@@ -24,7 +24,8 @@ type Picker =
  * One document view for every node type. Papers and knowledge notes are the same kind of thing now,
  * so the editor, properties, and evidence all live here instead of behind a modal.
  */
-export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, autoUnread, onAutoUnreadChange, contextKey }: {
+export default function NoteDocument({ node, nodes, anchors, relations, templates, onReloadNodes, onReloadContext, onOpenNode, onNotify, onOpenCuration, autoUnread, onAutoUnreadChange, contextKey, focusBlockRequest }: {
+  focusBlockRequest?: { blockId: string; requestId: number }
   node: KnowledgeNodeRecord
   nodes: KnowledgeNodeRecord[]
   anchors: EvidenceAnchor[]
@@ -64,6 +65,35 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const vaultIdRef = useRef<string | undefined>(undefined)
   const contentRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined); const nodeIdRef = useRef(node.id); const stubScanRef = useRef('')
   const editorRef = useRef<MarkdownEditorHandle>(null)
+  const focusedBlockRequest = useRef<number | undefined>(undefined)
+  const refreshedBlockRequest = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!snapshot || !focusBlockRequest || focusedBlockRequest.current === focusBlockRequest.requestId) return
+    const request = focusBlockRequest
+    let disposed = false
+    const timer = window.setTimeout(async () => {
+      if (!editorRef.current) return
+      if (editorRef.current.focusBlock(request.blockId)) { focusedBlockRequest.current = request.requestId; return }
+      if (!dirtyRef.current && refreshedBlockRequest.current !== request.requestId) {
+        refreshedBlockRequest.current = request.requestId
+        const before = contentRef.current, vaultId = vaultIdRef.current
+        try {
+          const next = await window.prism.readKnowledgeNode(node.id, vaultId)
+          if (disposed || dirtyRef.current || before !== contentRef.current || vaultId !== vaultIdRef.current) return
+          if (next.content !== before) {
+            revisionRef.current = next.revision; contentRef.current = next.content
+            setSnapshot(next); setContent(next.content); setSaved(true)
+            return
+          }
+        } catch { /* Report the missing target without discarding the current document. */ }
+      }
+      if (!disposed) {
+        focusedBlockRequest.current = request.requestId
+        onNotify(dirtyRef.current ? '현재 편집 내용은 유지했습니다. 저장한 답변으로 이동하려면 노트의 편집 내용을 먼저 저장해 주세요.' : '저장한 답변 블록을 찾지 못했습니다. 노트에서 이동하거나 삭제했는지 확인해 주세요.', 'error')
+      }
+    }, 0)
+    return () => { disposed = true; window.clearTimeout(timer) }
+  }, [snapshot, focusBlockRequest])
 
   const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
   const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.origin !== 'link')

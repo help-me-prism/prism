@@ -9,6 +9,7 @@ import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 import katex from 'katex'
 import { evidenceInlineMathHtml } from './evidenceInlineMath'
+import { noteBlockPosition } from './noteBlockNavigation'
 import { evidenceFromUri } from './paper/evidenceUri'
 import { noteBlockInsertionPosition } from './noteInsertion'
 import { wikiTargetResolver } from '../electron/wikiTargets'
@@ -39,7 +40,7 @@ class SourceEvidenceLink extends WidgetType {
 
 export type MarkdownBlockCommand = 'heading' | 'bullet' | 'ordered' | 'task' | 'quote' | 'callout' | 'table' | 'code' | 'math' | 'image' | 'divider'
 export type MarkdownSlashAction = 'link' | 'relation' | 'supports' | 'contradicts' | 'evidence'
-export type MarkdownEditorHandle = { insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
+export type MarkdownEditorHandle = { focusBlock: (blockId: string) => boolean; insertText: (text: string) => void; insertWikiLink: (option: WikiLinkOption) => void; getValue: () => string; focus: () => void; moveToEnd: () => void; openInsertMenu: () => void; focusSection: (heading: string) => boolean; focusMineSection: (section: MineSection) => boolean }
 export type WikiLinkOption = { id: string; label: string; target: string; aliases?: string[]; description: string; searchText?: string; preview?: string; evidenceCount?: number }
 export type EvidenceLinkOption = { id: string; label: string; description: string; searchText: string; markdown: string }
 
@@ -823,6 +824,21 @@ function emptySectionHint(state: EditorState, heading: { number: number; text: s
   return below ? { from: below.from, label } : null
 }
 
+function focusBlock(view: EditorView, blockId: string) {
+  const anchor = noteBlockPosition(view.state.doc.toString(), blockId)
+  if (anchor === undefined) return false
+  const folded = view.state.field(sectionFoldState, false)?.folded
+  const effects = sectionHeadings(view.state).filter(section => folded?.has(section.from) && anchor >= section.from && anchor < section.end).map(section => toggleSectionFold.of(section.from))
+  const overrides = view.state.field(calloutFoldState, false)?.overrides
+  for (const block of calloutBlocks(view.state)) {
+    if (anchor >= block.bodyFrom && anchor <= block.to && (overrides?.get(block.from) ?? block.folded)) effects.push(toggleSectionFold.of(block.from))
+  }
+  // Navigation reveals the saved answer without moving the editing caret into
+  // its Markdown, which would expose raw source-link syntax in live preview.
+  view.dispatch({ effects: [...effects, EditorView.scrollIntoView(anchor, { y: 'start', yMargin: 40 })] })
+  return true
+}
+
 /** Puts the cursor on the blank line under a heading, so "write here" needs no aiming. */
 function focusSection(view: EditorView, heading: string) {
   const wanted = `## ${heading}`
@@ -1028,7 +1044,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     closeEvidenceMenu(); replaceWithBlock(view, current, option.markdown)
   }
 
-  useImperativeHandle(ref, () => ({ openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, focusMineSection: (section) => viewRef.current ? focusMineSection(viewRef.current, section) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
+  useImperativeHandle(ref, () => ({ focusBlock: (blockId) => viewRef.current ? focusBlock(viewRef.current, blockId) : false, openInsertMenu: () => { if (viewRef.current) openInsertMenu(viewRef.current) }, focusSection: (heading) => viewRef.current ? focusSection(viewRef.current, heading) : false, focusMineSection: (section) => viewRef.current ? focusMineSection(viewRef.current, section) : false, insertText: (text) => { if (viewRef.current) insertText(viewRef.current, text) }, insertWikiLink: (option) => { if (viewRef.current) insertWikiLink(viewRef.current, option) }, getValue: () => viewRef.current?.state.doc.toString() ?? '', focus: () => viewRef.current?.focus(), moveToEnd: () => { const view = viewRef.current; if (view) view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true }) } }), [])
 
   useEffect(() => {
     if (!hostRef.current) return

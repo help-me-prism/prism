@@ -35,3 +35,28 @@ assert.deepEqual(completedMemo.opened, [memo], 'The current memo must still open
 assert.deepEqual(completedMemo.errors, [])
 assert.equal(run(old, old, memo, [], true).pending, memo)
 console.log('Anchor navigation completion passed: owned completion, queued newer memo, stale target, cancellation, and exact memo opening.')
+
+// Scroll-induced mouse entry must not steal the explicit evidence highlight.
+// Use the production callback: both mouse-enter IDs and mouse-leave undefined
+// travel through this same gate in original and translated PDF panes.
+const hoverStart = source.indexOf('  function highlightHoveredAnchor(anchorId?: string) {')
+assert(hoverStart >= 0, 'Hover ownership callback moved: update this harness')
+const hoverBodyStart = source.indexOf('{', hoverStart)
+const hoverBodyEnd = source.indexOf('\n  }', hoverBodyStart)
+const hover = Function('anchorId', 'pdfPaperId', 'activeIdRef', 'explicitAnchorTarget', 'setHighlighted', source.slice(hoverBodyStart + 1, hoverBodyEnd))
+let highlight = 'p4-s6'
+const owner = { current: { paperId: 'engineering', anchorId: 'p4-s6' } }
+const hoverOn = (id, pdfPaper = 'engineering') => hover(id, pdfPaper, { current: 'engineering' }, owner, value => { highlight = value })
+hoverOn('p4-s3')
+assert.equal(highlight, 'p4-s6', 'Programmatic scrolling under another sentence must keep the exact memo source selected')
+hoverOn(undefined)
+assert.equal(highlight, 'p4-s6', 'Mouse leave must not erase the explicit source highlight')
+owner.current = undefined // Existing wheel/pointerdown/navigation-key interrupt.
+hoverOn('p4-s3')
+assert.equal(highlight, 'p4-s3', 'Intentional reading resumes ordinary hover after navigation ownership ends')
+hoverOn(undefined)
+assert.equal(highlight, undefined)
+hoverOn('foreign-anchor', 'biology')
+assert.equal(highlight, undefined, 'A stale PDF pane cannot change the active paper highlight')
+assert(source.includes('onHighlight={highlightHoveredAnchor} onTag='), 'The reader must route PDF hover through the ownership gate')
+console.log('Anchor highlight ownership passed: scroll-induced enter/leave, user interruption and stale-paper events.')

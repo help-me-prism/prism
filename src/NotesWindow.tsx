@@ -49,6 +49,9 @@ export default function NotesWindow() {
   const [openIds, setOpenIds] = useState<string[]>([])
   const [activeId, setActiveId] = useState<string>()
   const [pendingOpenId, setPendingOpenId] = useState<string>()
+  const [pendingBlock, setPendingBlock] = useState<{ id: string; blockId?: string; libraryPath?: string; requestId: number }>()
+  const [blockFocus, setBlockFocus] = useState<{ nodeId: string; blockId: string; requestId: number }>()
+  const blockRequestSequence = useRef(0)
   const [view, setView] = useState<MainView>('doc')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ResearchSearchResult[]>()
@@ -170,12 +173,20 @@ export default function NotesWindow() {
 
   useEffect(() => { void reloadContext(); return () => contextGate.current.invalidate() }, [contextOwner])
   useEffect(() => () => { nodesRun.current++; contextGate.current.invalidate() }, [])
-  useEffect(() => window.prism.onOpenKnowledgeNode((id) => { setPendingOpenId(id) }), [])
+  useEffect(() => window.prism.onOpenKnowledgeNode((request) => {
+    const value = typeof request === 'string' ? { id: request } : request
+    setPendingBlock({ ...value, requestId: ++blockRequestSequence.current }); setPendingOpenId(value.id)
+  }), [])
   // Initial settings/tree reads can reset activeId. Consume external navigation
   // only once that requested record is in the loaded vault, never against an empty tree.
   useEffect(() => {
-    if (libraryPath && pendingOpenId && nodes.some(node => node.id === pendingOpenId)) openNode(pendingOpenId)
-  }, [libraryPath, nodes, pendingOpenId])
+    if (libraryPath && pendingOpenId && nodes.some(node => node.id === pendingOpenId)) {
+      if (pendingBlock?.libraryPath && pendingBlock.libraryPath !== libraryPath) return
+      openNode(pendingOpenId)
+      if (pendingBlock?.blockId) setBlockFocus({ nodeId: pendingOpenId, blockId: pendingBlock.blockId, requestId: pendingBlock.requestId })
+      setPendingBlock(undefined)
+    }
+  }, [libraryPath, nodes, pendingOpenId, pendingBlock])
   /**
    * The library folder is shared with Obsidian and the Reader, so outside changes show up without a manual
    * refresh. One save arrives as a burst of events and a sweep as one per note; reloading the tree, the
@@ -198,6 +209,7 @@ export default function NotesWindow() {
   }, [])
 
   function openNode(id: string) {
+    setBlockFocus(undefined)
     setPendingOpenId(undefined)
     setView('doc')
     setOpenIds((current) => current.includes(id) ? current : [...current, id].slice(-8))
@@ -424,6 +436,7 @@ export default function NotesWindow() {
             onOpenCuration={() => { setView('curation'); void reloadCuration() }}
             autoUnread={unread[active.id]} onAutoUnreadChange={reloadUnread}
             contextKey={`${relations.length}:${backlinks.length}`}
+            focusBlockRequest={blockFocus?.nodeId === active.id ? blockFocus : undefined}
           />
           : <div className="notes-blank">
             <div className="notes-start">

@@ -266,7 +266,7 @@ function App() {
   const [workspaceState, setWorkspaceState] = useState<WorkspaceSnapshot>({ library: [], openPaperIds: [] })
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
   const [contextPaperIds, setContextPaperIds] = useState<string[]>([])
-  const [noteSaved, setNoteSaved] = useState<Record<string, { paperId: string; title: string }>>({})
+  const [noteSaved, setNoteSaved] = useState<Record<string, { paperId: string; title: string; blockId?: string }>>({})
   const savingAnswerIds = useRef(new Set<string>())
   const [savingAnswers, setSavingAnswers] = useState<Record<string, boolean>>({})
   const [paperContextOpen, setPaperContextOpen] = useState(false)
@@ -596,7 +596,7 @@ function App() {
   }
 
   function onSubmit(event: FormEvent) { event.preventDefault(); void send() }
-  async function openReadingNote(paperId = workspaceState.activePaperId) {
+  async function openReadingNote(paperId = workspaceState.activePaperId, blockId?: string) {
     const owner = noteActionScope.current.owner, libraryPath = workspaceState.libraryPath, sessionId = activeSession?.id
     const current = () => noteActionScope.current.owner === owner
     try {
@@ -606,7 +606,7 @@ function App() {
       if (!current()) return
       if (settings.libraryPath !== libraryPath) throw new Error('보관함이 변경됐습니다. 현재 보관함에서 다시 열어 주세요.')
       const note = nodes.find(node => node.nodeType === 'paper' && node.arxivId === paperId)
-      if (note) await window.prism.openKnowledgeNodeInNotes(note.id)
+      if (note) await window.prism.openKnowledgeNodeInNotes(note.id, { blockId, libraryPath })
       else await window.prism.openNotes()
     } catch (reason) {
       if (sessionId && current()) setErrors(errors => noteActionScope.current.owner === owner ? ({ ...errors, [sessionId]: `노트를 열지 못했습니다: ${String(reason)}` }) : errors)
@@ -672,7 +672,7 @@ function App() {
     if (!libraryPath) { setErrors(errors => ({ ...errors, [sessionId]: '먼저 논문 노트를 저장할 보관함을 선택해 주세요.' })); return }
     const key = answerSaveKey(message)
     if (savingAnswerIds.current.has(key)) return
-    if (noteSaved[key]) { await openReadingNote(noteSaved[key].paperId); return }
+    if (noteSaved[key]) { await openReadingNote(noteSaved[key].paperId, noteSaved[key].blockId); return }
     const index = activeSession.messages.findIndex((item) => item.id === message.id)
     const question = activeSession.messages.slice(0, Math.max(0, index)).reverse().find((item) => item.role === 'user')
     // Retain the original destination after the reader changes paper or model.
@@ -685,8 +685,8 @@ function App() {
     const request: PaperCaptureRequest = { kind: 'chat', libraryPath, paperId, question: question ? withoutReferences(question.text) : '', answer: message.text, provider: message.provider ?? question?.provider ?? activeSession.provider, model: message.model ?? question?.model ?? activeSession.model, anchors: [...questionAnchors, ...cited].map((anchor) => ({ paperId: anchor.paperId, anchorId: anchor.anchorId, label: anchor.label, page: anchor.page })) }
     savingAnswerIds.current.add(key); setSavingAnswers(current => ({ ...current, [key]: true }))
     try {
-      await window.prism.capturePaperNote(request)
-      setNoteSaved((current) => ({ ...current, [key]: { paperId, title: paper?.title ?? paperId } }))
+      const captured = await window.prism.capturePaperNote(request)
+      setNoteSaved((current) => ({ ...current, [key]: { paperId, title: paper?.title ?? paperId, blockId: captured.blockId } }))
     } catch (reason) { if (current()) setErrors(errors => noteActionScope.current.owner === owner ? ({ ...errors, [sessionId]: reason instanceof Error ? reason.message : String(reason) }) : errors) }
     finally { savingAnswerIds.current.delete(key); setSavingAnswers(current => { const next = { ...current }; delete next[key]; return next }) }
   }
