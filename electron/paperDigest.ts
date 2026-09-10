@@ -343,12 +343,14 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   const paper = context.vault.records.find((node) => node.id === paperNodeId && node.nodeType === 'paper')
   if (!paper?.arxivId) throw new Error('논문 노트를 찾을 수 없습니다.')
   const snapshot = { content: context.vault.contents.get(paper.id) ?? '', revision: paper.revision }
-  const abstract = abstractOf(snapshot.content)
+  const body = await readPaperBody(libraryPath, paper.arxivId)
+  // Local PDFs often have no imported abstract metadata. Use only an explicitly
+  // identified abstract section, never arbitrary opening text as an abstract.
+  const abstract = abstractOf(snapshot.content) || body.sections.filter(section => /^(?:abstract|초록)$/i.test(section.title.trim())).flatMap(section => section.lines).join(' ')
   const paperMessages = messagesForPaper(messages, paper.arxivId)
   const focus = focusFromChat(paperMessages, paper.arxivId)
   const topics = topicsOf(paper.title, abstract, ...focus.map((item) => `${item.label} ${item.source ?? ''}`))
   const confusion = confusionFromChat(paperMessages, topics)
-  const body = await readPaperBody(libraryPath, paper.arxivId)
 
   // Without a model the abstract is all there is, and three cued sentences out of it beat reading it again.
   let overviewBody = bulletList(overviewFromAbstract(abstract, body))
@@ -369,7 +371,7 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
   let next = snapshot.content
   const written: PaperDigestSection[] = []
   const sections: Array<[PaperDigestSection, string, string]> = [
-    ['overview', overviewBody, '_논문 본문과 초록을 아직 읽지 못했습니다._'],
+    ['overview', overviewBody, body.sections.length ? '_본문은 준비되어 있습니다. 초록을 확인하지 못해 자동 개요를 만들지 않았습니다._' : '_논문 본문과 초록을 아직 읽지 못했습니다._'],
     ['confusion', bulletList(confusionLines), '_이 논문에 대해 물어본 것이 아직 없습니다._'],
     ['focus', bulletList(focusLines), '_리더에서 문장을 태그하면 여기에 쌓입니다._'],
     ['relations', bulletList(typedRelationLines(knowledgeRelationViews(context.relationsOf(paper.id), context.byId, paper.id))), ''],

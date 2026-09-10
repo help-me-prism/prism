@@ -218,12 +218,15 @@ async function setPropertyText(connection, label, value) {
   await openProperties(connection)
   await connection.evaluate(`(() => {
     const field = document.querySelector('.prop-text[aria-label="' + ${JSON.stringify(label)} + '"]');
-    if (!field) throw new Error('missing property field');
+    if (!field || field.disabled) throw new Error('missing or disabled property field');
     field.focus();
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, ${JSON.stringify(value)});
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.blur();
+    field.select();
   })()`)
+  // Real input and blur occur in separate browser tasks. Synthetic input + blur
+  // in one evaluate can call onBlur before React commits the new draft closure.
+  await connection.send('Input.insertText', { text: value })
+  await waitFor(() => connection.evaluate(`document.activeElement?.getAttribute('aria-label') === ${JSON.stringify(label)} && document.activeElement.value === ${JSON.stringify(value)}`), 'Property typing did not reach the focused field.')
+  await connection.evaluate(`document.activeElement.blur()`)
 }
 const chooseSelect = (connection, label, value) => setField(connection, 'select', label, value, 'change')
 
@@ -493,6 +496,8 @@ ${claimAfterRelation}`)
   assert(await notesConnection.evaluate(`!document.querySelector('.note-body .cm-content').innerText.includes('scope_domain:')`), 'Updating note properties moved the editor into raw YAML metadata.')
 
   // ---------- graph and backlinks in the standing panel ----------
+  assert(await notesConnection.evaluate(`document.querySelector('.side-graph-toggle')?.getAttribute('aria-expanded') === 'false' && !document.querySelector('.side-graph .graph-canvas')`), 'The graph occupied the connection list area before the user requested it.')
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
   assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
   // The layout has to put the note the panel is about in the middle, whatever else it decides.
@@ -590,6 +595,7 @@ ${claimAfterRelation}`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.side-citations'))`), 'A paper note did not show the citation layer.', 8000)
   // Nothing fetched means nothing rendered: the header and its refresh button are the whole section.
   assert(await notesConnection.evaluate(`document.querySelectorAll('.side-citations .citation-row').length === 0 && !document.querySelector('.side-citations .citation-meta')`), 'The citation layer fetched without an explicit refresh.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.side-citations .side-list') && Boolean(document.querySelector('.side-citations .citation-empty-summary')) && Boolean(document.querySelector('.side-citations .side-refresh')) && document.querySelector('.side-citations').getBoundingClientRect().height < 65`), 'Empty citations occupied more than a compact status row or lost explicit refresh.')
 
   // ---------- Obsidian navigation keeps native paths ----------
   await notesConnection.evaluate(`[...document.querySelectorAll('.note-doc-actions button')].find((button) => button.getAttribute('aria-label') === '노트 메뉴').click()`)
@@ -816,6 +822,28 @@ ${claimAfterRelation}`)
   await notesConnection.evaluate(`(() => { const toggle = [...document.querySelectorAll('.side-chips button')].find(button => button.textContent === '간접 연결'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.click() })()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-edge[data-relation="supports"]').length === 1 && document.querySelectorAll('.side-graph .mini-edge[data-relation="contradicts"]').length === 1 && document.querySelectorAll('.side-graph .mini-node').length === 4`), 'The indirect graph lost an opposing path or duplicated its shared destination.')
 
+  // Real high-degree notes use the panel's scroll, not a second 240px viewport.
+  await notesConnection.evaluate(`(async () => {
+    for (let index = 0; index < 8; index++) {
+      const target = await window.prism.createKnowledgeNode({nodeType:'concept',title:'Connected research finding ' + index});
+      const source = await window.prism.readKnowledgeNode(${JSON.stringify(diamond[0])});
+      const result = await window.prism.createKnowledgeRelation({sourceId:${JSON.stringify(diamond[0])},targetId:target.id,type:'related',creator:'user',expectedRevision:source.revision});
+      if (!result.saved) throw new Error('Could not prepare connection list');
+    }
+  })()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-connected .side-list > button').length === 10`), 'The complete connected-note list did not refresh.')
+  const connectionGeometry = await notesConnection.evaluate(`(() => { const list = document.querySelector('.side-connected .side-list'); return {height:list.getBoundingClientRect().height,client:list.clientHeight,scroll:list.scrollHeight} })()`)
+  assert(connectionGeometry.height > 240 && Math.abs(connectionGeometry.client - connectionGeometry.scroll) <= 1, `Connections were trapped in a nested short viewport: ${JSON.stringify(connectionGeometry)}`)
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.side-graph .graph-canvas') && localStorage.getItem('prism.notes.graph-expanded') === 'false'`), 'Collapsing the graph did not remove its canvas and remember the preference.')
+  await notesConnection.evaluate(`location.reload()`)
+  await waitFor(() => notesConnection.evaluate(`Boolean(window.prism && document.querySelector('.notes-rail'))`), 'Notes did not reload for the saved graph preference.')
+  await mainConnection.evaluate(`window.prism.openKnowledgeNodeInNotes(${JSON.stringify(diamond[0])})`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-doc-title h1')?.textContent === 'Graph starting claim' && document.querySelectorAll('.side-connected .side-list > button').length === 10`), 'The connected note did not reopen after reload.')
+  assert(await notesConnection.evaluate(`document.querySelector('.side-graph-toggle')?.getAttribute('aria-expanded') === 'false' && !document.querySelector('.side-graph .graph-canvas')`), 'The graph preference was lost on renderer reload.')
+  await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
+  await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 11`), 'The collapsed graph could not be reopened with its current connections.')
+
   assert(notesConnection.exceptions.length === 0, `Notes renderer exceptions: ${notesConnection.exceptions.join('; ')}`)
   process.stdout.write('Notes UI smoke passed: vault shell (rail, tree, tabs, standing connections panel, status bar), always-live document editing with exact Markdown round-trip, sections the researcher opens on request, single insert affordance, history and native paste, section folding, inline link and evidence autocomplete, evidence cards, frontmatter properties, note creation, claim scope with the contradiction guard, typed relations and the graph, reading-time capture, curation-queue promotion, the model-suggestion guard, the cache-only citation layer, the knowledge CLI chosen in the status bar, Obsidian navigation, external changes that a clean note follows and a dirty one raises as a conflict, search, and templates.\n')
   process.stdout.write(`Screenshots: ${['notes-shell', 'notes-scope-warning', 'notes-graph-panel', 'notes-curation-queue', 'notes-conflict'].map((name) => path.resolve(`tmp/ui/${name}.png`)).join(', ')}\n`)
@@ -827,6 +855,8 @@ ${claimAfterRelation}`)
   const saveDiagnostic = await fs.readdir(historyRoot).then(async names => Promise.all(names.slice(-8).map(async name => ({ name, versions: await Promise.all(['before', 'draft', 'displaced'].map(async kind => ({ kind, containsEdit: (await fs.readFile(path.join(historyRoot, name, `${kind}.md`), 'utf8').catch(() => '')).includes('연구 메모 한 줄.') }))) })))).catch(String)
   process.stderr.write(`Notes save-content diagnostic: ${JSON.stringify({ history: saveDiagnostic, disk: await fs.readFile(notePath, 'utf8').catch(String) })}\n`)
   if (notesConnection) {
+    process.stderr.write(`Notes property diagnostic: ${JSON.stringify(await notesConnection.evaluate("[...document.querySelectorAll('.prop-text')].map(el => ({label:el.getAttribute('aria-label'),value:el.value,disabled:el.disabled,focused:el===document.activeElement}))").catch(String))}\n`)
+    process.stderr.write(`Claim disk diagnostic: ${await fs.readFile(path.join(libraryPath, 'Claims', '노이즈 예측은 가중 score matching이다.md'), 'utf8').catch(String)}\n`)
     process.stderr.write(`Notes notification diagnostic: ${JSON.stringify(await notesConnection.evaluate("[...document.querySelectorAll('[role=alert], .notes-toast, .note-notice, .notes-notice, .notes-conflict-backdrop')].map(el => el.textContent)").catch(String))}\n`)
     const diagnostic = await notesConnection.evaluate(`(() => ({ title: document.querySelector('.note-doc-title')?.textContent, actions: document.querySelector('.note-doc-actions')?.textContent, body: document.querySelector('.note-body')?.innerText, scroll: [...document.querySelectorAll('.cm-scroller, .note-doc-scroll')].map(el => ({ className: el.className, top: el.scrollTop, height: el.scrollHeight, client: el.clientHeight })) }))()`).catch(String)
     process.stderr.write(`Notes failure diagnostic: ${JSON.stringify(diagnostic)}\n`)

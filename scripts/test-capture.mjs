@@ -64,6 +64,31 @@ try {
   assert(multi.references.includes('other/paper')&&multi.references.includes('prism://paper/other%2Fpaper'))
   assert(content.indexOf('[!ai]-') < content.indexOf('## 관련 개념'), 'The chat capture did not stay inside the Notes section.')
 
+  // Cross-paper labels use the pinned vault's actual library, without changing source identities.
+  const foreign = { paperId: 'local-other-science', anchorId: 'p4-caption', label: '근거2', page: 4 }
+  const unknown = { ...foreign, paperId: 'local-not-in-library', label: '근거3' }
+  const conflicting = { ...foreign, paperId: 'local-conflicting', label: '근거4' }
+  await fs.writeFile(path.join(root, '.prism', 'library.json'), JSON.stringify([
+    { arxivId: paper.arxivId, title: 'Stale current title' },
+    { arxivId: foreign.paperId, title: 'Fibers [thermal] properties', notePath: '/must/not/be/read.md' },
+    { arxivId: conflicting.paperId, title: 'A' }, { arxivId: conflicting.paperId, title: 'B' },
+    { arxivId: unknown.paperId, title: 123 },
+  ]))
+  const crossAnchors = [reference, foreign, unknown, conflicting]
+  const cross = await captureToPaperNote(root, paper, { kind: 'chat', paperId: paper.arxivId, question: 'Compare papers', answer: 'See [@근거2].', provider: 'fixture', model: 'none', anchors: crossAnchors })
+  content = await fs.readFile(notePath, 'utf8')
+  assert(content.includes('[근거2 · Fibers \\[thermal\\] properties · p.4](prism://paper/local-other-science?anchor=p4-caption&page=4)'))
+  assert(content.includes('[근거3 · local-not-in-library · p.4]'))
+  assert(content.includes('[근거4 · local-conflicting · p.4]'), 'Conflicting duplicate identities must not pick a title')
+  assert(!content.includes('Stale current title'), 'The destination paper already resolved by the caller takes precedence')
+  const metadata = [...cross.snapshot.content.matchAll(/<!-- prism-ai-answer:([^ ]+) -->/g)].at(-1)
+  assert.deepEqual(JSON.parse(decodeURIComponent(metadata[1])).anchors, crossAnchors)
+  assert(content.includes('[@근거2](prism://paper/local-other-science?anchor=p4-caption&page=4)'))
+  await fs.writeFile(path.join(root, '.prism', 'library.json'), '{invalid')
+  await captureToPaperNote(root, paper, { kind: 'chat', paperId: paper.arxivId, question: 'Missing metadata', answer: 'Still retain source', provider: 'fixture', model: 'none', anchors: [foreign] })
+  content = await fs.readFile(notePath, 'utf8')
+  assert(content.includes('[근거2 · local-other-science · p.4](prism://paper/local-other-science?anchor=p4-caption&page=4)'), 'Unreadable index falls back without losing the saved answer')
+
   // Unknown anchors are rejected without touching the note.
   await assert.rejects(captureToPaperNote(root, paper, { kind: 'evidence', paperId: 'test.0001', anchorId: 'missing', memo: 'x' }), /앵커/)
   assert.equal(await fs.readFile(notePath, 'utf8'), content)

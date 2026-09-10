@@ -54,7 +54,7 @@ const typeLabels: Record<EvidenceAnchor['type'], string> = { sentence: '문장',
 const vaultFolders = new Set(['papers', 'concepts', 'claims', 'questions', 'insights', 'projects', 'templates', 'assets', '00 inbox'])
 
 /** Ordinary Markdown links also retain provenance when this note opens in Obsidian. */
-export function chatCaptureProvenance(answer: string, anchors: Array<{ paperId: string; anchorId: string; label: string; page?: number }>, paper: Pick<CapturePaper, 'arxivId' | 'title'>) {
+export function chatCaptureProvenance(answer: string, anchors: Array<{ paperId: string; anchorId: string; label: string; page?: number }>, paper: Pick<CapturePaper, 'arxivId' | 'title'>, paperTitles: ReadonlyMap<string, string> = new Map()) {
   const unique = new Map<string, typeof anchors[number]>()
   const aliases = new Map<string, Set<string>>()
   for (const anchor of anchors) {
@@ -73,10 +73,27 @@ export function chatCaptureProvenance(answer: string, anchors: Array<{ paperId: 
     return `[@${escape(label)}](${target(anchor)})`
   })).join('')
   const references = [...unique.values()].map(anchor => {
-    const title = anchor.paperId === paper.arxivId ? paper.title : anchor.paperId
+    const title = anchor.paperId === paper.arxivId ? paper.title : paperTitles.get(anchor.paperId) || anchor.paperId
     return `[${escape(`${anchor.label} · ${title}${Number.isInteger(anchor.page) && anchor.page! > 0 ? ` · p.${anchor.page}` : ''}`)}](${target(anchor)})`
   }).join(', ')
   return { answer: linkedAnswer, references, anchors: [...unique.values()] }
+}
+
+/** Resolve display metadata only in the capture's pinned vault; never follow record paths. */
+async function capturePaperTitles(libraryPath: string): Promise<Map<string, string>> {
+  try {
+    const records: unknown = JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'library.json'), 'utf8'))
+    const titles = new Map<string, string>(); const ambiguous = new Set<string>()
+    if (!Array.isArray(records)) return titles
+    for (const record of records) {
+      if (!record || typeof record.arxivId !== 'string' || typeof record.title !== 'string' || !record.title.trim()) continue
+      const title = record.title.trim()
+      if (titles.has(record.arxivId) && titles.get(record.arxivId) !== title) ambiguous.add(record.arxivId)
+      titles.set(record.arxivId, title)
+    }
+    for (const id of ambiguous) titles.delete(id)
+    return titles
+  } catch { return new Map() } // Missing/unreadable metadata must not prevent saving the answer and its exact source IDs.
 }
 
 function blockIdFor(anchor: Pick<EvidenceAnchor, 'paperId' | 'anchorId'>) {
@@ -155,7 +172,7 @@ export async function captureToPaperNote(libraryPath: string, paper: CapturePape
     blockId = `ai-answer-${randomUUID()}`
     const capturedAt = new Date().toISOString()
     const question = request.question.replace(/\s+/g, ' ').trim().slice(0, 300)
-    const provenance = chatCaptureProvenance(request.answer, request.anchors ?? [], paper)
+    const provenance = chatCaptureProvenance(request.answer, request.anchors ?? [], paper, await capturePaperTitles(libraryPath))
     const answer = provenance.answer.replace(/\r\n/g, '\n').trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n')
     const references = provenance.references
     const metadata = encodeURIComponent(JSON.stringify({ provider: request.provider, model: request.model, capturedAt, anchors: provenance.anchors }))

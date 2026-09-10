@@ -746,11 +746,21 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     }
     const observer = new ResizeObserver(measure)
     for (const pane of panes) { observer.observe(pane); pane.querySelectorAll('.continuous-page').forEach(page => observer.observe(page)) }
+    // A page can keep its placeholder dimensions while rendering finishes, or
+    // a saved figure can appear without resizing its page. Follow those ready
+    // and geometry changes while the explicit source still owns navigation.
+    let renderedFrame = 0
+    const renderedObserver = new MutationObserver(() => {
+      if (explicitAnchorTarget.current?.paperId !== activeIdRef.current) return
+      cancelAnimationFrame(renderedFrame)
+      renderedFrame = requestAnimationFrame(() => centerExplicitAnchor())
+    })
+    for (const pane of panes) renderedObserver.observe(pane, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'data-render-scale'] })
     measure()
     const interrupt = () => { explicitAnchorTarget.current = undefined; navigationTarget.current = undefined; window.clearTimeout(navigationTimer.current) }
     const keyInterrupt = (event: KeyboardEvent) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) interrupt() }
     for (const pane of panes) { pane.addEventListener('wheel', interrupt, { passive: true }); pane.addEventListener('pointerdown', interrupt); pane.addEventListener('keydown', keyInterrupt) }
-    return () => { observer.disconnect(); for (const pane of panes) { pane.removeEventListener('wheel', interrupt); pane.removeEventListener('pointerdown', interrupt); pane.removeEventListener('keydown', keyInterrupt) } }
+    return () => { observer.disconnect(); renderedObserver.disconnect(); cancelAnimationFrame(renderedFrame); for (const pane of panes) { pane.removeEventListener('wheel', interrupt); pane.removeEventListener('pointerdown', interrupt); pane.removeEventListener('keydown', keyInterrupt) } }
   }, [pdf, layout])
   function restoreScrollAnchor(pane: HTMLDivElement | null, anchor: ReadingPosition) {
     if (!pane?.clientWidth) return

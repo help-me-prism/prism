@@ -417,8 +417,13 @@ try {
     await wait('Boolean([...document.querySelectorAll(".figure-preview-controls button")].find(button => button.textContent.includes("100%") && !button.disabled))')
     await evaluate('document.querySelector(".figure-preview-dialog").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))')
   } finally { await fs.rename(path.join(figureDirectory, savedFigure + '.held'), path.join(figureDirectory, savedFigure)).catch(() => {}) }
+  // Model a late render-ready signal with unchanged page dimensions. A resize
+  // observer alone cannot repair navigation that finished before this signal.
+  await evaluate(`document.querySelector('[data-page="original-${figureMetadata.page}"]').classList.remove('rendered')`)
   await evaluate(`window.prism.openEvidenceAnchor(${JSON.stringify({paperId:paper.arxivId, anchorId:savedFigure.replace(/\.png$/, ''), type:'figure',page:figureMetadata.page,label:'피겨'})})`)
   await wait('Boolean(document.querySelector("[data-saved-figure]"))')
+  await sleep(3300)
+  await evaluate(`(() => { const page = document.querySelector('[data-page="original-${figureMetadata.page}"]'); const pane = page.closest('.document-scroll'); pane.scrollTop = pane.scrollHeight - pane.clientHeight; page.classList.add('rendered'); })()`)
   // Large single-pane reading may already place this first-page figure above
   // the viewport midpoint at scrollTop=0. Require full visibility and the
   // nearest reachable centered position, rather than an impossible negative scroll.
@@ -679,7 +684,7 @@ try {
   ] }
   await evaluate(`window.prism.saveSessions(${JSON.stringify([answerSession])})`)
   await reload()
-  await wait('Boolean(document.querySelector(".message-actions button"))')
+  await wait('Boolean(document.querySelector(".message-actions button:not(:disabled)"))')
   await evaluate('document.querySelector(".message-actions button").click()')
   await wait('document.querySelector(".message-actions button")?.textContent.includes("저장한")')
   const noteAfterAnswer = await fs.readFile(paper.notePath, 'utf8')
