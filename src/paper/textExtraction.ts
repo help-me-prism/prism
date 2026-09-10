@@ -22,6 +22,10 @@ function isEquation(text: string) {
   // Parenthesized labels, file types and citations are not display equations.
   if (!/[=+\-×÷∑∫√∞≈≠≤≥<>^_\\\u2200-\u22ff]/.test(compact)) return false
   const proseWords = text.match(/[A-Za-z]{3,}/g)?.length ?? 0
+  // Explanatory clauses can be mostly symbols ("where T(t)=…") while still
+  // belonging to the surrounding sentence. A grammatical lead is stronger
+  // evidence than symbol density and must stay translatable prose.
+  if (/^(?:where|given|let|since|when|for|with|and|if)\b/i.test(text.trim()) && proseWords >= 1) return false
   if (proseWords >= 4) return false
   const symbols = (compact.match(/[=+\-×÷∑∫√∞≈≠≤≥<>^_{}()[\]\\|\u2200-\u22ff︷︸]/g) ?? []).length
   const letters = (compact.match(/[A-Za-z가-힣]/g) ?? []).length
@@ -42,6 +46,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
   const bodyHeight = bodyHeights[Math.floor(bodyHeights.length / 2)] ?? 10
   let previous: PdfTextItem | undefined
   let pendingEOL = false
+  let displayMathRun = false
+  const mathFont = (item?: PdfTextItem) => /(?:cmmi|cmsy|cmex|math|symbol|mtmi|mtsy|stmary|msam|msbm)/i.test(item?.fontName ?? '')
   for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
     const item = items[itemIndex]; const value = item.str.trim()
     if (!value || isPdfMetadataArtifact(value)) { if (item.hasEOL) pendingEOL = true; continue }
@@ -58,15 +64,21 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       // PDF text order walks tall delimiters and fractions vertically even though
       // they belong to one visual display. Do not turn those short nearby glyphs
       // into separate paragraphs merely because their baseline moves upward/downward.
-      const equationContinuation = isEquation(currentParagraph) && (isEquation(value)
-        || (value.length <= 4 && Math.abs(item.transform[4] - previous.transform[4]) < 24))
+      const previousRight = previous.transform[4] + Math.max(0, previous.width || 0)
+      const horizontalGap = item.transform[4] - previousRight
+      const displayMathLead = isEquation(value) || mathFont(item) || /^(?:d|∂|∫|∑|√|\[|\]|\(|\{|\|)$/.test(value)
+      const centeredMathAfterProse = (currentParagraph.match(/[A-Za-z]{3,}/g)?.length ?? 0) >= 3
+        && displayMathLead && horizontalGap > 24 && verticalGap > height * .42
+      const startsDisplayMath = (pendingEOL && wordCount(currentParagraph) >= 3 && verticalGap > height * .9 && displayMathLead
+        && Math.abs(item.transform[4] - previous.transform[4]) > 40) || centeredMathAfterProse
+      const equationContinuation = (isEquation(currentParagraph) && (isEquation(value)
+        || (pendingEOL && mathFont(item))
+        || (value.length <= 4 && Math.abs(item.transform[4] - previous.transform[4]) < 24)))
+        || (displayMathRun && (isEquation(value) || mathFont(item) || /^\(?\d{1,4}\)?$/.test(value) || value.length <= 4))
       const columnReset = rawColumnReset && !equationContinuation
       const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value) && !equationContinuation
       const numberedDisplayToProse = previous.hasEOL && /^\(\d{1,4}\)$/.test(previous.str.trim()) && verticalGap > height * .9
-      const centeredDisplayAfterProse = pendingEOL && verticalGap > height * .9
-        && (currentParagraph.match(/[A-Za-z]{3,}/g)?.length ?? 0) >= 4
-        && (isEquation(value) || value.length === 1)
-        && Math.abs(item.transform[4] - previous.transform[4]) > 40
+      const centeredDisplayAfterProse = startsDisplayMath
       const paragraphGap = (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
         || (!equationContinuation && pendingEOL && verticalGap > height * 1.64) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
       // A number at an inline font boundary is often a subscript or a measured
@@ -83,6 +95,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       const joinHyphen = previous.str.trimEnd().endsWith('-') && !columnReset
       if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
       combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
+      if (startsDisplayMath) displayMathRun = true
+      if (numberedDisplayToProse || (displayMathRun && !equationContinuation && !mathFont(item) && wordCount(value) >= 3)) displayMathRun = false
     }
     const start = combined.length; combined += value
     ranges.push({ start, end: combined.length, itemIndex }); previous = item; pendingEOL = false
@@ -141,7 +155,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       || (digitRatio > .18 && matchedItems.length >= 4)
     )))
     const mathFontRatio = matchedItems.filter((item) => /(?:cmmi|cmsy|cmex|math|symbol|mtmi|mtsy|stmary|msam|msbm)/i.test(item.fontName ?? '')).length / Math.max(1, matchedItems.length)
-    const fontMarkedEquation = !caption && part.text.length < 260 && mathFontRatio >= .45 && (part.text.match(/[A-Za-z]{3,}/g)?.length ?? 0) < 4
+    const proseMathClause = /^(?:where|given|let|since|when|for|with|and|if)\b/i.test(part.text.trim())
+    const fontMarkedEquation = !caption && !proseMathClause && part.text.length < 260 && mathFontRatio >= .45 && (part.text.match(/[A-Za-z]{3,}/g)?.length ?? 0) < 4
     // A missing font mapping can be an inequality or an experimental condition.
     // Preserve the original pixels instead of asking a translator to guess it.
     const kind: TranslationSegment['kind'] = part.text.includes('\uFFFD') ? 'artifact' : caption ? 'caption'
@@ -169,5 +184,9 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     merged.push(current)
   }
   return merged
+}
+
+function wordCount(value: string) {
+  return value.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0
 }
 

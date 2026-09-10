@@ -34,6 +34,23 @@ assert.deepEqual(figureRegionWithCaption({left:100,top:130,width:400,height:180}
 assert.deepEqual(figureRegionWithCaption({left:100,top:100,width:400,height:180},[{left:110,top:370,width:380,height:25}],1),{left:100,top:100,width:400,height:180},'Distant prose is not absorbed as a caption')
 const tableSegments = [{kind:'artifact',source:'Earlier damaged prose still ends here.'},{kind:'caption',source:'Table 2. Results.'},{kind:'text',source:'Model Score'},{kind:'artifact',source:'Base 30.1'},{kind:'equation',source:'Ours $x_i$ 33.8'},{kind:'text',source:'The discussion starts here.'}]
 assert.deepEqual(tableMemberIndexes(tableSegments,1),[1,2,3,4],'Table range includes text and math cells but stops at prose')
+const rect = (left,top,width=390,height=14) => [{left,top,width,height}]
+const captionBelow = [
+  {kind:'artifact',source:'Model K=1 K=20 K=50',page:21,preciseRects:rect(108,100)},
+  {kind:'artifact',source:'Ours 3.11 3.01 2.99',page:21,preciseRects:rect(108,125)},
+  {kind:'table',source:'Table 4. Likelihood results.',page:21,preciseRects:rect(108,150)},
+  {kind:'artifact',source:'0 100 200 300 400 500',page:21,preciseRects:rect(108,260)},
+  {kind:'artifact',source:'Epochs',page:21,preciseRects:rect(260,280,45)},
+  {kind:'caption',source:'Figure 10: Function evaluations.',page:21,preciseRects:rect(108,340)},
+]
+assert.deepEqual(tableMemberIndexes(captionBelow,2),[0,1,2],'A caption below its table chooses the dense aligned side and does not absorb the following chart')
+const captionAbove = [
+  {kind:'table',source:'Table 2. Results.',page:5,preciseRects:rect(108,80)},
+  {kind:'text',source:'Model Accuracy',page:5,preciseRects:rect(108,105)},
+  {kind:'artifact',source:'Base 30.1 Ours 33.8',page:5,preciseRects:rect(108,130)},
+  {kind:'text',source:'The discussion begins here.',page:5,preciseRects:rect(108,190)},
+]
+assert.deepEqual(tableMemberIndexes(captionAbove,0),[0,1,2],'A caption above its table includes cell text but stops at separated prose')
 const tableAboveCaption = tableRegionFromEvidence([{ left: 90, top: 110, width: 420, height: 90 }, { left: 105, top: 208, width: 390, height: 18 }], [{ left: 88, top: 105, width: 424, height: 97 }, { left: 100, top: 310, width: 400, height: 190 }], 1)
 assert.deepEqual(tableAboveCaption, { index: 0, rect: { left: 88, top: 105, width: 424, height: 121 } }, 'A caption below the grid is included in one table region')
 const tableBelowCaption = tableRegionFromEvidence([{ left: 110, top: 80, width: 370, height: 18 }, { left: 100, top: 110, width: 390, height: 120 }], [{ left: 98, top: 106, width: 394, height: 126 }, { left: 120, top: 300, width: 350, height: 210 }], 1)

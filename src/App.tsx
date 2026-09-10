@@ -26,6 +26,7 @@ import AiUsageHistory from './AiUsageHistory'
 import ThemeControl from './ThemeControl'
 import PaperWorkspace from './PaperWorkspace'
 import { displayMathForPreview } from '../electron/mathRendering'
+import { anchorPopoverPosition } from './paper/anchorPopover'
 
 type JsonRecord = Record<string, unknown>
 
@@ -103,19 +104,35 @@ function equationPreviewHtml(source: string) {
   catch { return undefined }
 }
 
+/** Anchor previews live in scrollable chat/composer panes. Fixed positioning is
+ * the only way for the preview to escape those clipping ancestors; calculate
+ * its viewport-safe center each time because messages and the composer move. */
+function positionAnchorPopover(anchor: HTMLElement, popover: HTMLElement) {
+  window.requestAnimationFrame(() => {
+    const position = anchorPopoverPosition(anchor.getBoundingClientRect(), popover.getBoundingClientRect(), { width: window.innerWidth, height: window.innerHeight })
+    popover.style.left = `${position.left}px`; popover.style.top = `${position.top}px`; popover.style.bottom = 'auto'
+  })
+}
+
 function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; onRemove?: () => void; onNavigate?: (anchor: ContextAnchor) => void }) {
   const Icon = anchor.type === 'equation' ? Sigma : anchor.type === 'table' ? Table2 : anchor.type === 'figure' ? Image : anchor.type === 'page' ? FileText : TextQuote
   const equationHtml = anchor.type === 'equation' ? equationPreviewHtml(anchor.source) : undefined
   const [loadedFigurePreview, setLoadedFigurePreview] = useState<string>()
   const imagePreview = anchor.preview?.startsWith('data:image/') ? anchor.preview : loadedFigurePreview
+  const tokenRef = useRef<HTMLButtonElement>(null)
   const loadFigurePreview = () => {
     if (anchor.type !== 'figure' || imagePreview) return
     void window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).then(saved => { if (saved.dataUrl.startsWith('data:image/')) setLoadedFigurePreview(saved.dataUrl) }).catch(() => {})
   }
-  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`}>{equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : imagePreview ? <img src={imagePreview} alt={`${anchor.label} 원문 미리보기`} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const showPreview = () => {
+    loadFigurePreview()
+    const token = tokenRef.current; const popover = token?.querySelector<HTMLElement>('.anchor-popover')
+    if (token && popover) positionAnchorPopover(token, popover)
+  }
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`}>{equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : imagePreview ? <img src={imagePreview} alt={`${anchor.label} 원문 미리보기`} onLoad={showPreview} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
-    ? <button type="button" className="anchor-token" title={anchor.source} onClick={onRemove}>{content}</button>
-    : <button type="button" className="anchor-token" title={anchor.type === 'figure' ? '큰 이미지로 보기' : '논문의 해당 위치로 이동'} onMouseEnter={loadFigurePreview} onFocus={loadFigurePreview} onClick={() => anchor.type === 'figure' ? openFigurePreview(anchor) : onNavigate?.(anchor)}>{content}</button>
+    ? <button ref={tokenRef} type="button" className="anchor-token" title={anchor.source} onMouseEnter={showPreview} onFocus={showPreview} onClick={onRemove}>{content}</button>
+    : <button ref={tokenRef} type="button" className="anchor-token" title={anchor.type === 'figure' ? '큰 이미지로 보기' : '논문의 해당 위치로 이동'} onMouseEnter={showPreview} onFocus={showPreview} onClick={() => anchor.type === 'figure' ? openFigurePreview(anchor) : onNavigate?.(anchor)}>{content}</button>
 }
 
 function withoutReferences(text: string) { return text.replace(referencePattern, ' ').replace(/\s{2,}/g, ' ').trim() }
@@ -245,9 +262,11 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
         const popover = document.createElement('span'); const equationHtml = anchor.type === 'equation' ? equationPreviewHtml(anchor.source) : undefined; const imagePreview = anchor.preview?.startsWith('data:image/') ? anchor.preview : undefined
         popover.className = `anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`
         if (equationHtml) popover.innerHTML = equationHtml
-        else if (imagePreview) { const image = document.createElement('img'); image.src = imagePreview; image.alt = `${anchor.label} 원문 미리보기`; popover.append(image) }
-        else if (anchor.type === 'figure') { popover.className = 'anchor-popover image figure'; const image = document.createElement('img'); image.alt = `${anchor.label} 원문 미리보기`; popover.append(image); chip.addEventListener('mouseenter', () => { if (!image.src) void window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).then(saved => { image.src = saved.dataUrl }).catch(() => {}) }, { once: true }) }
+        else if (imagePreview) { const image = document.createElement('img'); image.src = imagePreview; image.alt = `${anchor.label} 원문 미리보기`; image.addEventListener('load', () => positionAnchorPopover(chip, popover)); popover.append(image) }
+        else if (anchor.type === 'figure') { popover.className = 'anchor-popover image figure'; const image = document.createElement('img'); image.alt = `${anchor.label} 원문 미리보기`; image.addEventListener('load', () => positionAnchorPopover(chip, popover)); popover.append(image); chip.addEventListener('mouseenter', () => { if (!image.src) void window.prism.readSavedFigure(anchor.paperId, anchor.anchorId).then(saved => { image.src = saved.dataUrl }).catch(() => {}) }, { once: true }) }
         else { const heading = document.createElement('strong'); heading.textContent = anchor.paperTitle; popover.append(heading, document.createTextNode(anchor.source.slice(0, 500))) }
+        const placePopover = () => positionAnchorPopover(chip, popover)
+        chip.addEventListener('mouseenter', placePopover); chip.addEventListener('focus', placePopover)
         chip.append(symbol, label, paper, excerpt, popover); close.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); wrapper.remove(); readEditor(); onCaretChange(offset) }); wrapper.append(chip);
         if (anchor.type === 'figure') chip.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); openFigurePreview(anchor) })
         if (anchor.type !== 'figure') {

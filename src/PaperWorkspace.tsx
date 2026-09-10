@@ -10,6 +10,7 @@ import { useDialogFocus } from './useDialogFocus'
 import { figureRegionWithCaption, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { tableMemberIndexes, tableRegionFromEvidence } from './paper/tableRegions'
+import { monotoneMatches } from './paper/equationAlignment'
 import { matchFigureCaptions } from '../electron/figureCaptionMatching'
 import ReadingTranslation from './paper/ReadingTranslation'
 import PaperTitleDialog from './PaperTitleDialog'
@@ -133,32 +134,15 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     }
   }
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
-  const usedEquations = new Set<number>()
-  let equationCursor = -1
-  for (const block of structure.blocks.filter((candidate) => candidate.kind === 'equation')) {
-    // PDF math extraction is lossy, but equation order is not. Restrict each
-    // match to a short forward window and reject weak matches instead of ever
-    // attaching an unrelated LaTeX block from another page.
-    const available = equationIndexes.filter((index) => index > equationCursor && !usedEquations.has(index)).slice(0, 8)
-    const ranked = available.flatMap((index) => {
-      const indexes = [index]
-      for (let next = index + 1; next < enriched.length && indexes.length < 5; next += 1) {
-        const candidate = enriched[next]
-        if (candidate.kind === 'equation' || (candidate.kind === 'artifact' && /^[\]\[().,;:]+$/.test(candidate.source.trim())) || /^[,;:]?\s*\(\d+\)$/.test(candidate.source.trim())) indexes.push(next)
-        else break
-      }
-      return indexes.map((_ignored, length) => {
-        const group = indexes.slice(0, length + 1)
-        return { indexes: group, score: tokenSimilarity(block.source, group.map(candidate => enriched[candidate].source).join(' ')) }
-      })
-    }).sort((a, b) => b.score - a.score)
-    const selected = ranked[0]
-    if (!selected || selected.score < .42) continue
-    for (const index of selected.indexes) {
-      usedEquations.add(index)
-      enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
-    }
-    equationCursor = selected.indexes.at(-1)!
+  const equationBlocks = structure.blocks.filter((candidate) => candidate.kind === 'equation')
+  // A greedy cursor lets one damaged PDF equation shift every later LaTeX
+  // source. Compute the best monotone alignment for the whole paper instead:
+  // either side may skip a damaged/unprinted equation, but accepted pairs can
+  // never cross and a weak earlier block cannot steal a strong later match.
+  const scores = equationBlocks.map(block => equationIndexes.map(index => tokenSimilarity(block.source, enriched[index].source)))
+  for (const match of monotoneMatches(scores, .42)) {
+    const block = equationBlocks[match.leftIndex]; const index = equationIndexes[match.rightIndex]
+    enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
