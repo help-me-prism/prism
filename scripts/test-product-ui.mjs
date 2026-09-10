@@ -97,7 +97,8 @@ try {
   await reload(); await wait('Boolean(document.querySelector(".ai-reading-bar input"))')
   assert.equal(await evaluate('document.querySelector(".ai-reading-bar input").checked'), false, 'Highlight preference survives reopening')
   await evaluate('document.querySelector(".ai-reading-bar input").click()')
-  await wait('document.querySelector(".page-jump input").value === "1"')
+  await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
+  await wait('document.querySelector(".page-jump input")?.value === "1"')
   assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
   const userObservation = '\nA personal observation that must survive title editing.\n'
   await fs.appendFile(paper.notePath, userObservation)
