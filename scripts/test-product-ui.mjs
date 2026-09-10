@@ -108,44 +108,6 @@ try {
   await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   await wait('document.querySelector(".page-jump input")?.value === "1"')
   assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
-  const userObservation = '\nA personal observation that must survive title editing.\n'
-  await fs.appendFile(paper.notePath, userObservation)
-  const metadataBeforeTitle = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'metadata.json'), 'utf8'))
-  const openTitleDialog = async () => {
-    await evaluate('document.querySelector(".reader-more summary").click()')
-    await evaluate('[...document.querySelectorAll(".reader-more button")].find(button => button.textContent.includes("논문 제목 편집")).click()')
-    await wait('Boolean(document.querySelector(".paper-title-dialog"))')
-  }
-  await openTitleDialog()
-  await evaluate('document.querySelector(".pdf-title-suggestion").click()')
-  await wait('document.querySelector("#paper-title-input").value === "Cell biology and controlled experiments"')
-  await evaluate('document.querySelector(".paper-title-dialog footer button[type=button]").click()')
-  assert.equal((await evaluate('window.prism.listLibrary()'))[0].title, paper.title, 'Cancel must not write suggested PDF metadata')
-  await openTitleDialog()
-  await evaluate('document.querySelector(".pdf-title-suggestion").click()')
-  await wait('document.querySelector("#paper-title-input").value === "Cell biology and controlled experiments"')
-  await evaluate('document.querySelector(".paper-title-dialog button[type=submit]").click()')
-  await wait('!document.querySelector(".paper-title-dialog")')
-  const renamedPaper = (await evaluate('window.prism.listLibrary()'))[0]
-  assert.equal(renamedPaper.title, 'Cell biology and controlled experiments')
-  for (const key of ['arxivId','pdfPath','notePath','translationPath','pdfSha256']) assert.equal(renamedPaper[key], paper[key], `Title edit cannot change ${key}`)
-  const noteAfterTitle = await fs.readFile(paper.notePath, 'utf8')
-  assert(noteAfterTitle.includes(userObservation))
-  assert(noteAfterTitle.includes('aliases: ["Cell biology"]'), 'Old title remains resolvable as a wiki alias')
-  assert(noteAfterTitle.includes('# Cell biology and controlled experiments'))
-  const metadataAfterTitle = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'metadata.json'), 'utf8'))
-  assert.deepEqual(metadataAfterTitle, { ...metadataBeforeTitle, title: renamedPaper.title })
-  assert(await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:'Stale overwrite',expectedTitle:paper.title,libraryPath:vault})}).then(()=>false,()=>true)`), 'Stale title editors cannot overwrite a newer title')
-  const metadataFile = path.join(path.dirname(paper.pdfPath), 'metadata.json')
-  await fs.rename(metadataFile, metadataFile + '.held')
-  try {
-    const partial = await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:renamedPaper.title,expectedTitle:renamedPaper.title,libraryPath:vault})})`)
-    assert.equal(partial.paper.title, renamedPaper.title)
-    assert(partial.warnings.some(warning => warning.includes('metadata.json')), 'Secondary write failures must be visible rather than reported as full success')
-  } finally { await fs.rename(metadataFile + '.held', metadataFile) }
-  assert(await evaluate(`window.prism.updatePaperTitle(${JSON.stringify({paperId:paper.arxivId,title:'Wrong vault',expectedTitle:renamedPaper.title,libraryPath:path.join(root,'wrong-vault')})}).then(()=>false,()=>true)`), 'An editor from another vault cannot rename the active paper')
-  paper.title = renamedPaper.title
-  await wait('document.querySelector(".paper-tab-title").textContent.includes("Cell biology and controlled experiments")')
   await reload(); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   assert.equal((await evaluate('window.prism.listLibrary()'))[0].title, paper.title, 'Title survives reopening the application')
   const titlebarSafe = await evaluate(`(() => { const button = document.querySelector('.reading-focus'); const rect = button.getBoundingClientRect(); const mac = document.documentElement.dataset.platform === 'mac'; return rect.left >= (mac ? 80 : 0) && rect.right <= innerWidth - (mac ? 10 : 130) && button.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)); })()`)
@@ -162,7 +124,7 @@ try {
   assert.equal(await evaluate('Boolean(document.querySelector(".send-button.stop"))'), false)
   // Inspect the actual renderer→IPC request without starting a CLI or charging tokens.
   await evaluate('document.querySelector("button[aria-label=\\"새 대화\\"]").click()')
-  await evaluate('document.querySelector(".paper-context-bar > button").click()')
+  await evaluate('document.querySelector(".context-picker > .context-button").click()')
   await wait('Boolean(document.querySelector(".paper-context-menu button[aria-pressed=true]"))')
   assert.equal(await evaluate('document.querySelector(".paper-context-menu button[aria-pressed=true]").disabled'), false)
   await evaluate('document.querySelector(".paper-context-menu button[aria-pressed=true]").click()')
@@ -174,8 +136,7 @@ try {
   await evaluate('document.querySelector(".paper-tree button").click()')
   await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   assert.equal(await evaluate('document.querySelectorAll(".paper-context-menu button[aria-pressed=true]").length'), 0, 'Reopening a paper must not re-add it after explicit deselection')
-  await evaluate('document.querySelector(".paper-context-menu button").click(); document.querySelector(".paper-context-bar > button").click()')
-  await evaluate(`Array.from(document.querySelectorAll('.reader-more button')).find(button => button.textContent.includes('현재 페이지 근거로 담기')).click()`)
+  await evaluate('document.querySelector(".paper-context-menu button").click(); document.querySelector(".context-picker > .context-button").click()')
   await evaluate('document.querySelector(".composer-editor").focus()')
   await send('Input.insertText', { text: '이 페이지 설명해줘' })
   await fs.writeFile(path.join(root, 'inspect-context.txt'), 'inspect')
@@ -188,18 +149,22 @@ try {
   await fs.unlink(path.join(root, 'inspect-context.txt'))
   await evaluate('document.querySelector("button[aria-label=\\"새 대화\\"]").click()')
   await evaluate('document.querySelector("button[aria-label=\\"앱 설정\\"]").click()')
-  assert.equal(await evaluate('document.querySelectorAll("[data-settings-tab]").length'), 10)
-  for (const task of ['guide','translation','memory','knowledge','structure']) {
-    await evaluate(`document.querySelector('[data-settings-tab=${task}]').click()`)
-    await wait('document.querySelectorAll(".task-model-settings select").length === 2')
+  assert.equal(await evaluate('document.querySelectorAll("[data-settings-tab]").length'), 6)
+  // Every model job now lives in one table, so each row must still write its own
+  // provider/model keys: a shared table makes it easy to wire every row to one setting.
+  await evaluate("document.querySelector('[data-settings-tab=ai]').click()")
+  await wait('document.querySelectorAll(".ai-task-table tbody tr").length === 4')
+  for (const task of ['guide','translation','memory','knowledge']) {
     const before = await evaluate('window.prism.getSettings()')
-    await evaluate(`(() => { const select = document.querySelector('.task-model-settings select'); select.value = 'claude'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+    await evaluate(`(() => { const select = document.querySelector('.ai-task-table tr[data-task=${task}] select'); select.value = 'claude'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
     await wait(`window.prism.getSettings().then(value => value.${task}Provider === 'claude' && value.${task}Model === 'haiku')`)
     await evaluate(`window.prism.updateSettings(${JSON.stringify({[`${task}Provider`]:before[`${task}Provider`] ?? 'codex',[`${task}Model`]:before[`${task}Model`] ?? 'gpt-5.6-luna'})})`)
   }
-  await evaluate("document.querySelector('[data-settings-tab=guide]').click()")
-  await wait('document.querySelector(".task-model-settings")?.textContent.includes("처음 읽기")')
-  await shot('product-settings-guide')
+  // The name alone cannot carry what a job does or when it runs; the help control must.
+  assert.equal(await evaluate('Boolean(document.querySelector(\'.ai-task-table tr[data-task=guide] .task-detail\'))'), false)
+  await evaluate("document.querySelector('.ai-task-table tr[data-task=guide] .task-help').click()")
+  await wait('document.querySelector(\'.ai-task-table tr[data-task=guide] .task-detail\')?.textContent.includes("읽기 노트")')
+  await shot('product-settings-ai')
   const usageTab = `[data-settings-tab=usage]`
   assert(await evaluate(`(() => { const r = document.querySelector('${usageTab}').getBoundingClientRect(); return r.top > 0 && r.bottom < innerHeight; })()`), 'Usage tab is visible without scrolling through storage settings')
   await evaluate(`document.querySelector('${usageTab}').click()`)

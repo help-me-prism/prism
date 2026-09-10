@@ -1,4 +1,4 @@
-import TaskSettings, { type ModelTask } from './TaskSettings'
+import AiTaskSettings from './AiTaskSettings'
 import { buildQuestionContext } from './paper/questionContext'
 import { useComposerDraft } from './paper/useComposerDraft'
 import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
@@ -329,7 +329,7 @@ function App() {
   }, [chatVisible, workspaceState.activePaperId, workspaceState.libraryPath])
   useEffect(() => { localStorage.setItem('prism.chat-visible', String(chatVisible)) }, [chatVisible])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsPanel, setSettingsPanel] = useState<'general' | 'usage' | 'storage' | 'appearance' | 'keyboard' | ModelTask>('general')
+  const [settingsPanel, setSettingsPanel] = useState<'general' | 'ai' | 'usage' | 'storage' | 'appearance' | 'keyboard'>('general')
   useDialogFocus(settingsOpen, '.app-settings', 'button[aria-label="설정"]')
   const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
@@ -354,6 +354,10 @@ function App() {
   if (composerSession.current !== (activeSession?.id ?? '')) { composerSession.current = activeSession?.id ?? ''; composerRevision.current += 1 }
   const activeProvider = providers.find((provider) => provider.id === activeSession?.provider)
   const isRunning = activeSession ? runningIds.includes(activeSession.id) : false
+  // Compaction costs a model run and drops detail, so it is only worth offering once the
+  // conversation is close to the point where the model starts forgetting its own beginning.
+  const compactionOffer = activeSession?.provider === 'codex' && Boolean(activeSession.providerThreadId)
+    && Boolean(activeSession.usage?.context) && activeSession.usage!.context!.usedTokens / activeSession.usage!.context!.contextWindow >= .8
   const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId) || (autoIncludePaper && paper.arxivId === workspaceState.activePaperId))
   const historicalReferences = activeSession?.messages.flatMap(message => message.anchors ?? []).filter(anchor => /^근거\d+$/.test(anchor.label)) ?? []
   const composerReferences = [...anchorCatalog, ...historicalReferences.filter((anchor, index, all) => all.findIndex(item => item.label === anchor.label) === index)]
@@ -814,9 +818,11 @@ function App() {
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
           {memoryNotices[activeSession.id] && <p className="memory-update-status" role="status">{memoryNotices[activeSession.id].text} {memoryNotices[activeSession.id].paperId && <button onClick={() => void openReadingNote(memoryNotices[activeSession.id].paperId)}>노트 보기</button>}</p>}
-          {activeSession.provider === 'codex' && activeSession.providerThreadId && <div className="session-usage"><button disabled={isRunning} onClick={() => void compactChat()} title="Codex가 이전 대화를 요약해 문맥을 줄입니다. AI 사용량이 소모되며 화면의 대화 기록은 보존됩니다. 세부 내용이 필요하면 해당 근거를 다시 첨부하세요.">대화 문맥 정리 · AI 사용</button></div>}
+          {compactionOffer && <div className="compaction-offer" role="status">
+            <span><strong>대화가 길어졌습니다.</strong> 앞부분부터 잊기 시작하면 답이 부정확해질 수 있어요.</span>
+            <button disabled={isRunning} onClick={() => void compactChat()} title="지금까지의 대화를 짧은 요약으로 바꿔 AI가 기억할 자리를 넓힙니다. 화면의 대화 기록은 그대로 남고, AI 사용량이 조금 듭니다.">이전 대화 줄이기</button>
+          </div>}
           {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
-          <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
 
           <div className="messages" ref={messagesRef} onScroll={(event) => { const pane = event.currentTarget; setFollowChat(pane.scrollHeight - pane.scrollTop - pane.clientHeight < 56) }}>
             {activeSession.messages.length === 0 ? (
@@ -848,7 +854,10 @@ function App() {
               {composerDraft.error && <p role="alert">{composerDraft.error}</p>}
               <InlineComposer onMemo={anchor => runWorkspaceCommand('memo-anchor', anchor.paperId, anchor)} text={input} anchors={contextAnchors} disabled={!activeProvider?.available} focusPlacementId={focusPlacementId} onCaretChange={setComposerCaret} onKeyDown={onKeyDown} onChange={(value, anchors) => { setInput(value); setContextAnchors(anchors); setFocusPlacementId(undefined) }} />
               <div className="composer-bottom">
-                <button type="button" className="context-button" onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
+                <div className="context-picker">
+                  <button type="button" className="context-button" aria-expanded={paperContextOpen} onClick={() => setPaperContextOpen((value) => !value)}><MessageSquareText size={14} /> 논문 {selectedPapers.length}개 <ChevronDown size={12} /></button>
+                  {paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button type="button" aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}
+                </div>
                 {isRunning ? <button type="button" className="send-button stop" onClick={() => void stopMessage(activeSession.id)} aria-label="생성 중지"><Square size={13} fill="currentColor" /></button> : <button className="send-button" disabled={!canSend} aria-label="보내기"><SendHorizontal size={16} /></button>}
               </div>
             </form>
@@ -858,10 +867,10 @@ function App() {
       </div>
       {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
         <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
-        <div className="settings-layout"><nav className="settings-tabs" role="tablist" aria-label="설정 항목" aria-orientation="vertical">{([['general', 'CLI 연결'], ['guide', '처음 읽기'], ['translation', '번역'], ['memory', '대화 메모리'], ['knowledge', '지식 정리'], ['structure', '구조 분석'], ['storage', '파일 보관'], ['appearance', '화면'], ['usage', 'AI 사용 기록'], ['keyboard', '키보드']] as const).map(([id, label]) => <button key={id} data-settings-tab={id} role="tab" aria-selected={settingsPanel === id} onClick={() => setSettingsPanel(id)}>{label}</button>)}</nav>
+        <div className="settings-layout"><nav className="settings-tabs" role="tablist" aria-label="설정 항목" aria-orientation="vertical">{([['general', 'CLI 연결'], ['ai', '작업별 AI'], ['storage', '파일 보관'], ['appearance', '화면'], ['usage', 'AI 사용 기록'], ['keyboard', '키보드']] as const).map(([id, label]) => <button key={id} data-settings-tab={id} role="tab" aria-selected={settingsPanel === id} onClick={() => setSettingsPanel(id)}>{label}</button>)}</nav>
         <div className="settings-content" role="tabpanel">
         {settingsPanel === 'usage' && <AiUsageHistory />}
-        {['guide', 'translation', 'memory', 'knowledge', 'structure'].includes(settingsPanel) && <TaskSettings task={settingsPanel as ModelTask} providers={providers} />}
+        {settingsPanel === 'ai' && <AiTaskSettings providers={providers} />}
         {settingsPanel === 'general' && <>
         <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>Codex 또는 Claude CLI로 채팅과 번역을 사용합니다.</small></div><button onClick={() => void refreshProviders()} disabled={authInProgress !== null}><RefreshCw size={14} /> 다시 확인</button></div>
           <div className="provider-list">{providers.map((provider) => (
