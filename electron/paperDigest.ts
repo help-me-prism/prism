@@ -4,7 +4,7 @@ import path from 'node:path'
 import { readKnowledgeNode, readVaultSnapshot, saveKnowledgeNode, type KnowledgeNodeRecord, type VaultSnapshot } from './knowledge.js'
 import { markAutoWritten } from './autoUnread.js'
 import { knowledgeRelationViews, listKnowledgeRelationRecords, type KnowledgeRelationRecord } from './relations.js'
-import { assertOnlyAutoChanged, autoHeadings, autoMarkers, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
+import { assertOnlyAutoChanged, autoHeadings, autoMarkers, autoBaseline, stripAutoBaseline, protectedAutoSection, isChatSection, mineHeadings, noteAutomation, type AutoSection } from './noteContract.js'
 import { claimedByChat, listChatMemory, type ChatMemoryMap } from './chatMemory.js'
 
 export { noteAutomation, type NoteSectionRule } from './noteContract.js'
@@ -197,9 +197,11 @@ const markers = autoMarkers
  * researcher's own sections, so their writing always stays at the bottom where they left it.
  */
 export function writeAutoSection(content: string, section: PaperDigestSection, body: string, order: PaperDigestSection[] = []) {
+  if (protectedAutoSection(content, section)) return content
   const { open, close } = markers(section)
-  const block = `${open}\n${body.trim() || '_아직 없음_'}\n${close}`
-  const normalized = content.replace(/\r\n/g, '\n')
+  const text = body.trim() || '_아직 없음_'
+  const block = `${open}\n${text}\n${close}\n${autoBaseline(section, text)}`
+  const normalized = stripAutoBaseline(content.replace(/\r\n/g, '\n'), section)
   const start = normalized.indexOf(open)
   if (start >= 0) {
     const end = normalized.indexOf(close, start)
@@ -224,7 +226,7 @@ export function writeAutoSection(content: string, section: PaperDigestSection, b
     if (at >= 0) return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
   }
   // A summary is only useful at the top. Sections stack under each other, below the abstract, above everything else.
-  const lastClose = [...normalized.matchAll(/<!-- \/prism:auto [a-z]+ -->/g)].at(-1)
+  const lastClose = [...normalized.matchAll(/<!-- \/prism:auto [a-z]+ -->(?:\n<!-- prism:baseline [a-z]+ [a-f0-9]{16} -->)?/g)].at(-1)
   if (lastClose?.index !== undefined) {
     const at = lastClose.index + lastClose[0].length
     return `${normalized.slice(0, at)}${insertion}${normalized.slice(at)}`
@@ -380,6 +382,12 @@ export async function refreshPaperDigest(libraryPath: string, paperNodeId: strin
     // A section the conversation has taken over is not the rules' to rewrite. They seeded it so a researcher
     // with no model configured is not left with nothing; once a model has spoken they stand down for good.
     if (isChatSection('paper', section) && claimedByChat(context.chatMemory, paper.id, section)) continue
+    // Once selective memory exists, old question-frequency guesses must not resurrect resolved doubts.
+    if (section === 'confusion' && snapshot.content.includes('<!-- prism:reading-region memory -->')) {
+      const updated = removeAutoSection(next, section)
+      if (updated !== next) { next = updated; written.push(section) }
+      continue
+    }
     // Never trade written content for a placeholder: chat may be momentarily unreadable, and a note that
     // loses what it showed a minute ago is worse than one that is slightly stale.
     if (!filled && hasGeneratedContent(next, section)) continue
@@ -631,8 +639,9 @@ function sourceSentence(excerpt: string, title: string) {
 
 /** Takes a generated region and its heading away again once there is nothing to put in it. */
 export function removeAutoSection(content: string, section: PaperDigestSection) {
+  if (protectedAutoSection(content, section)) return content
   const { open, close } = markers(section)
-  const normalized = content.replace(/\r\n/g, '\n')
+  const normalized = stripAutoBaseline(content.replace(/\r\n/g, '\n'), section)
   const start = normalized.indexOf(open)
   if (start < 0) return normalized
   const end = normalized.indexOf(close, start)

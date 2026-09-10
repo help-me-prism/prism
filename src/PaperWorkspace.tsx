@@ -371,7 +371,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   </div>
 }
 
-export default function PaperWorkspace({ providers, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState, readingSizeRequest }: { readingSizeRequest?: ReadingSizeRequest; providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
+export default function PaperWorkspace({ providers, onOpenNote, command, sidebarOpen, onToggleSidebar, onTagAnchor, onAnchorCatalog, onWorkspaceState, readingSizeRequest }: { onOpenNote: (paperId: string) => void; readingSizeRequest?: ReadingSizeRequest; providers: ProviderInfo[]; sidebarOpen: boolean; command?: WorkspaceCommand; onToggleSidebar: () => void; onTagAnchor: (anchor: ContextAnchor, readingSize?: ReadingSizeSnapshot) => void; onAnchorCatalog: (anchors: ContextAnchor[]) => void; onWorkspaceState: (state: WorkspaceSnapshot) => void }) {
   const workspaceRef = useRef<HTMLElement>(null)
   const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth)
   const explicitNarrowComparison = useRef(new Set<string>())
@@ -387,6 +387,16 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
   const [recovering, setRecovering] = useState(false)
   const [recoveryNotice, setRecoveryNotice] = useState('')
   const [settings, setSettings] = useState<AppSettings>({ translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false })
+  const [guideState, setGuideState] = useState<{ vault?: string; paperId: string; guide: import('../electron/readingGuideTypes').ReadingGuide | null; status: string }>({ paperId: '', guide: null, status: '' })
+  const guideRequestId = useRef(0)
+  async function loadGuide(paperId: string, libraryPath: string, generate: boolean, force = false) {
+    const request = ++guideRequestId.current
+    setGuideState({ vault: libraryPath, paperId, guide: null, status: generate ? 'AI가 핵심 부분과 읽기 노트를 정리하고 있습니다…' : '' })
+    try {
+      const guide = await window.prism.paperGuide({ paperId, libraryPath, generate, force })
+      if (request === guideRequestId.current) setGuideState({ vault: libraryPath, paperId, guide, status: guide ? (guide.sampled ? '일부 원문에서 고른 AI 핵심 안내' : 'AI 핵심 안내') : '' })
+    } catch (reason) { if (request === guideRequestId.current) setGuideState({ vault: libraryPath, paperId, guide: null, status: 'AI 읽기 안내를 만들지 못했습니다. ' + String(reason) }) }
+  }
   const [library, setLibrary] = useState<PaperRecord[]>([]); const [tabs, setTabs] = useState<string[]>([]); const [activeId, setActiveId] = useState<string>()
   const [editingPaper, setEditingPaper] = useState<{ paper: PaperRecord; libraryPath: string; document: PdfDocument }>()
   const [finderOpen, setFinderOpen] = useState(false); const [pdf, setPdf] = useState<PdfDocument>()
@@ -614,7 +624,10 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
       if (disposed) return
       const source = enrichWithLatex(segments, latex); const translatable = source.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length
       setSourceStatus({ mode: source.matched > translatable * .35 ? 'latex' : 'pdf', matched: source.matched, total: translatable })
-      setAllSegments(source.segments); void window.prism.savePaperAnchors(activePaper.arxivId, source.segments)
+      setAllSegments(source.segments)
+      void window.prism.savePaperAnchors(activePaper.arxivId, source.segments).then(() => {
+        if (!disposed && settings.libraryPath) void loadGuide(activePaper.arxivId, settings.libraryPath, settings.autoReadingGuide !== false)
+      }).catch(reason => { if (!disposed) setError(String(reason)) })
       const cache = await window.prism.readTranslation(activePaper.arxivId); if (disposed) return
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
@@ -631,7 +644,7 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     }).catch((reason) => { if (!disposed) { setLoadStatus(undefined); setError(reason instanceof Error ? reason.message : String(reason)) } })
     const persist = () => saveReadingPosition(activePaper.pdfPath, navigationTarget.current ?? lastReadingPosition.current)
     window.addEventListener('beforeunload', persist)
-    return () => { disposed = true; void loadingTask?.destroy().catch(() => {}); persist(); window.clearTimeout(positionSaveTimer.current); window.clearTimeout(navigationTimer.current); window.removeEventListener('beforeunload', persist) }
+    return () => { disposed = true; guideRequestId.current++; void loadingTask?.destroy().catch(() => {}); persist(); window.clearTimeout(positionSaveTimer.current); window.clearTimeout(navigationTimer.current); window.removeEventListener('beforeunload', persist) }
   }, [activePaper?.pdfPath, reloadAttempt])
   function setTranslating(running: boolean, paperId = activeId) { if (paperId) setTranslationJobs(current => ({ ...current, [paperId]: running })) }
   function openPaper(paper: PaperRecord) { setTabs((current) => current.includes(paper.arxivId) ? current : [...current, paper.arxivId]); setActiveId(paper.arxivId) }
@@ -910,6 +923,15 @@ export default function PaperWorkspace({ providers, command, sidebarOpen, onTogg
     && comparisonReturn?.paperId !== activeId
   const comparisonHint = suggestStacked ? '현재 좌우 비교. 상하 비교로 바꾸어 각 문서를 넓게 읽기' : '원문과 한국어 비교. 좁은 화면에서는 위아래로 엽니다.'
   return <section ref={workspaceRef} className="reader-pane paper-workspace">
+    {guideState.paperId === activeId && guideState.vault === settings.libraryPath && settings.showAiHighlights !== false && <style>{guideState.guide?.points.map(point => `.paper-workspace [data-anchor="${CSS.escape(point.anchorId)}"] { background-color: ${point.kind === 'limit' ? 'rgba(239, 153, 102, .24)' : point.kind === 'method' ? 'rgba(97, 160, 210, .21)' : 'rgba(232, 189, 59, .26)'}; box-shadow: inset 0 -2px 0 rgba(179,133,36,.2); }`).join('\n')}</style>}
+    {activePaper && <div className="ai-reading-bar"><label><input type="checkbox" checked={settings.showAiHighlights !== false} onChange={event => void updateSettings({ showAiHighlights: event.target.checked })} /> AI 하이라이트</label>
+      <details><summary>핵심 읽기 안내</summary><div className="ai-reading-popover">
+        <p role="status">{guideState.paperId === activeId && guideState.vault === settings.libraryPath ? guideState.status : '원문을 불러오면 핵심 부분을 정리합니다.'}</p>
+        {guideState.paperId === activeId && guideState.vault === settings.libraryPath && guideState.guide && <><p>{guideState.guide.summary}</p>{guideState.guide.points.map(point => <button key={point.anchorId} onClick={() => void window.prism.openEvidenceAnchor({ paperId: activeId!, anchorId: point.anchorId, page: point.page, type: 'sentence', label: 'AI 핵심' })}>{point.page}쪽 · {point.text}</button>)}</>}
+        <button onClick={() => onOpenNote(activePaper.arxivId)}>읽기 노트 열기</button>
+        <button disabled={!allSegments.length || !settings.libraryPath || guideState.status.includes('정리하고')} onClick={() => settings.libraryPath && void loadGuide(activePaper.arxivId, settings.libraryPath, true, true)}>핵심 안내 다시 만들기 · AI 사용</button>
+        <small>핵심 안내는 논문 노트에도 저장됩니다. 하이라이트 표시를 꺼도 기록은 남습니다.</small>
+      </div></details></div>}
     {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}
     <div className="editor-tabs"><button className="icon-button" aria-label={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} title={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>

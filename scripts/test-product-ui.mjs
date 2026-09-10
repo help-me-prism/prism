@@ -73,6 +73,30 @@ try {
   assert.equal((await evaluate('window.prism.listLibrary()')).length, 1)
   await reload(); await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
   await wait('document.querySelectorAll("[data-anchor]").length > 3')
+  await wait(`window.prism.listKnowledgeNodes().then(nodes => nodes.some(node => node.arxivId === ${JSON.stringify(paper.arxivId)}))`)
+  const { prepareReadingGuide } = await import('../dist-electron/readingGuide.js')
+  const { listKnowledgeNodes } = await import('../dist-electron/knowledge.js')
+  const guideNode = (await listKnowledgeNodes(vault)).find(node => node.arxivId === paper.arxivId)
+  let guideAnchors
+  for (let attempt = 0; attempt < 50 && !guideAnchors; attempt++) {
+    try { guideAnchors = JSON.parse(await fs.readFile(path.join(path.dirname(paper.pdfPath), 'anchors.json'), 'utf8')).anchors } catch { await sleep(100) }
+  }
+  const guide = await prepareReadingGuide(vault, paper.arxivId, guideNode.id, paper.title, guideAnchors, 'fixture', async prompt => {
+    const sources = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)).sources
+    return JSON.stringify({summary:'실험의 대조 조건과 해석의 한계를 확인합니다.',points:[{anchorId:sources[0].id,kind:'method',text:'대조 조건을 확인할 근거입니다.'}]})
+  })
+  await reload()
+  await wait('Boolean(document.querySelector(".continuous-page.rendered"))')
+  await wait('document.querySelector(".ai-reading-popover")?.textContent.includes("실험의 대조 조건")')
+  const highlightedSelector = `[data-anchor="${guide.points[0].anchorId}"]`
+  await wait(`Boolean(document.querySelector(${JSON.stringify(highlightedSelector)}))`)
+  assert.notEqual(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(highlightedSelector)})).backgroundColor`), 'rgba(0, 0, 0, 0)')
+  await evaluate('document.querySelector(".ai-reading-bar input").click()')
+  await wait(`getComputedStyle(document.querySelector(${JSON.stringify(highlightedSelector)})).backgroundColor === 'rgba(0, 0, 0, 0)'`)
+  assert((await fs.readFile(paper.notePath,'utf8')).includes(guide.summary), 'Hiding highlights must preserve the reading note')
+  await reload(); await wait('Boolean(document.querySelector(".ai-reading-bar input"))')
+  assert.equal(await evaluate('document.querySelector(".ai-reading-bar input").checked'), false, 'Highlight preference survives reopening')
+  await evaluate('document.querySelector(".ai-reading-bar input").click()')
   await wait('document.querySelector(".page-jump input").value === "1"')
   assert.equal(await evaluate('document.querySelector(".translation-scope").value'), 'page')
   const userObservation = '\nA personal observation that must survive title editing.\n'
@@ -155,7 +179,19 @@ try {
   await fs.unlink(path.join(root, 'inspect-context.txt'))
   await evaluate('document.querySelector("button[aria-label=\\"새 대화\\"]").click()')
   await evaluate('document.querySelector("button[aria-label=\\"앱 설정\\"]").click()')
-  const usageTab = `.settings-tabs [role=tab]:last-child`
+  assert.equal(await evaluate('document.querySelectorAll("[data-settings-tab]").length'), 10)
+  for (const task of ['guide','translation','memory','knowledge','structure']) {
+    await evaluate(`document.querySelector('[data-settings-tab=${task}]').click()`)
+    await wait('document.querySelectorAll(".task-model-settings select").length === 2')
+    const before = await evaluate('window.prism.getSettings()')
+    await evaluate(`(() => { const select = document.querySelector('.task-model-settings select'); select.value = 'claude'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+    await wait(`window.prism.getSettings().then(value => value.${task}Provider === 'claude' && value.${task}Model === 'haiku')`)
+    await evaluate(`window.prism.updateSettings(${JSON.stringify({[`${task}Provider`]:before[`${task}Provider`] ?? 'codex',[`${task}Model`]:before[`${task}Model`] ?? 'gpt-5.6-luna'})})`)
+  }
+  await evaluate("document.querySelector('[data-settings-tab=guide]').click()")
+  await wait('document.querySelector(".task-model-settings")?.textContent.includes("처음 읽기")')
+  await shot('product-settings-guide')
+  const usageTab = `[data-settings-tab=usage]`
   assert(await evaluate(`(() => { const r = document.querySelector('${usageTab}').getBoundingClientRect(); return r.top > 0 && r.bottom < innerHeight; })()`), 'Usage tab is visible without scrolling through storage settings')
   await evaluate(`document.querySelector('${usageTab}').click()`)
   await wait('document.querySelector(".app-settings").textContent.includes("아직 기록된 AI 작업이 없습니다")')
@@ -517,6 +553,8 @@ try {
   }
   assert.equal(await evaluate('document.querySelector(".reading-focus").getAttribute("aria-expanded")'), initialFocusState)
   await evaluate(`document.querySelector('[aria-label="설정"]').click()`)
+  await evaluate("document.querySelector('[data-settings-tab=appearance]').click()")
+  await wait('Boolean(document.querySelector("[aria-label=\\"화면 테마\\"]"))')
   await evaluate(`(() => { const select = document.querySelector('[aria-label="화면 테마"]'); select.value = 'dark'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`)
   await evaluate(`document.querySelector('[aria-label="설정 닫기"]').click()`)
   assert.equal(await evaluate('document.documentElement.style.colorScheme'), 'dark')

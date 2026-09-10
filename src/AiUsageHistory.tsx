@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AiRun } from '../electron/aiUsageTypes'
 
-const labels: Record<string, string> = { context: '대화 문맥 정리', chat: '질문', translation: '번역', digest: '노트 정리', knowledge: '연결 제안', structure: '구조 분석' }
+const labels: Record<string, string> = { guide: '처음 읽기', memory: '대화 메모리', context: '대화 문맥 정리', chat: '질문', translation: '번역', digest: '노트 정리', knowledge: '연결 제안', structure: '구조 분석' }
 const number = (value?: number) => value === undefined ? '미제공' : value.toLocaleString()
 export default function AiUsageHistory() {
   const [runs, setRuns] = useState<AiRun[]>()

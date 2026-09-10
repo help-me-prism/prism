@@ -290,7 +290,7 @@ function sectionFoldDecorations(state: EditorState, folded: ReadonlySet<number>)
 }
 
 const sectionFoldState = StateField.define<{ folded: ReadonlySet<number>; decorations: DecorationSet }>({
-  create: (state) => sectionFoldDecorations(state, new Set()),
+  create: (state) => sectionFoldDecorations(state, state.doc.toString().includes('prism:reading-region') ? new Set(sectionHeadings(state).filter(heading => ['한눈에', '내가 헷갈린 것', '내가 주목한 것', '이 노트의 관계', '어디서 나왔나', '대화에서 물어본 것'].includes(heading.label)).map(heading => heading.from)) : new Set()),
   update(value, transaction) {
     const folded = new Set([...value.folded].map((position) => transaction.changes.mapPos(position)))
     for (const effect of transaction.effects) {
@@ -796,7 +796,7 @@ function insertBlock(view: EditorView, command: MarkdownBlockCommand, replace?: 
 }
 
 const headingPattern = /^#{1,6}\s/
-const markerPattern = /^<!--\s*\/?prism:(mine|auto)\s/
+const markerPattern = /^<!--\s*\/?prism:(mine|auto|reading|reading-region|baseline|keep)\s/
 
 /**
  * Empty headings read as homework, so ghost text on the blank line under one says what belongs there. For the

@@ -1,3 +1,4 @@
+import TaskSettings, { type ModelTask } from './TaskSettings'
 import { buildQuestionContext } from './paper/questionContext'
 import { useComposerDraft } from './paper/useComposerDraft'
 import { composerEvidenceLabel } from './paper/composerEvidenceLabel'
@@ -264,6 +265,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [hydrated, setHydrated] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [memoryNotices, setMemoryNotices] = useState<Record<string, { text: string; paperId?: string }>>({})
   function setContextAnchors(value: Parameters<typeof updateContextAnchors>[0]) { composerRevision.current += 1; updateContextAnchors(value) }
   const [anchorCatalog, setAnchorCatalog] = useState<ContextAnchor[]>([])
   const [workspaceCommand, setWorkspaceCommand] = useState<WorkspaceCommand>()
@@ -285,7 +287,7 @@ function App() {
   }, [chatVisible, workspaceState.activePaperId, workspaceState.libraryPath])
   useEffect(() => { localStorage.setItem('prism.chat-visible', String(chatVisible)) }, [chatVisible])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsPanel, setSettingsPanel] = useState<'general' | 'usage'>('general')
+  const [settingsPanel, setSettingsPanel] = useState<'general' | 'usage' | 'storage' | 'appearance' | 'keyboard' | ModelTask>('general')
   useDialogFocus(settingsOpen, '.app-settings', 'button[aria-label="설정"]')
   const [trashOpen, setTrashOpen] = useState(false)
   const [tagSuggestionIndex, setTagSuggestionIndex] = useState(0)
@@ -356,6 +358,7 @@ function App() {
       const event = payload as JsonRecord
       const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
       if (!sessionId) return
+      if (event.type === 'memory.updated' || event.type === 'memory.error') setMemoryNotices(current => ({ ...current, [sessionId]: { text: event.type === 'memory.updated' ? '대화에서 필요한 연구 메모를 업데이트했습니다.' : String(event.message), paperId: typeof event.paperId === 'string' ? event.paperId : undefined } }))
       if (event.type === 'thread.started' && typeof event.providerThreadId === 'string') {
         setSessions((current) => current.map((session) => session.id === sessionId
           ? { ...session, providerThreadId: event.providerThreadId as string, updatedAt: Date.now() }
@@ -756,7 +759,7 @@ function App() {
           </aside>
         )}
 
-        <PaperWorkspace readingSizeRequest={readingSizeRequest} providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
+        <PaperWorkspace onOpenNote={paperId => void openReadingNote(paperId)} readingSizeRequest={readingSizeRequest} providers={providers} sidebarOpen={sidebarOpen} command={workspaceCommand} onWorkspaceState={setWorkspaceState} onToggleSidebar={() => setSidebarOpen((value) => !value)} onAnchorCatalog={setAnchorCatalog} onTagAnchor={insertAnchor} />
 
         <aside className="chat-pane" hidden={!chatVisible}>
           <div className="chat-header">
@@ -768,6 +771,7 @@ function App() {
             <label className="model-select"><span>MODEL</span><select value={activeSession.model} disabled={isRunning} onChange={(event) => updateSession(activeSession.id, (session) => ({ ...session, model: event.target.value, updatedAt: Date.now() }))}>{activeProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
           </div>
           <SessionUsage session={activeSession} rateLimits={rateLimits[activeSession.provider]} />
+          {memoryNotices[activeSession.id] && <p className="memory-update-status" role="status">{memoryNotices[activeSession.id].text} {memoryNotices[activeSession.id].paperId && <button onClick={() => void openReadingNote(memoryNotices[activeSession.id].paperId)}>노트 보기</button>}</p>}
           {activeSession.provider === 'codex' && activeSession.providerThreadId && <div className="session-usage"><button disabled={isRunning} onClick={() => void compactChat()} title="Codex가 이전 대화를 요약해 문맥을 줄입니다. AI 사용량이 소모되며 화면의 대화 기록은 보존됩니다. 세부 내용이 필요하면 해당 근거를 다시 첨부하세요.">대화 문맥 정리 · AI 사용</button></div>}
           {readingSizeOffer && readingSizeOffer.paperId === workspaceState.activePaperId && <div className="reading-size-offer"><span>읽던 글자 크기</span><button type="button" title="질문창을 열기 전 배율로 이 문서를 펼칩니다. 이전 보기로 돌아갈 수 있습니다." onClick={() => { setReadingSizeRequest({ ...readingSizeOffer, id: Date.now() }); setReadingSizeOffer(undefined) }}>읽던 크기로</button></div>}
           <div className="paper-context-bar"><button onClick={() => setPaperContextOpen((value) => !value)}><BookOpen size={13} /><span>{selectedPapers.length ? selectedPapers.map((paper) => paper.title).join(', ') : '논문 컨텍스트 없음'}</span><ChevronDown size={12} /></button>{paperContextOpen && <div className="paper-context-menu"><header>이번 질문의 논문</header><p className="paper-context-hint">관련 발췌와 초록을 사용합니다. 최대 8편 · 현재 논문도 선택 해제할 수 있습니다.</p>{workspaceState.library.map((paper) => { const selected = selectedPapers.some(item => item.arxivId === paper.arxivId); return <button aria-pressed={selected} disabled={!selected && selectedPapers.length >= 8} title={!selected && selectedPapers.length >= 8 ? "한 질문에 최대 8편까지 선택할 수 있습니다" : undefined} key={paper.arxivId} onClick={() => { setAutoIncludePaper(false); setContextPaperIds(selected ? selectedPapers.filter(item => item.arxivId !== paper.arxivId).map(item => item.arxivId) : [...selectedPapers.map(item => item.arxivId), paper.arxivId]) }}><span className={selected ? 'checked' : ''}>{selected && <Check size={11} />}</span><div><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></div></button> })}</div>}</div>
@@ -812,8 +816,11 @@ function App() {
       </div>
       {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="app-settings" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
         <header><div><Settings2 size={18} /><div><h2 id="app-settings-title">Prism 설정</h2><p>연결 상태와 로컬 작업 환경을 확인합니다.</p></div></div><button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기"><X size={18} /></button></header>
-        <div className="settings-tabs" role="tablist" aria-label="설정 항목"><button role="tab" aria-selected={settingsPanel === 'general'} onClick={() => setSettingsPanel('general')}>연결 및 설정</button><button role="tab" aria-selected={settingsPanel === 'usage'} onClick={() => setSettingsPanel('usage')}>AI 사용 기록</button></div>
-        {settingsPanel === 'usage' ? <AiUsageHistory /> : <>
+        <div className="settings-layout"><nav className="settings-tabs" role="tablist" aria-label="설정 항목" aria-orientation="vertical">{([['general', 'CLI 연결'], ['guide', '처음 읽기'], ['translation', '번역'], ['memory', '대화 메모리'], ['knowledge', '지식 정리'], ['structure', '구조 분석'], ['storage', '파일 보관'], ['appearance', '화면'], ['usage', 'AI 사용 기록'], ['keyboard', '키보드']] as const).map(([id, label]) => <button key={id} data-settings-tab={id} role="tab" aria-selected={settingsPanel === id} onClick={() => setSettingsPanel(id)}>{label}</button>)}</nav>
+        <div className="settings-content" role="tabpanel">
+        {settingsPanel === 'usage' && <AiUsageHistory />}
+        {['guide', 'translation', 'memory', 'knowledge', 'structure'].includes(settingsPanel) && <TaskSettings task={settingsPanel as ModelTask} providers={providers} />}
+        {settingsPanel === 'general' && <>
         <div className="settings-section"><div className="settings-heading"><div><strong>AI CLI 연결</strong><small>Codex 또는 Claude CLI로 채팅과 번역을 사용합니다.</small></div><button onClick={() => void refreshProviders()} disabled={authInProgress !== null}><RefreshCw size={14} /> 다시 확인</button></div>
           <div className="provider-list">{providers.map((provider) => (
             <div key={provider.id}>
@@ -833,10 +840,11 @@ function App() {
           ))}</div>
           {authMessage && <p className="provider-auth-message">{authMessage}</p>}
         </div>
-        <StorageSettings onChooseVault={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }} />
-        <div className="settings-section"><ThemeControl /><p>원문 PDF는 인쇄 색상을 유지합니다.</p></div>
-        <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>
         </>}
+        {settingsPanel === 'storage' && <StorageSettings onChooseVault={() => { setSettingsOpen(false); runWorkspaceCommand('choose-folder') }} />}
+        {settingsPanel === 'appearance' && <div className="settings-section"><ThemeControl /><p>원문 PDF는 인쇄 색상을 유지합니다.</p></div>}
+        {settingsPanel === 'keyboard' && <div className="settings-section shortcuts"><strong>키보드</strong><div><span>메시지 전송</span><kbd>Enter</kbd><span>줄바꿈</span><kbd>Shift + Enter</kbd><span>참조 선택</span><kbd>↑ ↓ · Enter</kbd></div></div>}
+        </div></div>
       </section></div>}
       {deletedSession && <div className="undo-toast" role="status"><span><strong>대화를 휴지통으로 옮겼습니다.</strong><small>휴지통에서도 언제든 복원할 수 있습니다.</small></span><button onClick={undoDeleteSession}><Undo2 size={14} /> 실행 취소</button></div>}
     </main>

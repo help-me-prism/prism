@@ -116,6 +116,7 @@ contextBridge.exposeInMainWorld('prism', {
   cancelTranslation: (arxivId: string) => ipcRenderer.invoke('translation:cancel', arxivId),
   readAiUsage: () => ipcRenderer.invoke('ai:usage'),
   sendMessage: (request: unknown) => ipcRenderer.invoke('chat:send', request),
+  paperGuide: (request: unknown) => ipcRenderer.invoke('paper:guide', request),
   compactChat: (request: unknown) => ipcRenderer.invoke('chat:compact', request),
   cancelMessage: (sessionId: string) => ipcRenderer.invoke('chat:cancel', sessionId),
   onChatEvent: (callback: (event: unknown) => void) => subscribe('chat:event', callback),

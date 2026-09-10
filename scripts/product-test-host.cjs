@@ -36,6 +36,7 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
       fs.appendFileSync(path.join(root, 'unexpected-chat-call.txt'), JSON.stringify(args[1]) + '\n'); throw new Error('Offline UI test prevents paid calls')
     }
     if (channel === 'chat:compact') throw new Error('Offline UI test prevents paid compaction calls')
+    if (channel === 'paper:guide' && args[1]?.generate) throw new Error('Offline UI test prevents paid reading guide calls')
     return listener(...args)
   })
 }

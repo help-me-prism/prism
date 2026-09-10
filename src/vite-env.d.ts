@@ -16,7 +16,7 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
 type ChatSession = { libraryPath?: string | null; id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
 type ChatRequest = { inputComposition?: import('../electron/aiUsageTypes').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
-type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean }
 type PaperFigureAsset = { id: string; order: number; caption?: string; sourcePath?: string; mimeType?: string; dataUrl?: string }
@@ -190,6 +190,7 @@ interface Window {
     cancelTranslation: (arxivId: string) => Promise<boolean>
     readAiUsage: () => Promise<import('../electron/aiUsageTypes').AiRun[]>
     sendMessage: (request: ChatRequest) => Promise<{ started: boolean }>
+    paperGuide: (request: { paperId: string; libraryPath: string; generate?: boolean; force?: boolean }) => Promise<import('../electron/readingGuideTypes').ReadingGuide | null>
     compactChat: (request: { sessionId: string; libraryPath: string | null; model: string }) => Promise<{ started: boolean }>
     cancelMessage: (sessionId: string) => Promise<boolean>
     onChatEvent: (callback: (event: unknown) => void) => () => void

@@ -2,6 +2,7 @@ import { parseAiUsage, parseInputComposition, recordAiRun, readAiRuns, type AiUs
 import { cliTaskArgs, taskInstructions } from './cliTaskOptions.js'
 import { createSessionStore } from './sessionStore.js'
 import { withTaskLock } from './taskLock.js'
+import { prepareReadingGuide, readReadingState, updateReadingMemory, type GuideAnchor } from './readingGuide.js'
 import crossSpawn from 'cross-spawn'
 import { assertChatScope } from './chatScope.js'
 import { validatedScientificSpans } from './scientificSource.js'
@@ -42,7 +43,7 @@ import { downloadBytes } from './downloadBytes.js'
 import { searchCrossref } from './scholarlySearch.js'
 import { readLocalPaper } from './localPaper.js'
 import { atomicWriteFile } from './atomicFile.js'
-import { chatMemoryInstruction } from './noteContract.js'
+import { chatMemoryInstruction, protectEditedAutoSections } from './noteContract.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -52,7 +53,7 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ChatRequest = { inputComposition?: import('./aiUsageTypes.js').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
 type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
@@ -62,6 +63,8 @@ function normalizePdfControls(value: string) {
 }
 
 const activeChats = new Map<string, ActiveChat>()
+const settledAnswers = new Set<string>()
+const memoryAttempts = new Set<string>()
 const sessionOwners = new Map<string, { task?: 'context'; sender: WebContents; sessionId: string; messageId: string; model: string; startedAt: number; inputCharacters: number; inputComposition?: import('./aiUsageTypes.js').InputComposition; usage?: AiUsage }>()
 const translationRuns = new Map<string, { cancelled: boolean }>()
 const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
@@ -346,6 +349,7 @@ class CodexAppServer {
       const turn = message.params.turn as Record<string, unknown> | undefined
       void recordAiRun(aiUsagePath(), { id: owner.messageId, task: owner.task ?? 'chat', measurement: 'last-request', provider: 'codex', model: owner.model, startedAt: owner.startedAt, durationMs: Date.now() - owner.startedAt, inputCharacters: owner.inputCharacters, inputComposition: owner.inputComposition, status: turn?.status === 'failed' || turn?.status === 'interrupted' ? 'failed' : 'completed', ...owner.usage })
       activeChats.delete(owner.sessionId)
+      if (!owner.task && turn?.status === 'completed') { settledAnswers.add(`${owner.sessionId}:${owner.messageId}`); scheduleChatRouting() }
       if (turn?.status === 'failed') safeSend(owner.sender, 'chat:error', { sessionId: owner.sessionId, message: String((turn.error as Record<string, unknown> | undefined)?.message ?? 'CLI 작업에 실패했습니다.') })
       safeSend(owner.sender, 'chat:done', { sessionId: owner.sessionId, code: turn?.status === 'failed' ? 1 : 0 })
     } else if (message.method === 'error') {
@@ -450,7 +454,7 @@ async function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPa
   const child = spawnCli(executable, args, { cwd: app.getPath('documents'), env: { NO_COLOR: '1' }, windowsHide: true })
   activeChats.set(request.sessionId, { provider: 'claude', process: child })
   const startedAt = Date.now(); let measuredUsage: AiUsage = {}
-  let buffer = ''; let stderr = ''; let receivedDelta = false
+  let buffer = ''; let stderr = ''; let receivedDelta = false; let resultFailed = false
   child.stdout.setEncoding('utf8')
   child.stdout.on('data', (chunk: string) => {
     buffer += chunk
@@ -471,6 +475,7 @@ async function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPa
           safeSend(sender, 'chat:event', { type: 'text.delta', sessionId: request.sessionId, messageId: request.messageId, text: event.result })
         }
         if (event.type === 'result') {
+          resultFailed = event.is_error === true
           measuredUsage = parseAiUsage('claude', event.usage as Record<string, unknown> | undefined)
           const usage = claudeUsage(event, request.model)
           if (usage) safeSend(sender, 'chat:event', { type: 'usage', sessionId: request.sessionId, ...usage })
@@ -482,7 +487,8 @@ async function sendClaude(sender: WebContents, request: ChatRequest, mcpConfigPa
   child.stderr.on('data', (chunk: string) => { stderr += chunk })
   child.on('error', (error) => safeSend(sender, 'chat:error', { sessionId: request.sessionId, message: error.message }))
   child.on('close', (code) => {
-    void recordAiRun(aiUsagePath(), { id: request.messageId, task: 'chat', provider: 'claude', model: request.model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: request.prompt.length, inputComposition: request.inputComposition, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
+    if (code === 0 && !resultFailed) { settledAnswers.add(`${request.sessionId}:${request.messageId}`); scheduleChatRouting() }
+    void recordAiRun(aiUsagePath(), { id: request.messageId, task: 'chat', provider: 'claude', model: request.model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: request.prompt.length, inputComposition: request.inputComposition, status: code === 0 && !resultFailed ? 'completed' : 'failed', ...measuredUsage })
     activeChats.delete(request.sessionId)
     if (code && stderr.trim()) safeSend(sender, 'chat:error', { sessionId: request.sessionId, message: stderr.trim() })
     safeSend(sender, 'chat:done', { sessionId: request.sessionId, code })
@@ -528,8 +534,8 @@ async function saveSessions(value: unknown) {
  * Chat is where the researcher says what they do not understand, and a note that only hears about it when
  * somebody happens to open it is a filing cabinet, not a memory. Every time a conversation settles, the
  * notes it was about catch up on their own: the papers in its context, and any concept, claim or question
- * whose name came up. Only the generated regions move, and only for free — no model runs here, so this
- * costs a few file reads and can happen in the background without asking.
+ * whose name came up. Reference lists refresh locally. Completed exchanges can also trigger the
+ * separately configured, selective memory pass; user edits remain protected in both paths.
  */
 let chatRoutingTimer: NodeJS.Timeout | undefined
 let chatRouting: Promise<void> = Promise.resolve()
@@ -539,6 +545,7 @@ function scheduleChatRouting() {
   chatRoutingTimer = setTimeout(() => { chatRouting = chatRouting.then(routeChatIntoNotes).catch(() => undefined) }, 4000)
 }
 async function routeChatIntoNotes() {
+  while (settledAnswers.size > 1024) settledAnswers.delete(settledAnswers.values().next().value!)
   const settings = await readSettings()
   if (!settings.libraryPath) return
   const messages = await readChatMessages(sessionsPath(), settings.libraryPath)
@@ -554,6 +561,33 @@ async function routeChatIntoNotes() {
   for (const node of targets.slice(0, 12)) {
     // One note failing — renamed, open in Obsidian, mid-edit — must not stop the others catching up.
     try { await refreshNoteDigest(settings.libraryPath, node.id, messages, undefined, context) } catch { /* it will catch up on the next turn */ }
+  }
+  if (settings.autoMemory === false || process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1') return
+  const sessions = await loadSessions()
+  for (const session of sessions) {
+    if (activeChats.has(session.id) || !Array.isArray(session.messages) || session.deletedAt) continue
+    try { await assertChatScope(session.libraryPath, settings.libraryPath, session) } catch { continue }
+    // A second quick turn must not hide the first completed exchange from the debounce.
+    for (let index = 1; index < session.messages.length; index++) {
+      const answer = session.messages[index]
+      const question = session.messages[index - 1]
+      const exchangeId = `${session.id}:${answer?.id}`
+      if (answer?.role !== 'assistant' || !answer.text || !settledAnswers.has(exchangeId) || memoryAttempts.has(exchangeId) || question?.role !== 'user') continue
+      const paperId = answer.primaryPaperId ?? question.primaryPaperId ?? question.paperIds?.[0]
+      const node = context.vault.records.find(item => item.nodeType === 'paper' && item.arxivId === paperId)
+      if (!node) continue
+      try {
+        const result = await withTaskLock(JSON.stringify([settings.libraryPath, node.id]), () => { memoryAttempts.add(exchangeId); return updateReadingMemory(settings.libraryPath!, paperId, node.id,
+          { id: `${session.id}:${answer.id}`, question: question.text, answer: answer.text },
+          prompt => runTranslationCli(settings.memoryProvider ?? 'codex', settings.memoryModel ?? 'gpt-5.6-luna', prompt, `memory-${node.id}-${answer.id}`)) })
+        if (result.updated && mainWindow) safeSend(mainWindow.webContents, 'chat:event', { type: 'memory.updated', sessionId: session.id, paperId, title: node.title })
+      } catch (error) {
+        // A first-reading job can still own this note. Retry the queue, not a paid model failure.
+        if (!memoryAttempts.has(exchangeId)) scheduleChatRouting()
+        else if (mainWindow) safeSend(mainWindow.webContents, 'chat:event', { type: 'memory.error', sessionId: session.id, message: '연구 메모를 갱신하지 못했습니다. 기존 노트는 유지됩니다. ' + String(error) })
+      }
+      if (memoryAttempts.has(exchangeId)) { settledAnswers.delete(exchangeId); memoryAttempts.delete(exchangeId) }
+    }
   }
 }
 
@@ -596,6 +630,12 @@ async function readSettings(): Promise<AppSettings> {
   try {
     const value = JSON.parse(await fs.readFile(settingsPath(), 'utf8')) as Partial<AppSettings>
     return {
+      autoReadingGuide: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoReadingGuide !== false,
+      showAiHighlights: value.showAiHighlights !== false,
+      autoMemory: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoMemory !== false,
+      guideProvider: value.guideProvider === 'claude' ? 'claude' : 'codex', guideModel: value.guideModel ?? (value.guideProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna'),
+      memoryProvider: value.memoryProvider === 'claude' ? 'claude' : 'codex', memoryModel: value.memoryModel ?? (value.memoryProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna'),
+      structureProvider: value.structureProvider, structureModel: value.structureModel,
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       paperStoragePath: typeof value.paperStoragePath === 'string' ? value.paperStoragePath : undefined,
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
@@ -604,7 +644,7 @@ async function readSettings(): Promise<AppSettings> {
       knowledgeProvider: value.knowledgeProvider === 'claude' || value.knowledgeProvider === 'codex' ? value.knowledgeProvider : undefined,
       knowledgeModel: typeof value.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(value.knowledgeModel) ? value.knowledgeModel : undefined,
     }
-  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false } }
+  } catch { return { libraryPath: testLibraryPath || undefined, translationProvider: 'codex', translationModel: 'gpt-5.6-luna', autoTranslate: false, autoReadingGuide: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1', showAiHighlights: true, autoMemory: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE !== '1', guideProvider: 'codex', guideModel: 'gpt-5.6-luna', memoryProvider: 'codex', memoryModel: 'gpt-5.6-luna' } }
 }
 async function readSettingsAndWatch() { const settings = await readSettings(); watchVault(settings.libraryPath); return settings }
 async function writeSettings(patch: Partial<AppSettings>) {
@@ -921,7 +961,7 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   for (const line of stdout.split(/\r?\n/)) {
     try { const event = JSON.parse(line); if (event.usage) measuredUsage = parseAiUsage(provider, event.usage) } catch { /* non-JSON diagnostic */ }
   }
-  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}`, task: jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
+  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}`, task: jobKey.startsWith('guide-') ? 'guide' : jobKey.startsWith('memory-') ? 'memory' : jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
   if (code !== 0) throw new Error(stderr.trim() || '번역 CLI 실행에 실패했습니다.')
   if (provider === 'claude') {
     const result = JSON.parse(stdout) as { result?: string }
@@ -1099,6 +1139,9 @@ ipcMain.handle('sessions:save', (_event, sessions: unknown) => saveSessions(sess
 ipcMain.handle('settings:get', () => readSettings())
 ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   const safePatch: Partial<AppSettings> = {}
+  for (const key of ['autoReadingGuide', 'showAiHighlights', 'autoMemory'] as const) if (typeof patch[key] === 'boolean') safePatch[key] = patch[key]
+  for (const key of ['guideProvider', 'memoryProvider', 'structureProvider'] as const) if (patch[key] === 'codex' || patch[key] === 'claude') safePatch[key] = patch[key]
+  for (const key of ['guideModel', 'memoryModel', 'structureModel'] as const) if (typeof patch[key] === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch[key]!)) safePatch[key] = patch[key]
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
   if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
@@ -1407,7 +1450,7 @@ ipcMain.handle('paper:structure', async (_event, arxivId: string) => {
 ipcMain.handle('paper:structure:refresh', async (_event, arxivId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
-  const provider = settings.knowledgeProvider; const model = settings.knowledgeModel
+  const provider = settings.structureProvider ?? settings.knowledgeProvider; const model = settings.structureModel ?? settings.knowledgeModel
   if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   const jobKey = `structure-${arxivId}-${Date.now()}`
@@ -1548,7 +1591,9 @@ ipcMain.handle('knowledge:save', async (event, id: string, request: NoteSaveRequ
   if (request.createStubs !== undefined && typeof request.createStubs !== 'boolean') throw new Error('지식 노트 저장 옵션이 올바르지 않습니다.')
   const vaultPath = request.vaultId ? noteVaults.get(event.sender)?.get(request.vaultId) : settings.libraryPath
   if (!vaultPath) throw new Error('이 노트의 저장 위치를 확인하지 못했습니다. 노트를 다시 열어 주세요.')
-  const result = await saveKnowledgeNode(vaultPath, String(id), request)
+  const before = await readKnowledgeNode(vaultPath, String(id))
+  const next = before.revision === request.expectedRevision ? { ...request, content: protectEditedAutoSections(before.content, request.content) } : request
+  const result = await saveKnowledgeNode(vaultPath, String(id), next)
   if (result.saved && request.createStubs) return { ...result, stubs: await ensureLinkStubs(vaultPath, request.content).catch(() => []) }
   return result
 })
@@ -1657,6 +1702,20 @@ ipcMain.handle('translation:read', async (_event, arxivId: string) => {
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   try { const saved = JSON.parse(await fs.readFile(record.translationPath, 'utf8')); const segments = cachedSegments(saved?.segments); return { ...saved, segments: reuseTranslations(segments, segments) } }
   catch { return null }
+})
+ipcMain.handle('paper:guide', async (_event, request: { paperId: string; libraryPath: string; generate?: boolean; force?: boolean }) => {
+  const settings = await readSettings()
+  await assertChatScope(request.libraryPath, settings.libraryPath)
+  const vault = settings.libraryPath!
+  const record = (await readLibrary()).find(paper => paper.arxivId === request.paperId)
+  const node = (await listKnowledgeNodes(vault)).find(item => item.nodeType === 'paper' && item.arxivId === request.paperId)
+  if (!record || !node) throw new Error('이 보관함에서 논문 노트를 찾지 못했습니다.')
+  if (!request.generate) return (await readReadingState(vault, record.arxivId)).guide ?? null
+  const source = JSON.parse(await fs.readFile(path.join(path.dirname(record.pdfPath), 'anchors.json'), 'utf8'))
+  const anchors: GuideAnchor[] = source.anchors.filter((a: GuideAnchor) => a && typeof a.id === 'string' && typeof a.source === 'string' && Number.isInteger(a.page))
+  const provider = settings.guideProvider ?? 'codex', model = settings.guideModel ?? 'gpt-5.6-luna'
+  return withTaskLock(JSON.stringify([vault, node.id]), () => prepareReadingGuide(vault, record.arxivId, node.id, record.title, anchors, model,
+    prompt => runTranslationCli(provider, model, prompt, `guide-${record.arxivId}-${Date.now()}`), request.force))
 })
 ipcMain.handle('paper:anchors:save', async (_event, arxivId: string, anchors: TranslationSegment[]) => {
   if (!Array.isArray(anchors) || anchors.length > 20_000) throw new Error('anchor 데이터가 올바르지 않습니다.')
