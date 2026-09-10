@@ -36,6 +36,16 @@ export function prepareTranslationRequest(segments: InputSegment[], adjacentCont
     const replacements = spans.map((span, index) => ({ token: `${sciencePrefix}${item.id}_${index}⟧`, text: span.text, latex: span.latex }))
     let source = item.source
     for (let i = spans.length - 1; i >= 0; i--) source = source.slice(0, spans[i].start) + replacements[i].token + source.slice(spans[i].end)
+    // Section/equation-like leading numbers are document structure, not prose.
+    // Smaller models often omit them from translated headings, making every
+    // retry deterministically fail the numeric preservation gate.
+    const structuralNumber = source.match(/^\s*(\d+(?:\.\d+)*)\b(?=\s+[A-Z])/)
+    if (structuralNumber) {
+      const start = structuralNumber.index! + structuralNumber[0].indexOf(structuralNumber[1])
+      const replacement = { token: `${sciencePrefix}${item.id}_${replacements.length}⟧`, text: structuralNumber[1], latex: structuralNumber[1] }
+      replacements.push(replacement)
+      source = source.slice(0, start) + replacement.token + source.slice(start + structuralNumber[1].length)
+    }
     source = source.replace(mathOrCitation, (text) => {
       const index = replacements.length
       const replacement = { token: `${sciencePrefix}${item.id}_${index}⟧`, text, latex: text }
@@ -83,7 +93,7 @@ const mathOrCitation = /\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]
 const numberPattern = '[+−-]?(?:\\d+(?:[.,]\\d+)*|\\.\\d+)(?:[eE][+−-]?\\d+)?'
 // Keep a deliberately bounded set of common measured units, rather than guessing
 // whether an arbitrary English word is a unit. Unknown units remain prompt-protected.
-const measuredUnit = new RegExp(`${numberPattern}\\s*(?:%|°[CF]|(?:[numkMGTµμ]?)(?:mol|g|m|L|l|M|s|A|V|W|Hz|Pa|J|N|K|F|H)|mL|h|min|kDa|Da|eV|bp|rpm)(?![A-Za-z])`, 'g')
+const measuredUnit = new RegExp(`${numberPattern}\\s*(?:%|°[CF]|(?:[numkMGTµμ]?)(?:mol|g|m|L|l|M|s|A|V|W|Hz|Pa|J|N|K|F|H)|mL|h|min|kDa|Da|eV|bp|rpm)(?![A-Za-z]|\\s+[A-Z]{2,}\\b)`, 'g')
 function outsideMath(source: string) { return source.replace(mathOrCitation, ' ') }
 function normalizedToken(token: string) { return token.replace(/\s+/g, '').replace(/μ/g, 'µ') }
 

@@ -28,6 +28,11 @@ const protectedMath = prepareTranslationRequest([{ id: 'math-heavy', source: Str
 assert(!protectedMath.modelItems[0].source.includes('$p_t'), 'The translation model must not be asked to reproduce fragile LaTeX.')
 const protectedReply = JSON.stringify([{ id: 't0', translation: `${protectedMath.modelItems[0].source}로 둔다.` }])
 assert.equal(inspectTranslationRequest(protectedReply, protectedMath).accepted.get('math-heavy'), String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.로 둔다.`)
+const protectedHeading = prepareTranslationRequest([{ id: 'heading', source: '3 F LOW M ATCHING' }])
+assert(!protectedHeading.modelItems[0].source.startsWith('3 '), 'Leading section numbers must be protected from model omission.')
+const headingNumberToken = protectedHeading.modelItems[0].source.split(/\s+/)[0]
+assert.equal(inspectTranslationRequest(JSON.stringify([{ id: 't0', translation: `${headingNumberToken} 흐름 매칭` }]), protectedHeading).accepted.get('heading'), '3 흐름 매칭')
+assert.equal(check('3 F LOW M ATCHING', '3 흐름 매칭').size, 1, 'A spaced small-caps heading must not be misread as a 3-farad measurement.')
 
 // Recover only an unambiguous wrapper; malformed or competing content stays rejected.
 const wrapped = { translations: [{ id: 's', translation: '검증할 수 있다.' }] }
