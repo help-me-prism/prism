@@ -7,7 +7,6 @@ import crossSpawn from 'cross-spawn'
 import { assertChatScope } from './chatScope.js'
 import { validatedScientificSpans } from './scientificSource.js'
 import { planPaperRecovery, updateRecoveredPdfLink } from './paperRecovery.js'
-import { renamedPaperNote, updatePaperTitleRecord, type PaperTitleRequest } from './paperTitle.js'
 import { readSavedFigure, resolveChatImages, type ChatImage } from './chatImages.js'
 import { buildCodexImageInputs, buildClaudeImageMessage } from './chatImageInputs.js'
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
@@ -34,7 +33,6 @@ import { captureToPaperNote, ensureLinkStubs, type PaperCaptureRequest } from '.
 import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo, type MergeConceptsRequest, type PromoteApplyRequest, type PromoteMemoRequest } from './curation.js'
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
-import { readPaperStructure, refinePaperStructure } from './paperStructure.js'
 import { isStoredPaperId } from './paperIdentifier.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
@@ -55,7 +53,7 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ChatRequest = { inputComposition?: import('./aiUsageTypes.js').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number; source?: 'semantic-scholar' | 'crossref' | 'europe-pmc'; doi?: string; pmcid?: string; structuredSourceUrl?: string; structuredSourceFormat?: 'jats'; structuredSourceProvider?: 'europe-pmc'; license?: string }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; structuredSourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
 type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'jats' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
@@ -637,7 +635,6 @@ async function readSettings(): Promise<AppSettings> {
       autoMemory: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoMemory !== false,
       guideProvider: value.guideProvider === 'claude' ? 'claude' : 'codex', guideModel: value.guideModel ?? (value.guideProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna'),
       memoryProvider: value.memoryProvider === 'claude' ? 'claude' : 'codex', memoryModel: value.memoryModel ?? (value.memoryProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna'),
-      structureProvider: value.structureProvider, structureModel: value.structureModel,
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       paperStoragePath: typeof value.paperStoragePath === 'string' ? value.paperStoragePath : undefined,
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
@@ -1244,8 +1241,8 @@ ipcMain.handle('settings:get', () => readSettings())
 ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   const safePatch: Partial<AppSettings> = {}
   for (const key of ['autoReadingGuide', 'showAiHighlights', 'autoMemory'] as const) if (typeof patch[key] === 'boolean') safePatch[key] = patch[key]
-  for (const key of ['guideProvider', 'memoryProvider', 'structureProvider'] as const) if (patch[key] === 'codex' || patch[key] === 'claude') safePatch[key] = patch[key]
-  for (const key of ['guideModel', 'memoryModel', 'structureModel'] as const) if (typeof patch[key] === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch[key]!)) safePatch[key] = patch[key]
+  for (const key of ['guideProvider', 'memoryProvider'] as const) if (patch[key] === 'codex' || patch[key] === 'claude') safePatch[key] = patch[key]
+  for (const key of ['guideModel', 'memoryModel'] as const) if (typeof patch[key] === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch[key]!)) safePatch[key] = patch[key]
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
   if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
@@ -1305,44 +1302,6 @@ ipcMain.handle('storage:reconnect-papers', async (event) => {
     }
     return { restored: result.restored, skipped: result.skipped, noteWarnings }
   })
-  libraryWrites.set(libraryPath, operation)
-  try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
-})
-ipcMain.handle('paper:update-title', async (_event, input: PaperTitleRequest) => {
-  const libraryPath = input?.libraryPath
-  if (typeof libraryPath !== 'string' || !libraryPath) throw new Error('노트 볼트가 올바르지 않습니다.')
-  const operation = (libraryWrites.get(libraryPath) ?? Promise.resolve()).catch(() => undefined).then(() => updatePaperTitleRecord(input, {
-    currentLibrary: async () => (await readSettings()).libraryPath,
-    read: () => readLibraryAt(libraryPath),
-    commit: records => atomicWriteFile(libraryIndexPath(libraryPath), JSON.stringify(records, null, 2)),
-    propagate: async (paper, oldTitle) => {
-      const warnings: string[] = []
-      try {
-        const file = path.join(path.dirname(paper.pdfPath), 'metadata.json')
-        const metadata = JSON.parse(await fs.readFile(file, 'utf8'))
-        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Invalid metadata')
-        await atomicWriteFile(file, JSON.stringify({ ...metadata, title: paper.title }, null, 2))
-      } catch { warnings.push('논문 제목은 저장했지만 PDF 폴더의 metadata.json은 갱신하지 못했습니다.') }
-      try {
-        const id = paperNodeId(paper.arxivId); const snapshot = await readKnowledgeNode(libraryPath, id)
-        const content = renamedPaperNote(snapshot.content, oldTitle, paper.title)
-        if (content === undefined) warnings.push('논문 제목은 저장했습니다. 사용자가 편집한 노트 제목 또는 별칭 형식을 보존하여 노트는 변경하지 않았습니다.')
-        else if (content !== snapshot.content) {
-          const saved = await saveKnowledgeNode(libraryPath, id, { content, expectedRevision: snapshot.revision })
-          if (!saved.saved) warnings.push('논문 제목은 저장했지만 노트가 다른 곳에서 변경되어 노트 제목은 갱신하지 못했습니다.')
-        }
-      } catch { warnings.push('논문 제목은 저장했지만 논문 노트의 제목은 갱신하지 못했습니다.') }
-      invalidateKnowledgeCache(libraryPath)
-      return warnings
-    },
-    notify: records => {
-      const paper = records.find(item => item.arxivId === input.paperId)!
-      for (const window of [mainWindow, notesWindow]) if (window && !window.isDestroyed()) {
-        safeSend(window.webContents, 'library:changed', records)
-        safeSend(window.webContents, 'knowledge:vault-changed', { paths: [path.relative(libraryPath, paper.notePath).split(path.sep).join('/')] })
-      }
-    },
-  }))
   libraryWrites.set(libraryPath, operation)
   try { return await operation } finally { if (libraryWrites.get(libraryPath) === operation) libraryWrites.delete(libraryPath) }
 })
@@ -1574,21 +1533,6 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
   const externalId = record?.absUrl.startsWith('https://doi.org/') ? `DOI:${record.absUrl.slice(16)}` : undefined
   if (process.env.PRISM_TEST_LIBRARY_PATH && options?.refresh !== true) return listPaperCitations(settings.libraryPath, arxivId, { refresh: false, externalId })
   return listPaperCitations(settings.libraryPath, arxivId, { refresh: options?.refresh, externalId })
-})
-ipcMain.handle('paper:structure', async (_event, arxivId: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
-  return readPaperStructure(settings.libraryPath, arxivId)
-})
-ipcMain.handle('paper:structure:refresh', async (_event, arxivId: string) => {
-  const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
-  const provider = settings.structureProvider ?? settings.knowledgeProvider; const model = settings.structureModel ?? settings.knowledgeModel
-  if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
-  const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
-  const jobKey = `structure-${arxivId}-${Date.now()}`
-  return refinePaperStructure(settings.libraryPath, arxivId, record?.title ?? arxivId, provider, model,
-    (prompt) => runTranslationCli(provider, model, prompt, jobKey))
 })
 ipcMain.handle('paper:digest:refresh', async (_event, paperNodeId: string, options?: { useModel?: boolean }) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')

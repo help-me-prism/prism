@@ -16,7 +16,7 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ProviderRateLimits = { primary?: ProviderRateLimitWindow; secondary?: ProviderRateLimitWindow }
 type ChatSession = { libraryPath?: string | null; id: string; title: string; provider: ProviderId; model: string; providerThreadId?: string; messages: ChatMessage[]; createdAt: number; updatedAt: number; deletedAt?: number; usage?: ChatUsage }
 type ChatRequest = { inputComposition?: import('../electron/aiUsageTypes').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
-type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number; source?: 'semantic-scholar' | 'crossref' | 'europe-pmc'; doi?: string; pmcid?: string; structuredSourceUrl?: string; structuredSourceFormat?: 'jats'; structuredSourceProvider?: 'europe-pmc'; license?: string }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; structuredSourcePath?: string; downloadedAt: number; externalAssets?: boolean }
 type PaperFigureComponent = { sourcePath: string; mimeType: string; dataUrl: string; relativeWidth?: number; row: number; preview?: string; pixelWidth?: number; pixelHeight?: number }
@@ -54,11 +54,6 @@ type CitationLinks = { arxivId: string; fetchedAt: string; references: CitationE
 type MergeConceptsRequest = { sourceId: string; targetId: string }
 type StructureRole = 'problem' | 'background' | 'method' | 'component' | 'rationale' | 'experiment' | 'result' | 'limit'
 type StructureEdgeType = 'then' | 'part' | 'needs' | 'supports' | 'branches' | 'contrasts'
-type StructureOrigin = 'outline' | 'model'
-type StructureNode = { id: string; role: StructureRole; label: string; labelKo?: string; section: string; level: number; page: number; anchorId: string; evidence: string[]; summary?: string; roleOrigin: StructureOrigin }
-type StructureEdge = { id: string; from: string; to: string; type: StructureEdgeType; origin: StructureOrigin; why?: string }
-type StructureRunSummary = { paperId: string; provider: string; model: string; ranAt: string; sections: number; rolesChanged: number; summaries: number; edgesAdded: number; dropped: number; notes: string[] }
-type PaperStructure = { version: 1; paperId: string; generatedAt: string; source: StructureOrigin; sourceHash: string; nodes: StructureNode[]; edges: StructureEdge[]; notes: string[]; model?: { provider: string; model: string; ranAt: string } }
 type KnowledgeNodeType = 'paper' | 'concept' | 'claim' | 'insight' | 'question' | 'project'
 type TemplateRecord = { id: string; name: string; nodeType: KnowledgeNodeType; content: string; revision: string; modifiedAt: number; isDefault: boolean; isFavorite: boolean; lastUsedAt?: number }
 type TemplateSaveRequest = { id?: string; name: string; nodeType: KnowledgeNodeType; content: string; expectedRevision?: string }
@@ -116,7 +111,6 @@ interface Window {
     choosePaperStorage: (reset?: boolean) => Promise<AppSettings | null>
     chooseWorkspace: () => Promise<AppSettings | null>
     listLibrary: () => Promise<PaperRecord[]>
-    updatePaperTitle: (input: { paperId: string; title: string; expectedTitle: string; libraryPath: string }) => Promise<{ paper: PaperRecord; warnings: string[] }>
     searchCrossref: (query: string) => Promise<ArxivPaper[]>
     searchPapers: (query: string) => Promise<ArxivPaper[]>
     openDoi: (id: string) => Promise<void>
@@ -152,8 +146,6 @@ interface Window {
     onVaultChanged: (callback: (event: { paths: string[] }) => void) => () => void
     restoreKnowledgeNode: (trashedRelativePath: string) => Promise<{ nodes: KnowledgeNodeRecord[]; id: string }>
     listPaperCitations: (arxivId: string, options?: { refresh?: boolean }) => Promise<CitationLinks>
-    readPaperStructure: (arxivId: string) => Promise<PaperStructure>
-    refinePaperStructure: (arxivId: string) => Promise<StructureRunSummary>
     runModelSuggestions: (paperNodeId: string) => Promise<ModelSuggestionSummary>
     reviewModelSuggestion: (request: ModelSuggestionReview) => Promise<boolean>
     promoteMemo: (request: PromoteMemoRequest) => Promise<{ id: string }>

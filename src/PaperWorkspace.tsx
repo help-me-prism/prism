@@ -13,7 +13,6 @@ import { tableMemberIndexes, tableRegionFromEvidence } from './paper/tableRegion
 import { monotoneMatches } from './paper/equationAlignment'
 import { matchFigureCaptions } from '../electron/figureCaptionMatching'
 import ReadingTranslation from './paper/ReadingTranslation'
-import PaperTitleDialog from './PaperTitleDialog'
 import { useEvidenceCapture } from './paper/useEvidenceCapture'
 import './readerToolbar.css'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
@@ -22,9 +21,8 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, Columns2, Download, ExternalLink, FileText,
   FolderOpen, Image, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
-  Settings2, Sigma, Sparkles, Square, Table2, Tag, X, ZoomIn, ZoomOut,
+  Settings2, Sigma, Sparkles, Square, Table2, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
-import PaperMap from './paper/PaperMap'
 import PaperPanes from './paper/PaperPanes'
 import {
   activateKind, describeLayout, groupHolding, moveKindToGroup, openKinds, paneGroups, paneKinds,
@@ -37,7 +35,7 @@ type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>
 
 type PdfTextStyle = { ascent?: number; descent?: number; vertical?: boolean }
 /** Which windows this reader can draw. The structure map joins the list once it exists. */
-const readerKinds: PaneKind[] = ['original', 'translated', 'map']
+const readerKinds: PaneKind[] = ['original', 'translated']
 
 /**
  * A paper reopens in the arrangement it was left in. This is view state, not research, so it stays in the
@@ -1082,15 +1080,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
             </div>
           </details>
         </div>
-        <details className="reader-toolbar-menu reader-more" onKeyDown={toolbarMenuKey}>
-          <summary>더보기</summary>
-          <div className="reader-toolbar-popover">
-            <button onClick={event => { closeToolbarMenu(event.currentTarget); if (settings.libraryPath) setEditingPaper({ paper: activePaper, libraryPath: settings.libraryPath, document: pdf }) }}><FileText size={14} /> 논문 제목 편집</button>
-            <button onClick={event => { closeToolbarMenu(event.currentTarget); queueReadingPosition(); openPane('map') }}><Sigma size={14} /> 구조 맵</button>
-            <button onClick={event => { closeToolbarMenu(event.currentTarget); setFigureSelect(value => !value) }}><Image size={14} /> {figureSelect ? '피겨 캡처 끝내기' : '피겨 캡처'}</button>
-            <button onClick={event => { closeToolbarMenu(event.currentTarget); onTagAnchor({ paperId: activePaper.arxivId, paperTitle: activePaper.title, anchorId: `p${pageNumber}`, type: 'page', page: pageNumber, label: `페이지${pageNumber}`, source: `Page ${pageNumber} of ${activePaper.title}` }) }}><Tag size={14} /> 현재 페이지 근거로 담기</button>
-          </div>
-        </details>
+        <button type="button" className={`reader-figure-capture${figureSelect ? ' on' : ''}`} aria-pressed={figureSelect} title="드래그해서 그림이나 표를 잘라 질문에 첨부합니다" onClick={() => setFigureSelect(value => !value)}><Image size={15} /> 피겨 캡처</button>
       </div>
     </div>
     {figureSelect && <div className="reader-capture-status" role="status"><span>피겨를 클릭하거나 영역을 드래그하세요.</span><button onClick={() => setFigureSelect(false)}>캡처 끝내기</button></div>}
@@ -1105,7 +1095,6 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
         layout={layout} onLayout={applyLayout}
         views={{
           original: <div className="document-scroll" ref={sourceScrollRef} onScroll={(event) => readingScroll(event.currentTarget, translatedScrollRef.current)}>{pageRenderer('original')}</div>,
-          map: <PaperMap paperId={activePaper?.arxivId} revision={allSegments.length} onOpenAnchor={openAnchorFromMap} />,
           translated: <div className="document-scroll translated-document" ref={translatedScrollRef} onScroll={(event) => readingScroll(event.currentTarget, sourceScrollRef.current)}>{pageRenderer('translated')}</div>,
         }}
         headers={{
@@ -1114,7 +1103,6 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
         }}
       />
     </> : activePaper && error ? <div className="reader-empty library-empty" role="alert"><FileText size={32} strokeWidth={1.5} /><h1>논문을 열지 못했습니다</h1><p>{error}</p>{activePaper.externalAssets && <button disabled={recovering} onClick={() => void recoverMissingPaper()}><FolderOpen size={17} />{recovering ? '논문 확인 중…' : '이동한 폴더 다시 연결'}</button>}<button disabled={recovering} onClick={() => setReloadAttempt(value => value + 1)}>다시 시도</button></div> : <div className="reader-empty library-empty"><div className="paper-stack"><div /><div /><FileText size={32} strokeWidth={1.5} /></div><h1>{activePaper ? 'PDF를 불러오는 중…' : '읽고, 이해하고, 연결하세요'}</h1><p>{settings.libraryPath ? '가지고 있는 PDF를 가져오거나 새로운 논문을 찾아보세요.' : '논문과 노트를 보관할 폴더 하나면 시작할 수 있어요. AI 연결은 나중에 해도 됩니다.'}</p><button onClick={() => settings.libraryPath ? setFinderOpen(true) : void chooseFolder()}>{settings.libraryPath ? <Search size={17} /> : <FolderOpen size={17} />} {settings.libraryPath ? '첫 논문 가져오기' : '보관 폴더 선택하고 시작'}</button><small className="welcome-note">노트는 내 컴퓨터의 Markdown 파일로 저장됩니다. Obsidian에서도 열 수 있어요.</small></div>}
-    {editingPaper && <PaperTitleDialog paper={editingPaper.paper} libraryPath={editingPaper.libraryPath} readPdfTitle={async () => { const metadata = await editingPaper.document.getMetadata(); const info = metadata.info as { Title?: unknown }; return typeof info?.Title === 'string' ? info.Title : '' }} onClose={() => setEditingPaper(undefined)} />}
     {finderOpen && <Finder library={library} settings={settings} onChooseFolder={() => void chooseFolder()} onOpen={openPaper} onDownloaded={(paper) => { setLibrary((current) => current.some((item) => item.arxivId === paper.arxivId) ? current : [paper, ...current]); openPaper(paper); setFinderOpen(false) }} onSettings={(patch) => void updateSettings(patch)} onClose={() => setFinderOpen(false)} />}
   </section>
 }
