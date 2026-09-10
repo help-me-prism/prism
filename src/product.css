@@ -61,6 +61,14 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .pdf-page, .continuous-page { color-scheme: light; background: #fff; }
 .finder-search input { background: transparent; color: var(--ink); }
 .result-actions button.primary, .finder-search button { background: #346c60; color: #fff; border-color: #346c60; }
+.paper-result-meta .source-readiness { padding: 1px 5px; border-radius: 999px; font-weight: 650; }
+.paper-result-meta .source-readiness.structured { background: var(--accent-soft); color: var(--accent); }
+.paper-result-meta .source-readiness.pdf { background: light-dark(#f0eee7, #35342f); color: var(--muted); }
+.paper-result-meta .source-readiness.needed { background: light-dark(#f7ece9, #392825); color: light-dark(#9c4f43, #c28b82); }
+.result-actions button.primary.secondary { background: var(--paper); color: var(--ink); border-color: var(--line); }
+.paper-result-meta { flex-wrap: wrap; }
+.result-actions { max-width: 210px; flex-wrap: wrap; justify-content: flex-end; }
+.result-actions button { white-space: nowrap; }
 
 .flow-page { min-height: 300px; padding: 28px clamp(16px, 3vw, 32px) 42px; max-width: 100%; overflow-wrap: anywhere; }
 .titlebar { padding-right: max(150px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 14px)); }

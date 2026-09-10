@@ -12,6 +12,9 @@ export type LatexStructure = {
   version: 6
   rootFile: string
   generatedAt: string
+  format?: 'latex' | 'jats'
+  provider?: 'arxiv' | 'europe-pmc'
+  license?: string
   blocks: LatexBlock[]
 }
 
@@ -142,7 +145,7 @@ export async function parseLatexStructure(sourceDir: string): Promise<LatexStruc
     blocks.push({ id: `latex-${protectedBlocks.length + blocks.length + 1}`, kind: 'paragraph', source, section: currentSection })
   }
   if (!blocks.some((block) => block.kind === 'paragraph')) return null
-  return { version: 6, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), blocks }
+  return { version: 6, rootFile: path.relative(sourceDir, root.file).replace(/\\/g, '/'), generatedAt: new Date().toISOString(), format: 'latex', provider: 'arxiv', blocks }
 }
 
 type LatexMacro = { arguments: number; body: string }

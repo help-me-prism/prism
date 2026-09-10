@@ -4,6 +4,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { transformWithOxc } from 'vite'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { auditPaperQuality } from '../dist-electron/paperQualityAudit.js'
 
 const paperDir = path.resolve(process.argv[2] ?? '')
 if (!process.argv[2]) throw new Error('Usage: node scripts/audit-paper-structure.mjs <paper-directory>')
@@ -14,7 +15,7 @@ const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file)
 const { segmentsFromItems } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 
 const anchors = (await optionalJson('anchors.json'))?.anchors ?? []
-const structure = await optionalJson('latex-structure.json')
+const structure = await optionalJson('latex-structure.json') ?? await optionalJson('jats-structure.json')
 const latexBlocks = structure?.blocks ?? []
 const complexPattern = /\\begin\{(?:bmatrix|pmatrix|matrix|cases|aligned|align|split|multline|array)\}|\\substack|\\frac/g
 const inlineMathPattern = /(?<!\\)\$(?!\$)[^$\n]+(?<!\\)\$/g
@@ -64,5 +65,6 @@ const result = {
     pdfEquationAnchors: anchorEquations.filter(anchor => anchor.sourceMode !== 'latex').length,
   },
   flags: { suspiciousEquationProse, duplicatedEquationNumbers, unmatchedComplex },
+  riskRecords: auditPaperQuality(structure, anchors.length ? anchors : extracted),
 }
 console.log(JSON.stringify(result, null, 2))

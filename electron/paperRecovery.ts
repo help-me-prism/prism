@@ -18,7 +18,7 @@ export function updateRecoveredPdfLink(content: string, oldPdfPath: string, newP
   return content.slice(0, offset) + newLine + content.slice(offset + oldLine.length)
 }
 
-type RecoverablePaper = { arxivId: string; pdfPath: string; translationPath: string; sourcePath?: string; externalAssets?: boolean; pdfSha256?: string }
+type RecoverablePaper = { arxivId: string; pdfPath: string; translationPath: string; sourcePath?: string; structuredSourcePath?: string; externalAssets?: boolean; pdfSha256?: string }
 type RecoveryReason = 'missing-candidate' | 'no-fingerprint' | 'fingerprint-mismatch' | 'outside-root' | 'not-file'
 
 function inside(root: string, target: string) {
@@ -63,15 +63,16 @@ export async function planPaperRecovery<T extends RecoverablePaper>(records: rea
     const remap = (value: string) => inside(oldParent, path.resolve(value)) ? path.resolve(newParent, path.relative(oldParent, path.resolve(value))) : value
     const translationPath = remap(record.translationPath)
     const sourcePath = record.sourcePath === undefined ? undefined : remap(record.sourcePath)
+    const structuredSourcePath = record.structuredSourcePath === undefined ? undefined : remap(record.structuredSourcePath)
     // Reconnecting a directory must not indirectly expose an asset symlink outside that directory.
     let escaped = false
-    for (const asset of [translationPath, sourcePath]) {
+    for (const asset of [translationPath, sourcePath, structuredSourcePath]) {
       if (!asset || !inside(newParent, asset)) continue
       try { if (!inside(root, await fs.realpath(asset))) escaped = true }
       catch (error) { if (!missing(error)) throw error }
     }
     if (escaped) { skip('outside-root'); continue }
-    result.push({ ...record, pdfPath: candidate, translationPath, ...(sourcePath === undefined ? {} : { sourcePath }) })
+    result.push({ ...record, pdfPath: candidate, translationPath, ...(sourcePath === undefined ? {} : { sourcePath }), ...(structuredSourcePath === undefined ? {} : { structuredSourcePath }) })
     restored += 1
   }
   return { records: result, restored, skipped: failures.length, failures }

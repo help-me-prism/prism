@@ -7,7 +7,9 @@ import { readLocalPaper } from '../dist-electron/localPaper.js'
 import { listPaperCitations } from '../dist-electron/citations.js'
 import { readNoteSnapshot, saveNoteSnapshot } from '../dist-electron/notes.js'
 import { downloadBytes } from '../dist-electron/downloadBytes.js'
-import { crossrefPaper } from '../dist-electron/scholarlySearch.js'
+import { crossrefPaper, europePmcPaper, mergeScholarlyPapers, rankScholarlyPapers, semanticScholarPaper } from '../dist-electron/scholarlySearch.js'
+import { parseJatsStructure } from '../dist-electron/jats.js'
+import { isStoredPaperId } from '../dist-electron/paperIdentifier.js'
 
 const input = [{ id: 's1', source: 'The energy $E=mc^2$ is conserved [12].' }]
 assert.equal(validateTranslation('[{"id":"s1","translation":"에너지 $E=mc^2$는 보존된다 [12]."}]', input).size, 1)
@@ -21,8 +23,38 @@ const work = crossrefPaper({ DOI: '10.1038/test', title: ['A <i>biological</i> s
 assert.equal(work.title, 'A biological study')
 assert.equal(work.published, '2026-03')
 assert.equal(work.authors[0], 'Ada Kim')
+assert.equal(work.doi, '10.1038/test')
 assert.equal(work.pdfUrl, '') // metadata must never masquerade as a downloaded paper
 assert.equal(crossrefPaper({ DOI: 'javascript:alert(1)', title: ['bad'] }), null)
+const linkedWork = crossrefPaper({ DOI: '10.1371/journal.pone.0287690', title: ['Concrete pores'], link: [{ URL: 'https://journals.example/paper.pdf', 'content-type': 'application/pdf' }] })
+assert.equal(linkedWork.pdfUrl, 'https://journals.example/paper.pdf')
+assert.equal(crossrefPaper({ DOI: '10.1000/unsafe', title: ['Unsafe'], link: [{ URL: 'http://localhost/paper.pdf', 'content-type': 'application/pdf' }] }).pdfUrl, '')
+const semanticWork = semanticScholarPaper({ paperId: 'abc123', title: 'A useful result', externalIds: { DOI: '10.1000/useful' }, authors: [{ name: 'Ada Kim' }], openAccessPdf: { url: 'https://repository.example/useful.pdf' }, citationCount: 12 })
+assert.equal(semanticWork.arxivId, 'doi:10.1000/useful')
+assert(isStoredPaperId('doi:10.1000/useful'), 'DOI-backed papers must remain usable after download.')
+assert(isStoredPaperId('pmc:PMC123') && isStoredPaperId('1706.03762') && isStoredPaperId('local-a1b2c3'))
+assert(!isStoredPaperId('../paper') && !isStoredPaperId('doi:10.1/test\nspoof'))
+assert.equal(semanticWork.doi, '10.1000/useful')
+assert.equal(semanticWork.pdfUrl, 'https://repository.example/useful.pdf')
+const ranked = rankScholarlyPapers('useful result', [work, semanticWork])
+assert.equal(ranked[0].title, 'A useful result')
+assert.equal(rankScholarlyPapers('1706.03762', [work, { ...semanticWork, arxivId: '1706.03762' }])[0].arxivId, '1706.03762')
+const merged = mergeScholarlyPapers('useful result', [semanticWork, { ...semanticWork, arxivId: '2401.01234', pdfUrl: 'https://arxiv.org/pdf/2401.01234' }])
+assert.equal(merged.length, 1)
+assert.equal(merged[0].arxivId, '2401.01234')
+const pmcWork = europePmcPaper({ id: '123', source: 'MED', pmcid: 'PMC123', doi: '10.1000/useful', title: 'A useful result', isOpenAccess: 'Y', inPMC: 'Y', authorList: { author: [{ fullName: 'Ada Kim' }] }, fullTextUrlList: { fullTextUrl: [{ availabilityCode: 'OA', documentStyle: 'pdf', url: 'https://europepmc.org/articles/PMC123?pdf=render' }] }, license: 'CC BY' })
+assert.equal(pmcWork.structuredSourceFormat, 'jats')
+assert.equal(pmcWork.doi, '10.1000/useful')
+assert.equal(pmcWork.pdfUrl, 'https://europepmc.org/articles/PMC123?pdf=render')
+assert.equal(mergeScholarlyPapers('useful result', [semanticWork, pmcWork])[0].pmcid, 'PMC123')
+const manuscriptWork = europePmcPaper({ id: '456', source: 'MED', pmcid: 'PMC456', doi: '10.1000/manuscript', title: 'Repository manuscript', hasPDF: 'Y', inPMC: 'Y', isOpenAccess: 'N' })
+assert.equal(manuscriptWork.pdfUrl, 'https://europepmc.org/articles/PMC456?pdf=render')
+assert.equal(manuscriptWork.structuredSourceFormat, undefined)
+const jats = parseJatsStructure(`<?xml version="1.0"?><article><front><article-meta><abstract><p>Measured abstract.</p></abstract></article-meta></front><body><sec><title>Methods</title><p>We measured ten samples.</p><disp-formula><tex-math>E = mc^2</tex-math></disp-formula><fig><caption><p>Figure 1. Apparatus.</p></caption></fig></sec></body><ref-list><ref><mixed-citation>Ignored reference</mixed-citation></ref></ref-list></article>`, { provider: 'europe-pmc', license: 'CC BY' })
+assert.equal(jats.format, 'jats')
+assert.deepEqual(jats.blocks.map(block => block.kind), ['heading', 'paragraph', 'heading', 'paragraph', 'equation', 'caption'])
+assert.equal(jats.blocks.find(block => block.kind === 'equation').source, 'E = mc^2')
+assert(!jats.blocks.some(block => block.source.includes('Ignored reference')))
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-product-'))
 try {
   const citationRequests = []
@@ -48,4 +80,4 @@ try {
   await fs.writeFile(file, 'not a pdf')
   await assert.rejects(readLocalPaper(file), /PDF/)
 } finally { await fs.rm(root, { recursive: true, force: true }) }
-console.log('Product core passed: translation gates, source-aware cache, Crossref mapping, PDF validation and content deduplication.')
+console.log('Product core passed: translation gates, scholarly-source merging, JATS parsing, PDF validation and content deduplication.')

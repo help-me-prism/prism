@@ -19,6 +19,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import * as tar from 'tar'
 import { parseLatexStructure, type LatexStructure } from './latex.js'
+import { parseJatsStructure } from './jats.js'
 import { readNoteSnapshot, saveNoteSnapshot, type NoteSaveRequest } from './notes.js'
 import { deleteTemplate, listTemplates, saveTemplate, setDefaultTemplate, setFavoriteTemplate, type KnowledgeNodeType, type TemplateSaveRequest } from './templates.js'
 import { listKnowledgeRecoveries, readKnowledgeRecovery, recoverKnowledgeNote, listKnowledgeNoteHistory, readKnowledgeNoteHistory, applyTemplateSections, invalidateKnowledgeCache, migratePaperNotes, paperNodeId, copyKnowledgeEvidence, createKnowledgeNode, deleteKnowledgeNode, restoreKnowledgeNode, listKnowledgeBacklinks, listKnowledgeNodes, readKnowledgeNode, saveKnowledgeNode, updateKnowledgeProperties, type ApplyTemplateSectionsRequest, type KnowledgeCreateRequest, type KnowledgeEvidenceCopyRequest, type KnowledgePropertyPatch } from './knowledge.js'
@@ -34,13 +35,14 @@ import { listCurationQueue, mergeConcepts, promoteApplyNote, promoteMemo, type M
 import { reviewModelSuggestion, runModelSuggestions, type ModelSuggestionReview } from './knowledgeAi.js'
 import { listPaperCitations } from './citations.js'
 import { readPaperStructure, refinePaperStructure } from './paperStructure.js'
+import { isStoredPaperId } from './paperIdentifier.js'
 import { buildDigestContext, pruneEmptySections, readChatMessages, refreshNoteDigest, refreshVaultDigests, titleMatcher } from './paperDigest.js'
 import { clearAutoUnread, listAutoUnread } from './autoUnread.js'
 import { decideCodexServerRequest } from './codexApproval.js'
 import { prepareTranslationRequest, inspectTranslationRequest, reuseTranslations, translationBatches } from './translationHarness.js'
 import { withoutBibliography, unsafeParagraphIds } from './translationScope.js'
 import { downloadBytes } from './downloadBytes.js'
-import { searchCrossref } from './scholarlySearch.js'
+import { findEuropePmcPaper, mergeScholarlyPapers, searchScholarly } from './scholarlySearch.js'
 import { readLocalPaper } from './localPaper.js'
 import { atomicWriteFile } from './atomicFile.js'
 import { chatMemoryInstruction, protectEditedAutoSections } from './noteContract.js'
@@ -54,9 +56,9 @@ type ChatRequest = { inputComposition?: import('./aiUsageTypes.js').InputComposi
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
 type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; structureProvider?: ProviderId; structureModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
-type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number }
-type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
-type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
+type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number; source?: 'semantic-scholar' | 'crossref' | 'europe-pmc'; doi?: string; pmcid?: string; structuredSourceUrl?: string; structuredSourceFormat?: 'jats'; structuredSourceProvider?: 'europe-pmc'; license?: string }
+type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; structuredSourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
+type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'jats' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
 
 function normalizePdfControls(value: string) {
   return value.replace(/\u000f/g, 'ε').replace(/[\u0000-\u0008\u000b\u000c\u000e\u0010-\u001f\u007f]/g, '')
@@ -677,6 +679,7 @@ function rebasePaperRecord(libraryPath: string, record: PaperRecord): PaperRecor
     notePath: inside(record.notePath) ? record.notePath : path.join(paperDir, path.basename(record.notePath || `${safeId}.md`)),
     translationPath: record.externalAssets || inside(record.translationPath) ? record.translationPath : path.join(paperDir, path.basename(record.translationPath || 'translation.ko.json')),
     sourcePath: record.sourcePath ? record.externalAssets || inside(record.sourcePath) ? record.sourcePath : path.join(paperDir, path.basename(record.sourcePath)) : undefined,
+    structuredSourcePath: record.structuredSourcePath ? record.externalAssets || inside(record.structuredSourcePath) ? record.structuredSourcePath : path.join(paperDir, path.basename(record.structuredSourcePath)) : undefined,
   }
 }
 async function readLibraryAt(libraryPath: string): Promise<PaperRecord[]> {
@@ -736,14 +739,21 @@ function extractArxivId(input: string) {
   const match = normalized.match(/(?:arxiv\.org\/(?:abs|pdf|html)\/)?((?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5}))(?:v\d+)?(?:\.pdf)?$/i)
   return match?.[1]
 }
+function safeWebUrl(input: string) {
+  try { const value = new URL(input); return value.protocol === 'https:' ? value.href : undefined } catch { return undefined }
+}
 let lastArxivRequest = 0
-async function semanticArxivSearch(query: string): Promise<ArxivPaper[]> {
+async function semanticArxivSearch(query: string, exactId?: string): Promise<ArxivPaper[]> {
   try {
     const fields = 'title,authors,abstract,publicationDate,citationCount,externalIds,openAccessPdf'
-    const response = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=${encodeURIComponent(fields)}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
+    const endpoint = exactId
+      ? `https://api.semanticscholar.org/graph/v1/paper/ARXIV:${encodeURIComponent(exactId)}?fields=${encodeURIComponent(fields)}`
+      : `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=50&fields=${encodeURIComponent(fields)}`
+    const response = await fetch(endpoint, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
     if (!response.ok) return []
-    const body = await response.json() as { data?: Array<{ title?: string; authors?: Array<{ name?: string }>; abstract?: string; publicationDate?: string; citationCount?: number; externalIds?: { ArXiv?: string }; openAccessPdf?: { url?: string } }> }
-    return (body.data ?? []).filter((paper) => paper.externalIds?.ArXiv && paper.title).map((paper) => {
+    type Work = { title?: string; authors?: Array<{ name?: string }>; abstract?: string; publicationDate?: string; citationCount?: number; externalIds?: { ArXiv?: string }; openAccessPdf?: { url?: string } }
+    const body = await response.json() as Work & { data?: Work[] }
+    return (exactId ? [body] : body.data ?? []).filter((paper) => paper.externalIds?.ArXiv && paper.title).map((paper) => {
       const arxivId = paper.externalIds!.ArXiv!
       return { arxivId, title: paper.title!, authors: (paper.authors ?? []).map((author) => author.name ?? '').filter(Boolean), summary: paper.abstract ?? '', published: paper.publicationDate ?? '', updated: paper.publicationDate ?? '', categories: [], pdfUrl: paper.openAccessPdf?.url ?? `https://arxiv.org/pdf/${arxivId}`, absUrl: `https://arxiv.org/abs/${arxivId}`, citationCount: paper.citationCount }
     })
@@ -766,14 +776,18 @@ async function arxivSearch(input: string) {
   const response = await fetch(`https://export.arxiv.org/api/query?${params}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' } })
   lastArxivRequest = Date.now()
   if (!response.ok) {
-    if (!id && response.status === 429) {
-      const fallback = await semanticArxivSearch(trimmed)
-      if (fallback.length) return fallback
-    }
+    const fallback = await semanticArxivSearch(trimmed, id)
+    if (fallback.length) return fallback
+    if (id) return [{ arxivId: id, title: `arXiv ${id}`, authors: [], summary: '', published: '', updated: '', categories: [], pdfUrl: `https://arxiv.org/pdf/${id}`, absUrl: `https://arxiv.org/abs/${id}` }]
     throw new Error(`arXiv 검색에 실패했습니다 (${response.status}).`)
   }
   const papers = parseArxivFeed(await response.text())
-  if (id || !papers.length) return papers
+  if (id && papers.length) return papers
+  if (id) {
+    const fallback = await semanticArxivSearch(trimmed, id)
+    return fallback.length ? fallback : [{ arxivId: id, title: `arXiv ${id}`, authors: [], summary: '', published: '', updated: '', categories: [], pdfUrl: `https://arxiv.org/pdf/${id}`, absUrl: `https://arxiv.org/abs/${id}` }]
+  }
+  if (!papers.length) return papers
   try {
     const citationResponse = await fetch('https://api.semanticscholar.org/graph/v1/paper/batch?fields=title,citationCount', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': 'Prism/0.1 local desktop research reader' },
@@ -797,6 +811,20 @@ async function arxivSearch(input: string) {
   return papers.sort((left, right) => score(right) - score(left)).slice(0, 20)
 }
 
+async function allPaperSearch(input: string) {
+  const query = input.trim().slice(0, 500)
+  if (!query) return []
+  const doi = query.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:\s*/i, '')
+  if (/^10\.\d{4,9}\/\S+$/i.test(doi)) return searchScholarly(query)
+  const responses = await Promise.allSettled([searchScholarly(query), arxivSearch(query)])
+  const papers = responses.flatMap((response) => response.status === 'fulfilled' ? response.value : [])
+  if (!papers.length) {
+    const failure = responses.find((response): response is PromiseRejectedResult => response.status === 'rejected')
+    if (failure) throw failure.reason
+  }
+  return mergeScholarlyPapers(query, papers).slice(0, 20)
+}
+
 async function paperAutocomplete(input: string) {
   const query = input.trim().slice(0, 100)
   if (query.length < 2) return []
@@ -812,7 +840,8 @@ async function paperAutocomplete(input: string) {
 
 function yamlString(value: string) { return JSON.stringify(value.replace(/\r?\n/g, ' ')) }
 function paperMarkdown(paper: ArxivPaper, pdfFile: string, template?: { id: string; content: string }) {
-  const values: Record<string, string> = { title: paper.title, date: new Date().toISOString().slice(0, 10), authors: paper.authors.join(', '), year: paper.published.slice(0, 4), arxiv_id: paper.arxivId, doi: paper.absUrl.startsWith('https://doi.org/') ? paper.absUrl.slice(16) : '', paper_link: paper.absUrl, current_project: '', selected_anchor: '' }
+  const doi = paper.doi || (paper.arxivId.startsWith('doi:') ? paper.arxivId.slice(4) : paper.absUrl.startsWith('https://doi.org/') ? paper.absUrl.slice(16) : '')
+  const values: Record<string, string> = { title: paper.title, date: new Date().toISOString().slice(0, 10), authors: paper.authors.join(', '), year: paper.published.slice(0, 4), arxiv_id: paper.arxivId, doi, paper_link: paper.absUrl, current_project: '', selected_anchor: '' }
   const abstract = `> [!abstract]- Abstract\n> ${paper.summary.replace(/\n/g, '\n> ')}`
   let body: string
   if (template) {
@@ -821,13 +850,47 @@ function paperMarkdown(paper: ArxivPaper, pdfFile: string, template?: { id: stri
     body = /^#\s/.test(filled) ? filled.replace(/^(#[^\n]*\n)/, `$1\n${abstract}\n`) : `# ${paper.title}\n\n${abstract}\n\n${filled}`
     if (!/^##\s+Notes\s*$/mi.test(body)) body = `${body.trimEnd()}\n\n## Notes\n`
   } else body = `# ${paper.title}\n\n${abstract}\n\n## Notes\n`
-  return `---\ntype: paper\nprism_id: ${yamlString(paperNodeId(paper.arxivId))}\narxiv_id: ${yamlString(paper.arxivId)}\n${values.doi ? `doi: ${yamlString(values.doi)}\n` : ''}title: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\nstatus: inbox\nreading_status: to_read\nimportance: medium\nconfidence: medium\ncreated_by: user\n${template ? `template_id: ${yamlString(template.id)}\n` : ''}created_at: ${yamlString(new Date().toISOString())}\ntags: [paper, arxiv]\n---\n\n${body.trimEnd()}\n`
+  const tags = /^(?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})$/i.test(paper.arxivId) ? '[paper, arxiv]' : doi ? '[paper, doi]' : '[paper]'
+  return `---\ntype: paper\nprism_id: ${yamlString(paperNodeId(paper.arxivId))}\narxiv_id: ${yamlString(paper.arxivId)}\n${values.doi ? `doi: ${yamlString(values.doi)}\n` : ''}title: ${yamlString(paper.title)}\nauthors:\n${paper.authors.map((author) => `  - ${yamlString(author)}`).join('\n')}\npublished: ${yamlString(paper.published)}\ncategories: [${paper.categories.map(yamlString).join(', ')}]\nsource: ${yamlString(paper.absUrl)}\npdf: ${yamlString(pdfFile)}\nstatus: inbox\nreading_status: to_read\nimportance: medium\nconfidence: medium\ncreated_by: user\n${template ? `template_id: ${yamlString(template.id)}\n` : ''}created_at: ${yamlString(new Date().toISOString())}\ntags: ${tags}\n---\n\n${body.trimEnd()}\n`
 }
 
 const paperDownloads = new Map<string, Promise<PaperRecord>>()
 async function writeInitialPaperNote(filePath: string, content: string) {
   try { await fs.writeFile(filePath, content, { encoding: 'utf8', flag: 'wx' }) }
   catch (reason) { if ((reason as NodeJS.ErrnoException).code !== 'EEXIST') throw reason }
+}
+async function fetchPaperResource(url: string, timeout = 30_000) {
+  let response: Response | undefined
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
+    if (![429, 502, 503, 504].includes(response.status) || attempt === 2) return response
+    await response.body?.cancel().catch(() => undefined)
+    const retryAfter = Number(response.headers.get('retry-after'))
+    const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(5_000, retryAfter * 1_000) : 700 * (attempt + 1)
+    await new Promise(resolve => setTimeout(resolve, delay))
+  }
+  return response!
+}
+async function withEuropePmcSource(paper: ArxivPaper) {
+  const doi = paper.doi || (paper.arxivId.startsWith('doi:') ? paper.arxivId.slice(4) : undefined)
+  if (!doi || paper.pmcid) return paper
+  const europePmc = await findEuropePmcPaper(doi)
+  return europePmc ? { ...paper, doi, pmcid: europePmc.pmcid, structuredSourceUrl: europePmc.structuredSourceUrl, structuredSourceFormat: europePmc.structuredSourceFormat, structuredSourceProvider: europePmc.structuredSourceProvider, license: europePmc.license || paper.license, pdfUrl: paper.pdfUrl || europePmc.pdfUrl } : paper
+}
+async function downloadJatsSource(paper: ArxivPaper, paperDir: string) {
+  if (!paper.pmcid || paper.structuredSourceFormat !== 'jats') return undefined
+  try {
+    const jatsUrl = `https://www.ebi.ac.uk/europepmc/webservices/rest/${paper.pmcid}/fullTextXML`
+    const response = await fetchPaperResource(jatsUrl)
+    if (!response.ok) return undefined
+    const bytes = await downloadBytes(response, 30 * 1024 * 1024)
+    const structure = parseJatsStructure(bytes.toString('utf8'), { provider: 'europe-pmc', license: paper.license })
+    if (!structure) return undefined
+    const sourcePath = path.join(paperDir, 'source.jats.xml')
+    await fs.writeFile(sourcePath, bytes)
+    await fs.writeFile(path.join(paperDir, 'jats-structure.json'), JSON.stringify(structure, null, 2), 'utf8')
+    return sourcePath
+  } catch { return undefined }
 }
 async function downloadPaper(paper: ArxivPaper): Promise<PaperRecord> {
   const settings = await readSettings()
@@ -842,6 +905,7 @@ async function downloadPaperNow(paper: ArxivPaper, settings: AppSettings): Promi
   if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
   const existing = (await readLibraryAt(settings.libraryPath)).find((item) => item.arxivId === paper.arxivId)
   if (existing) return existing
+  paper = await withEuropePmcSource(paper)
   const safeId = paper.arxivId.replace(/[^a-zA-Z0-9._-]+/g, '_')
   const noteDir = path.join(settings.libraryPath, 'papers', safeId)
   const paperDir = settings.paperStoragePath ? path.join(settings.paperStoragePath, safeId) : noteDir
@@ -850,15 +914,23 @@ async function downloadPaperNow(paper: ArxivPaper, settings: AppSettings): Promi
   const notePath = path.join(noteDir, `${safeId}.md`)
   const translationPath = path.join(paperDir, 'translation.ko.json')
   const sourcePath = path.join(paperDir, 'source.tar.gz')
-  const response = await fetch(paper.pdfUrl, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
-  if (!response.ok) throw new Error(`PDF 다운로드에 실패했습니다 (${response.status}).`)
-  const pdf = await downloadBytes(response)
-  if (pdf.subarray(0, 4).toString() !== '%PDF') throw new Error('다운로드한 파일이 PDF 형식이 아닙니다.')
+  const pdfCandidates = [...new Set([paper.pdfUrl, paper.pmcid ? `https://europepmc.org/api/getPdf?pmcid=${paper.pmcid}` : ''].filter(Boolean))]
+  let pdf: Buffer | undefined
+  let failedStatus: number | undefined
+  for (const url of pdfCandidates) {
+    const response = await fetchPaperResource(url)
+    failedStatus = response.status
+    if (!response.ok) continue
+    const candidate = await downloadBytes(response)
+    if (candidate.subarray(0, 4).toString() === '%PDF') { pdf = candidate; break }
+  }
+  if (!pdf && failedStatus && failedStatus !== 200) throw new Error(`${extractArxivId(paper.arxivId) ? 'PDF 다운로드' : 'PDF 링크 가져오기'}에 실패했습니다 (${failedStatus}). 원문 페이지에서 PDF를 받은 뒤 가져올 수도 있습니다.`)
+  if (!pdf) throw new Error('PDF 링크가 문서 대신 웹 페이지를 반환했습니다. 원문 페이지에서 PDF를 받은 뒤 가져와 주세요.')
   await fs.mkdir(paperDir, { recursive: true })
   await fs.writeFile(pdfPath, pdf)
   let downloadedSourcePath: string | undefined
-  try {
-    const sourceResponse = await fetch(`https://arxiv.org/src/${paper.arxivId}`, { signal: AbortSignal.timeout(30_000), headers: { 'User-Agent': 'Prism/0.1 local desktop research reader' }, redirect: 'follow' })
+  if (extractArxivId(paper.arxivId)) try {
+    const sourceResponse = await fetchPaperResource(`https://arxiv.org/src/${paper.arxivId}`)
     if (sourceResponse.ok) {
       const sourceBuffer = await downloadBytes(sourceResponse)
       await fs.writeFile(sourcePath, sourceBuffer)
@@ -879,11 +951,12 @@ async function downloadPaperNow(paper: ArxivPaper, settings: AppSettings): Promi
       if (structure) await fs.writeFile(path.join(paperDir, 'latex-structure.json'), JSON.stringify(structure, null, 2), 'utf8')
     }
   } catch { /* source files are optional; PDF download remains usable */ }
-  await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(paper, null, 2), 'utf8')
+  const structuredSourcePath = downloadedSourcePath ? undefined : await downloadJatsSource(paper, paperDir)
   const templates = await listTemplates(settings.libraryPath).catch(() => [])
   const template = templates.find((item) => item.nodeType === 'paper' && item.isDefault) ?? templates.find((item) => item.nodeType === 'paper')
   await writeInitialPaperNote(notePath, paperMarkdown(paper, settings.paperStoragePath ? pathToFileURL(pdfPath).href : 'original.pdf', template))
-  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath), pdfSha256: createHash('sha256').update(pdf).digest('hex') }
+  const record: PaperRecord = { ...paper, pdfPath, notePath, translationPath, sourcePath: downloadedSourcePath, structuredSourcePath, downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath), pdfSha256: createHash('sha256').update(pdf).digest('hex') }
+  await fs.writeFile(path.join(paperDir, 'metadata.json'), JSON.stringify(record, null, 2), 'utf8')
   return registerPaper(settings.libraryPath, record)
 }
 
@@ -895,6 +968,18 @@ async function latexStructure(record: PaperRecord): Promise<LatexStructure | nul
   const structure = await parseLatexStructure(path.join(paperDir, 'source'))
   if (structure) await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf8')
   return structure
+}
+
+async function paperSourceStructure(record: PaperRecord): Promise<LatexStructure | null> {
+  const latex = await latexStructure(record)
+  if (latex || !record.structuredSourcePath) return latex
+  const cachePath = path.join(path.dirname(record.pdfPath), 'jats-structure.json')
+  try { const cached = JSON.parse(await fs.readFile(cachePath, 'utf8')) as LatexStructure; if (cached.version === 6 && cached.format === 'jats') return cached } catch { /* rebuild from the saved XML */ }
+  try {
+    const structure = parseJatsStructure(await fs.readFile(record.structuredSourcePath, 'utf8'), { provider: 'europe-pmc', license: record.license })
+    if (structure) await fs.writeFile(cachePath, JSON.stringify(structure, null, 2), 'utf8')
+    return structure
+  } catch { return null }
 }
 
 const figureMime = new Map([
@@ -1267,11 +1352,17 @@ ipcMain.handle('library:list', async () => {
   if (settings.libraryPath && await migratePaperNotes(settings.libraryPath).catch(() => 0)) invalidateKnowledgeCache(settings.libraryPath)
   return readLibrary()
 })
-ipcMain.handle('papers:search-crossref', (_event, input: string) => searchCrossref(String(input)))
+ipcMain.handle('papers:search', (_event, input: string) => allPaperSearch(String(input)))
+ipcMain.handle('papers:search-crossref', (_event, input: string) => allPaperSearch(String(input)))
 ipcMain.handle('papers:open-doi', (_event, id: string) => {
   const doi = String(id).replace(/^doi:/, '')
   if (!/^10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(doi)) throw new Error('올바른 DOI가 아닙니다.')
   return shell.openExternal(`https://doi.org/${doi}`)
+})
+ipcMain.handle('papers:open-url', (_event, input: string) => {
+  const url = safeWebUrl(String(input))
+  if (!url) throw new Error('올바른 논문 링크가 아닙니다.')
+  return shell.openExternal(url)
 })
 ipcMain.handle('arxiv:search', (_event, input: string) => arxivSearch(String(input).slice(0, 500)))
 ipcMain.handle('paper:autocomplete', (_event, input: string) => paperAutocomplete(String(input)))
@@ -1297,16 +1388,25 @@ ipcMain.handle('paper:import-local', async (event, metadata?: ArxivPaper) => {
     const directory = settings.paperStoragePath ? path.join(settings.paperStoragePath, local.id) : noteDirectory
     await fs.mkdir(noteDirectory, { recursive: true })
     await fs.mkdir(directory, { recursive: true })
+    let linkedMetadata = metadata
+    if (linkedMetadata?.arxivId.startsWith('doi:')) linkedMetadata = await withEuropePmcSource(linkedMetadata)
     const record: PaperRecord = { arxivId: local.id, title: local.title, authors: [], summary: '', published: '', updated: '', categories: ['PDF'], pdfUrl: '', absUrl: '', pdfPath: path.join(directory, 'original.pdf'), notePath: path.join(noteDirectory, `${local.id}.md`), translationPath: path.join(directory, 'translation.ko.json'), pdfSha256: createHash('sha256').update(local.bytes).digest('hex'), downloadedAt: Date.now(), externalAssets: Boolean(settings.paperStoragePath) }
-    if (metadata && /^doi:10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(metadata.arxivId)) {
-      record.title = String(metadata.title || local.title).slice(0, 1000)
-      record.authors = Array.isArray(metadata.authors) ? metadata.authors.map(String).slice(0, 200) : []
-      record.summary = String(metadata.summary || '').slice(0, 100_000)
-      record.published = String(metadata.published || '').slice(0, 10)
-      record.absUrl = `https://doi.org/${metadata.arxivId.slice(4)}`
-      record.categories = Array.isArray(metadata.categories) ? metadata.categories.map(String).slice(0, 50) : []
+    if (linkedMetadata && (/^doi:10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(linkedMetadata.arxivId) || /^pmc:PMC\d+$/i.test(linkedMetadata.arxivId) || /^epmc:[A-Z]+:[a-zA-Z0-9._-]+$/.test(linkedMetadata.arxivId))) {
+      record.title = String(linkedMetadata.title || local.title).slice(0, 1000)
+      record.authors = Array.isArray(linkedMetadata.authors) ? linkedMetadata.authors.map(String).slice(0, 200) : []
+      record.summary = String(linkedMetadata.summary || '').slice(0, 100_000)
+      record.published = String(linkedMetadata.published || '').slice(0, 10)
+      record.absUrl = safeWebUrl(String(linkedMetadata.absUrl ?? '')) ?? ''
+      record.categories = Array.isArray(linkedMetadata.categories) ? linkedMetadata.categories.map(String).slice(0, 50) : []
+      record.source = linkedMetadata.source === 'europe-pmc' || linkedMetadata.source === 'crossref' || linkedMetadata.source === 'semantic-scholar' ? linkedMetadata.source : undefined
+      record.doi = /^10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(String(linkedMetadata.doi ?? '')) ? String(linkedMetadata.doi) : linkedMetadata.arxivId.startsWith('doi:') ? linkedMetadata.arxivId.slice(4) : undefined
+      record.pmcid = /^PMC\d+$/i.test(String(linkedMetadata.pmcid ?? '')) ? String(linkedMetadata.pmcid).toUpperCase() : undefined
+      record.structuredSourceFormat = linkedMetadata.structuredSourceFormat === 'jats' ? 'jats' : undefined
+      record.structuredSourceProvider = linkedMetadata.structuredSourceProvider === 'europe-pmc' ? 'europe-pmc' : undefined
+      record.license = typeof linkedMetadata.license === 'string' ? linkedMetadata.license.slice(0, 100) : undefined
     }
     await fs.writeFile(record.pdfPath, local.bytes)
+    record.structuredSourcePath = await downloadJatsSource(record, directory)
     await atomicWriteFile(path.join(directory, 'metadata.json'), JSON.stringify(record, null, 2))
     await writeInitialPaperNote(record.notePath, paperMarkdown(record, settings.paperStoragePath ? pathToFileURL(record.pdfPath).href : 'original.pdf').replace('tags: [paper, arxiv]', 'tags: [paper]'))
     return registerPaper(settings.libraryPath, record)
@@ -1316,14 +1416,28 @@ ipcMain.handle('paper:import-local', async (event, metadata?: ArxivPaper) => {
 })
 ipcMain.handle('paper:download', async (_event, input: ArxivPaper) => {
   const id = extractArxivId(String(input?.arxivId ?? ''))
-  if (!id) throw new Error('올바른 arXiv 논문이 아닙니다.')
+  const scholarlyId = String(input?.arxivId ?? '').trim()
+  const isDoi = /^doi:10\.\d{4,9}\/[\S]{1,300}$/i.test(scholarlyId)
+  const isSemanticScholar = /^s2:[a-f0-9]{20,64}$/i.test(scholarlyId)
+  const isPmc = /^pmc:PMC\d+$/i.test(scholarlyId)
+  const isEuropePmc = /^epmc:[A-Z]+:[a-zA-Z0-9._-]+$/.test(scholarlyId)
+  if (!id && !isDoi && !isSemanticScholar && !isPmc && !isEuropePmc) throw new Error('올바른 논문 식별자가 아닙니다.')
+  const suppliedPdfUrl = safeWebUrl(String(input?.pdfUrl ?? ''))
+  if (!id && !suppliedPdfUrl) throw new Error('바로 저장할 수 있는 PDF 링크가 없습니다. 원문 페이지에서 PDF를 받은 뒤 가져와 주세요.')
+  const suppliedAbsUrl = safeWebUrl(String(input?.absUrl ?? ''))
   const paper: ArxivPaper = {
-    arxivId: id, title: String(input.title ?? id).slice(0, 1000),
+    arxivId: id ?? scholarlyId, title: String(input.title ?? id ?? scholarlyId).slice(0, 1000),
     authors: Array.isArray(input.authors) ? input.authors.map(String).slice(0, 200) : [],
     summary: String(input.summary ?? '').slice(0, 100_000), published: String(input.published ?? ''), updated: String(input.updated ?? ''),
     categories: Array.isArray(input.categories) ? input.categories.map(String).slice(0, 50) : [],
-    pdfUrl: `https://arxiv.org/pdf/${id}`, absUrl: `https://arxiv.org/abs/${id}`,
+    pdfUrl: id ? `https://arxiv.org/pdf/${id}` : suppliedPdfUrl!, absUrl: id ? `https://arxiv.org/abs/${id}` : suppliedAbsUrl ?? (isDoi ? `https://doi.org/${scholarlyId.slice(4)}` : ''),
     citationCount: Number.isFinite(input.citationCount) ? input.citationCount : undefined,
+    source: input.source === 'semantic-scholar' || input.source === 'crossref' || input.source === 'europe-pmc' ? input.source : undefined,
+    doi: /^10\.\d{4,9}\/[^\s<>]{1,300}$/i.test(String(input.doi ?? '')) ? String(input.doi) : isDoi ? scholarlyId.slice(4) : undefined,
+    pmcid: /^PMC\d+$/i.test(String(input.pmcid ?? '')) ? String(input.pmcid).toUpperCase() : undefined,
+    structuredSourceFormat: input.structuredSourceFormat === 'jats' ? 'jats' : undefined,
+    structuredSourceProvider: input.structuredSourceProvider === 'europe-pmc' ? 'europe-pmc' : undefined,
+    license: typeof input.license === 'string' ? input.license.slice(0, 100) : undefined,
   }
   return downloadPaper(paper)
 })
@@ -1352,7 +1466,7 @@ ipcMain.handle('paper:pdf', async (_event, arxivId: string) => {
 ipcMain.handle('paper:latex-structure', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
-  return latexStructure(record)
+  return paperSourceStructure(record)
 })
 ipcMain.handle('paper:figures', async (_event, arxivId: string) => {
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
@@ -1373,7 +1487,7 @@ ipcMain.handle('reader:open', async (_event, arxivId?: string) => {
   const target = mainWindow
   if (!target) return false
   if (typeof arxivId === 'string' && arxivId) {
-    if (!/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+    if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
     const send = () => target.webContents.send('reader:open-paper', arxivId)
     if (target.webContents.isLoading()) target.webContents.once('did-finish-load', send); else send()
   }
@@ -1454,7 +1568,7 @@ ipcMain.handle('research:suggest:model:review', async (_event, request: ModelSug
 })
 ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { refresh?: boolean }) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
   if (options !== undefined && (typeof options !== 'object' || options === null || (options.refresh !== undefined && typeof options.refresh !== 'boolean'))) throw new Error('인용 조회 옵션이 올바르지 않습니다.')
   const record = (await readLibrary()).find(paper => paper.arxivId === arxivId)
   const externalId = record?.absUrl.startsWith('https://doi.org/') ? `DOI:${record.absUrl.slice(16)}` : undefined
@@ -1463,12 +1577,12 @@ ipcMain.handle('paper:citations', async (_event, arxivId: string, options?: { re
 })
 ipcMain.handle('paper:structure', async (_event, arxivId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
   return readPaperStructure(settings.libraryPath, arxivId)
 })
 ipcMain.handle('paper:structure:refresh', async (_event, arxivId: string) => {
   const settings = await readSettings(); if (!settings.libraryPath) throw new Error('먼저 라이브러리 폴더를 선택해 주세요.')
-  if (typeof arxivId !== 'string' || !/^[a-zA-Z0-9._/-]{3,60}$/.test(arxivId)) throw new Error('올바른 arXiv ID가 아닙니다.')
+  if (!isStoredPaperId(arxivId)) throw new Error('올바른 논문 ID가 아닙니다.')
   const provider = settings.structureProvider ?? settings.knowledgeProvider; const model = settings.structureModel ?? settings.knowledgeModel
   if (!provider || !model) throw new Error('설정에서 지식 제안 CLI와 모델을 먼저 선택하세요.')
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
@@ -1761,7 +1875,7 @@ ipcMain.handle('translation:start', async (event, arxivId: string, segments: Tra
   const record = (await readLibrary()).find((paper) => paper.arxivId === arxivId)
   if (!record) throw new Error('라이브러리에 없는 논문입니다.')
   const safeSegments = segments.filter((segment) => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && segment.source.length < 10_000)
-    .map((segment) => ({ ...segment, source: normalizePdfControls(segment.source).trim(), paragraphContext: typeof segment.paragraphContext === 'string' ? normalizePdfControls(segment.paragraphContext).slice(0, 12_000) : undefined, sectionTitle: typeof segment.sectionTitle === 'string' ? segment.sectionTitle.slice(0, 500) : undefined, blockId: typeof segment.blockId === 'string' ? segment.blockId.slice(0, 120) : undefined, sourceMode: segment.sourceMode === 'latex' ? 'latex' as const : 'pdf' as const, itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [], itemSlices: Array.isArray(segment.itemSlices) ? segment.itemSlices.filter((slice) => Number.isInteger(slice?.itemIndex) && Number.isFinite(slice?.start) && Number.isFinite(slice?.end)).map((slice) => ({ itemIndex: slice.itemIndex, start: Math.max(0, Math.min(1, slice.start)), end: Math.max(0, Math.min(1, slice.end)) })) : [] }))
+    .map((segment) => ({ ...segment, source: normalizePdfControls(segment.source).trim(), paragraphContext: typeof segment.paragraphContext === 'string' ? normalizePdfControls(segment.paragraphContext).slice(0, 12_000) : undefined, sectionTitle: typeof segment.sectionTitle === 'string' ? segment.sectionTitle.slice(0, 500) : undefined, blockId: typeof segment.blockId === 'string' ? segment.blockId.slice(0, 120) : undefined, sourceMode: segment.sourceMode === 'latex' ? 'latex' as const : segment.sourceMode === 'jats' ? 'jats' as const : 'pdf' as const, itemIndexes: Array.isArray(segment.itemIndexes) ? segment.itemIndexes.filter(Number.isInteger) : [], itemSlices: Array.isArray(segment.itemSlices) ? segment.itemSlices.filter((slice) => Number.isInteger(slice?.itemIndex) && Number.isFinite(slice?.start) && Number.isFinite(slice?.end)).map((slice) => ({ itemIndex: slice.itemIndex, start: Math.max(0, Math.min(1, slice.start)), end: Math.max(0, Math.min(1, slice.end)) })) : [] }))
   if (options?.pages && (!Array.isArray(options.pages) || !options.pages.length || options.pages.some(page => !Number.isInteger(page) || page < 1 || page > 10000))) throw new Error('번역할 페이지가 올바르지 않습니다.')
   void translatePaper(event.sender, record, safeSegments, options?.force === true, options?.pages).catch((error) => safeSend(event.sender, 'translation:error', { arxivId, message: error instanceof Error ? error.message : String(error) }))
   return { started: true }

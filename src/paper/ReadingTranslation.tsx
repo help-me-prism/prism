@@ -111,7 +111,11 @@ export default function ReadingTranslation({ segments, translation, source, read
       <div className="anchor-layer">{segments.flatMap(segment => rectangles(segment).map((rect, index) => <span key={`${segment.id}-${index}`} data-anchor={segment.id} role="button" tabIndex={0} aria-label={segment.source.slice(0, 100)} className={highlighted === segment.id ? 'highlighted' : ''} style={{ left: `${rect.left / sourceWidth * 100}%`, top: `${rect.top / sourceHeight * 100}%`, width: `${rect.width / sourceWidth * 100}%`, height: `${rect.height / sourceHeight * 100}%` }} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
     </div>
     const items = blocks.flatMap(block => {
-      if (!block.rect || containedInFigure(block.rect)) return []
+      if (!block.rect) return []
+      // A detected figure crop commonly includes its caption so the evidence
+      // tag remains one visual region. Do not let that crop suppress a real
+      // caption translation; layout will place the translated caption after it.
+      if (containedInFigure(block.rect) && !(block.kind === 'caption' && block.items.some(hasProseTranslation))) return []
       const kind = block.kind
       const missingProse = block.items.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id))
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind) || missingProse

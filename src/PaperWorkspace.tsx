@@ -100,6 +100,7 @@ function latexSentenceSource(source: string, pdfSource: string) {
 
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
+  const structuredMode = structure.format === 'jats' ? 'jats' as const : 'latex' as const
   const prose = structure.blocks.filter((block) => ['paragraph', 'heading', 'caption', 'theorem'].includes(block.kind)).map((block) => ({ ...block, tokens: new Set(matchTokens(block.source)) }))
   let matched = 0
   const enriched: TranslationSegment[] = segments.map((segment): TranslationSegment => {
@@ -117,7 +118,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
     matched += 1
     const inlineSource = ['paragraph', 'theorem'].includes(best.block.kind) ? latexSentenceSource(best.block.source, segment.source) : undefined
-    return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: 'latex' as const, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
   })
   const theoremBlocks = structure.blocks.filter((block) => block.kind === 'theorem')
   const pdfTheorems = new Map<string, number[]>()
@@ -130,7 +131,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     if (!best || best.score < .3) continue
     for (const index of indexes) if (enriched[index].kind === 'equation') {
       const inlineSource = latexSentenceSource(best.block.source, enriched[index].source)
-      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: 'latex', sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
     }
   }
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
@@ -142,7 +143,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
   const scores = equationBlocks.map(block => equationIndexes.map(index => tokenSimilarity(block.source, enriched[index].source)))
   for (const match of monotoneMatches(scores, .42)) {
     const block = equationBlocks[match.leftIndex]; const index = equationIndexes[match.rightIndex]
-    enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section }
+    enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: structuredMode, blockId: block.id, sectionTitle: block.section }
   }
 
   const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
@@ -159,7 +160,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     const members = tableMemberIndexes(enriched, selected)
     const memberSlices = members.flatMap((memberIndex) => enriched[memberIndex].itemSlices ?? [])
     for (const memberIndex of members) if (memberIndex !== selected) enriched[memberIndex] = { ...enriched[memberIndex], kind: 'artifact', sourceMode: 'pdf' }
-    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: 'latex', blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source, itemIndexes: [...new Set(memberSlices.map((slice) => slice.itemIndex))], itemSlices: memberSlices }
+    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: structuredMode, blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source, itemIndexes: [...new Set(memberSlices.map((slice) => slice.itemIndex))], itemSlices: memberSlices }
   }
   return { segments: enriched, matched }
 }
@@ -193,7 +194,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
   const [suggestions, setSuggestions] = useState<Array<{ title: string; authorsYear?: string }>>([])
   const [searching, setSearching] = useState(false); const [downloading, setDownloading] = useState<string>(); const [error, setError] = useState('')
   const [hasSearched, setHasSearched] = useState(false)
-  const [searchSource, setSearchSource] = useState<'crossref' | 'arxiv'>('crossref')
+  const [searchSource, setSearchSource] = useState<'all' | 'arxiv'>('all')
   const searchSequence = useRef(0)
 
   useEffect(() => {
@@ -213,7 +214,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
     if (!nextQuery.trim()) return
     setQuery(nextQuery); setSuggestions([]); setSearching(true); setResults([]); setHasSearched(true); setError('')
     const sequence = ++searchSequence.current
-    try { const papers = await (searchSource === 'arxiv' ? window.prism.searchArxiv(nextQuery) : window.prism.searchCrossref(nextQuery)); if (sequence === searchSequence.current) setResults(papers) } catch (reason) { if (sequence === searchSequence.current) setError(reason instanceof Error ? reason.message : String(reason)) } finally { if (sequence === searchSequence.current) setSearching(false) }
+    try { const papers = await (searchSource === 'arxiv' ? window.prism.searchArxiv(nextQuery) : window.prism.searchPapers(nextQuery)); if (sequence === searchSequence.current) setResults(papers) } catch (reason) { if (sequence === searchSequence.current) setError(reason instanceof Error ? reason.message : String(reason)) } finally { if (sequence === searchSequence.current) setSearching(false) }
   }
   async function download(paper: ArxivPaper) {
     if (!settings.libraryPath) { onChooseFolder(); return }
@@ -223,7 +224,7 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
 
   async function importPdf(metadata?: ArxivPaper) {
     if (!settings.libraryPath) { onChooseFolder(); return }
-    setDownloading('local'); setError('')
+    setDownloading(metadata ? `import:${metadata.arxivId}` : 'local'); setError('')
     try { const paper = await window.prism.importLocalPaper(metadata); if (paper) onDownloaded(paper) }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { setDownloading(undefined) }
@@ -232,14 +233,17 @@ function Finder({ library, settings, onChooseFolder, onOpen, onDownloaded, onSet
   return <div className="finder-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="paper-finder" role="dialog" aria-modal="true" aria-labelledby="paper-finder-title">
     <header><div><span className="finder-icon"><BookOpen size={20} /></span><div><h2 id="paper-finder-title">논문 찾기</h2><p>PDF를 가져오거나 제목·키워드·DOI로 찾아보세요.</p></div></div><button onClick={onClose} aria-label="논문 찾기 닫기"><X size={18} /></button></header>
     {!settings.libraryPath && <button className="folder-callout" onClick={onChooseFolder}><FolderOpen size={18} /><span><strong>라이브러리 폴더가 필요합니다</strong><small>PDF, 소스, 번역, Markdown 노트를 저장할 위치를 선택하세요.</small></span><ArrowRight size={16} /></button>}
-    <div className="search-source"><label>검색 범위 <select aria-label="검색 범위" value={searchSource} onChange={event => { searchSequence.current++; setSearching(false); setSearchSource(event.target.value as "crossref" | "arxiv"); setResults([]); setSuggestions([]); setHasSearched(false); setError("") }}><option value="crossref">모든 분야 · Crossref</option><option value="arxiv">arXiv · 프리프린트</option></select></label><small>{searchSource === "crossref" ? "원문 사이트에서 받은 PDF를 연결하면 서지정보도 함께 저장됩니다." : "PDF와 공개된 LaTeX 소스를 바로 저장합니다."}</small></div><div className="finder-search-wrap"><div className="finder-search"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search() }} placeholder={searchSource === "crossref" ? "예: CRISPR, 단백질 구조, 10.1038/…" : "논문 제목, arXiv ID 또는 링크"} aria-label="논문 검색어" /><button onClick={() => void search()} disabled={searching || !query.trim()}>{searching ? <LoaderCircle className="spin" size={16} /> : '검색'}</button></div>
+    <div className="search-source"><label>검색 범위 <select aria-label="검색 범위" value={searchSource} onChange={event => { searchSequence.current++; setSearching(false); setSearchSource(event.target.value as "all" | "arxiv"); setResults([]); setSuggestions([]); setHasSearched(false); setError("") }}><option value="all">모든 분야</option><option value="arxiv">arXiv · 프리프린트</option></select></label><small>{searchSource === "all" ? "관련도순으로 찾고 PDF와 구조 원문(JATS·LaTeX) 가능 여부를 함께 확인합니다." : "PDF와 공개된 LaTeX 소스를 바로 저장합니다."}</small></div><div className="finder-search-wrap"><div className="finder-search"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search() }} placeholder={searchSource === "all" ? "논문 제목, 키워드 또는 DOI" : "논문 제목, arXiv ID 또는 링크"} aria-label="논문 검색어" /><button onClick={() => void search()} disabled={searching || !query.trim()}>{searching ? <LoaderCircle className="spin" size={16} /> : '검색'}</button></div>
       {suggestions.length > 0 && <div className="search-suggestions">{suggestions.map((item) => <button key={`${item.title}-${item.authorsYear}`} onMouseDown={(event) => event.preventDefault()} onClick={() => void search(item.title)}><Search size={13} /><span><strong>{item.title}</strong><small>{item.authorsYear}</small></span></button>)}</div>}
     </div>
     <div className="import-pdf-row"><button disabled={Boolean(downloading) || !settings.libraryPath} onClick={() => void importPdf()}><FolderOpen size={16} /> {downloading === "local" ? "가져오는 중…" : "내 컴퓨터에서 PDF 가져오기"}</button><span>모든 연구 분야 · AI 연결 없이 읽기</span></div><div className="finder-options"><label><input type="checkbox" checked={settings.autoTranslate} onChange={(event) => onSettings({ autoTranslate: event.target.checked })} /><span>저장 직후 설정된 모델로 한국어 번역 시작</span></label><small><Settings2 size={12} /> 번역 모델은 논문 화면에서 미리 설정할 수 있습니다.</small></div>
     {error && <div className="finder-error">{error}</div>}
-    <div className="finder-content">{searching ? <div className="finder-empty" role="status"><LoaderCircle className="spin" size={24} /><p>논문을 찾고 있습니다…</p></div> : results.length > 0 ? <><p className="result-label">{searchSource === "crossref" ? "검색 결과 · Crossref" : "검색 결과 · arXiv"}</p>{results.map((paper, index) => {
+    <div className="finder-content">{searching ? <div className="finder-empty" role="status"><LoaderCircle className="spin" size={24} /><p>논문을 찾고 있습니다…</p></div> : results.length > 0 ? <><p className="result-label">{searchSource === "all" ? "검색 결과 · 관련도순" : "검색 결과 · arXiv"}</p>{results.map((paper, index) => {
       const saved = library.find((item) => item.arxivId === paper.arxivId)
-      return <article className="paper-result" key={paper.arxivId}><div><div className="paper-result-meta"><span>#{index + 1}</span><span>{paper.arxivId}</span><span>{paper.categories[0]}</span><span>{paper.published.slice(0, 10)}</span>{typeof paper.citationCount === 'number' && <span>인용 {paper.citationCount.toLocaleString()}</span>}</div><h3>{paper.title}</h3><p className="authors">{paper.authors.slice(0, 4).join(', ')}{paper.authors.length > 4 ? ` 외 ${paper.authors.length - 4}명` : ''}</p><p className="abstract">{paper.summary}</p></div><div className="result-actions"><button onClick={() => void (paper.arxivId.startsWith("doi:") ? window.prism.openDoi(paper.arxivId) : window.prism.openArxiv(paper.arxivId))} title="원문 사이트 열기" aria-label="원문 사이트 열기"><ExternalLink size={14} /></button>{paper.arxivId.startsWith("doi:") ? <button className="primary" disabled={Boolean(downloading)} onClick={() => void importPdf(paper)}><FolderOpen size={14} /> PDF 연결</button> : saved ? <button className="primary" onClick={() => { onOpen(saved); onClose() }}><Check size={14} /> 열기</button> : <button className="primary" onClick={() => void download(paper)} disabled={downloading === paper.arxivId}>{downloading === paper.arxivId ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />} 저장</button>}</div></article>
+      const importing = downloading === `import:${paper.arxivId}`
+      const arxivSource = /^(?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})$/i.test(paper.arxivId)
+      const structuredLabel = paper.structuredSourceFormat === 'jats' ? '구조 원문 · JATS' : arxivSource ? '구조 원문 · LaTeX' : undefined
+      return <article className="paper-result" key={paper.arxivId}><div><div className="paper-result-meta"><span>#{index + 1}</span><span>{paper.arxivId}</span>{structuredLabel ? <span className="source-readiness structured" title="PDF 좌표와 구조 원문을 함께 사용해 문단·수식 추출을 보강합니다.">{structuredLabel}</span> : paper.pdfUrl ? <span className="source-readiness pdf" title="PDF 텍스트층 품질은 저장 후 확인합니다.">PDF 링크 · 추출 확인 필요</span> : <span className="source-readiness needed">PDF 필요</span>}<span>{paper.categories[0]}</span><span>{paper.published.slice(0, 10)}</span>{typeof paper.citationCount === 'number' && <span>인용 {paper.citationCount.toLocaleString()}</span>}</div><h3>{paper.title}</h3><p className="authors">{paper.authors.slice(0, 4).join(', ') || '저자 정보 없음'}{paper.authors.length > 4 ? ` 외 ${paper.authors.length - 4}명` : ''}</p>{paper.summary && <p className="abstract">{paper.summary}</p>}</div><div className="result-actions"><button onClick={() => void window.prism.openPaperUrl(paper.absUrl)} title="논문 원문 페이지 열기"><ExternalLink size={14} /> 원문</button>{saved ? <button className="primary" onClick={() => { onOpen(saved); onClose() }}><Check size={14} /> 열기</button> : paper.pdfUrl ? <button className="primary" onClick={() => void download(paper)} disabled={Boolean(downloading)}>{downloading === paper.arxivId ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />} PDF 저장</button> : <button className="primary secondary" disabled={Boolean(downloading)} onClick={() => void importPdf(paper)}>{importing ? <LoaderCircle className="spin" size={14} /> : <FolderOpen size={14} />} 내 PDF 가져오기</button>}</div></article>
     })}</> : hasSearched && !searching ? <div className="finder-empty no-results"><Search size={32} strokeWidth={1.4} /><h3>검색 결과가 없습니다</h3><p>영문 제목이나 DOI로 검색하거나 검색 범위를 바꿔 보세요.</p><button onClick={() => { setQuery(''); setHasSearched(false) }}>검색어 지우기</button></div> : library.length > 0 ? <><p className="result-label">MY LIBRARY · {library.length}</p>{library.map((paper) => <button className="library-result" key={paper.arxivId} onClick={() => { onOpen(paper); onClose() }}><FileText size={18} /><span><strong>{paper.title}</strong><small>{paper.arxivId} · {paper.authors.slice(0, 2).join(', ')}</small></span><ArrowRight size={15} /></button>)}</> : <div className="finder-empty"><BookOpen size={34} strokeWidth={1.4} /><h3>첫 논문을 찾아보세요</h3><p>생물학·의학·공학 등 어떤 분야의 PDF도 가져올 수 있습니다. 읽다가 남긴 메모는 Markdown으로 보관됩니다.</p><div className="finder-steps"><span><b>1</b> 논문 검색</span><span><b>2</b> 로컬 저장</span><span><b>3</b> 읽고 질문하기</span></div></div>}</div>
   </section></div>
 }
@@ -497,7 +501,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const [comparisonReturn, setComparisonReturn] = useState<{ paperId: string; layout: PaneNode; sourceScale: number; translatedScale: number; sourceFit: boolean; translatedFit: boolean }>()
   const [translationFormat, setTranslationFormat] = useState<'paper' | 'flow'>(() => localStorage.getItem('prism.translation-format') === 'flow' ? 'flow' : 'paper'); const [cacheExists, setCacheExists] = useState(false)
   const { panel: backlinkPanel, memo: captureMemo, concept: captureConcept, status: captureStatus, conceptOptions, saving: captureSaving, show: showBacklinks, close: closeBacklinks, setMemo: setCaptureMemo, setConcept: setCaptureConcept, capture: captureAnchor } = useEvidenceCapture({ libraryPath: settings.libraryPath, activePaperId: activeId })
-  const [sourceStatus, setSourceStatus] = useState<{ mode: 'latex' | 'pdf'; matched: number; total: number }>({ mode: 'pdf', matched: 0, total: 0 })
+  const [sourceStatus, setSourceStatus] = useState<{ mode: 'latex' | 'jats' | 'pdf'; matched: number; total: number }>({ mode: 'pdf', matched: 0, total: 0 })
   const [translationTargetPage, setTranslationTargetPage] = useState(1); const [pendingTranslationPage, setPendingTranslationPage] = useState<number>(); const [translationScope, setTranslationScope] = useState<'page' | 'all'>('page'); const [translationJobs, setTranslationJobs] = useState<Record<string, boolean>>({}); const translating = Boolean(activeId && translationJobs[activeId]); const [translationProgress, setTranslationProgress] = useState({ completed: 0, total: 0 }); const [figureSelect, setFigureSelect] = useState(false)
   const [figureAssets, setFigureAssets] = useState<Array<PaperFigureAsset & { preview?: string }>>([]); const [error, setError] = useState('')
   const [loadStatus, setLoadStatus] = useState<{ phase: 'pdf' | 'analyzing'; completed: number; total: number }>()
@@ -723,7 +727,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       }
       if (disposed) return
       const source = enrichWithLatex(segments, latex); const translatable = source.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length
-      setSourceStatus({ mode: source.matched > translatable * .35 ? 'latex' : 'pdf', matched: source.matched, total: translatable })
+      setSourceStatus({ mode: source.matched > translatable * .35 ? (latex?.format === 'jats' ? 'jats' : 'latex') : 'pdf', matched: source.matched, total: translatable })
       setAllSegments(source.segments)
       void window.prism.savePaperAnchors(activePaper.arxivId, source.segments).then(() => {
         if (!disposed && settings.libraryPath) void loadGuide(activePaper.arxivId, settings.libraryPath, settings.autoReadingGuide !== false)

@@ -32,12 +32,13 @@ try {
     `---\n${oldLine}\n"pdf": "other"\n---`,
   ]) assert.equal(updateRecoveredPdfLink(note, oldPdf, newPdf), undefined)
   await fs.writeFile(path.join(target, 'original.pdf'), bytes)
-  const record = { arxivId: id, externalAssets: true, pdfPath: path.join(old, 'original.pdf'), translationPath: path.join(old, 'translation.ko.json'), sourcePath: path.join(old, 'source.tar.gz'), notePath: path.join(temp, 'vault', 'note.md') }
+  const record = { arxivId: id, externalAssets: true, pdfPath: path.join(old, 'original.pdf'), translationPath: path.join(old, 'translation.ko.json'), sourcePath: path.join(old, 'source.tar.gz'), structuredSourcePath: path.join(old, 'source.jats.xml'), notePath: path.join(temp, 'vault', 'note.md') }
   const original = structuredClone(record)
   let plan = await planPaperRecovery([record], root)
   assert.equal(plan.restored, 1); assert.equal(plan.skipped, 0)
   assert.equal(plan.records[0].pdfPath, path.join(target, 'original.pdf'))
   assert.equal(plan.records[0].sourcePath, path.join(target, 'source.tar.gz'))
+  assert.equal(plan.records[0].structuredSourcePath, path.join(target, 'source.jats.xml'))
   assert.equal(plan.records[0].notePath, record.notePath)
   assert.deepEqual(record, original)
   assert.equal((await fs.readdir(target)).length, 1, 'Planning must not create missing assets')

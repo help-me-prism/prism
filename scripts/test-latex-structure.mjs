@@ -11,6 +11,15 @@ const algorithmBody = String.raw`[H]\caption{Training}\begin{algorithmic}[1]\STA
 const equation = String.raw`\begin{equation}${equationBody}\end{equation}`
 const table = String.raw`\begin{table}${tableBody}\end{table}`
 const algorithm = String.raw`\begin{algorithm}${algorithmBody}\end{algorithm}`
+const complexBodies = [
+  String.raw`\begin{cases}x,&x>0\\-x,&x\leq0\end{cases}`,
+  String.raw`\begin{aligned}a&=b+c\\d&=e+f\end{aligned}`,
+  String.raw`\begin{split}u&=v+w\\&=x+y\end{split}`,
+  String.raw`\begin{multline}a+b+c+d\\=e+f+g+h\end{multline}`,
+  String.raw`\begin{array}{cc}a&b\\c&d\end{array}`,
+  String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`,
+]
+const complexEquations = complexBodies.map((body) => String.raw`\begin{equation}${body}\end{equation}`).join('\n')
 
 try {
   await fs.writeFile(path.join(sourceDir, 'main.tex'), String.raw`\documentclass{article}
@@ -26,6 +35,7 @@ The loss $\gL_{\CFM}=\norm{x}$ maps $\Real^d\too\Real$.
 ${equation}
 ${table}
 ${algorithm}
+${complexEquations}
 \begin{restatable}{theorem}{stable}\label{thm:stable}
 For every $x\in\mathbb{R}^d$, the update satisfies $f(x)=x$.
 \end{restatable}
@@ -38,6 +48,7 @@ For every $x\in\mathbb{R}^d$, the update satisfies $f(x)=x$.
   assert(structure, 'LaTeX structure was not parsed.')
   assert.equal(structure.blocks.find((block) => block.kind === 'equation')?.source, equationBody)
   assert.equal(structure.blocks.find((block) => block.kind === 'table')?.source, tableBody)
+  for (const body of complexBodies) assert(structure.blocks.some((block) => block.kind === 'equation' && block.source === body), `Complex equation environment was split: ${body}`)
   const paragraph = structure.blocks.find((block) => block.kind === 'paragraph')?.source ?? ''
   assert.match(paragraph, /\$QK\^T \/ \\sqrt\{d_k\}\$/)
   assert.match(paragraph, /\$x_t = x_\{t-1\} \+ u_t\$/)

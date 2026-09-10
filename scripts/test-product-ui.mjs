@@ -55,11 +55,19 @@ try {
       if (error.code !== -32000 || !/active page|context|navigat/i.test(error.message)) throw error
     }
     await sleep(100)
-  } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('.continuous-page,.document-scroll')].slice(0,4).map(e=>({c:e.className,w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,top:e.scrollTop,rect:e.getBoundingClientRect().toJSON(),s:e.getAttribute('style')})))")}\n${logs}`) }
+  } throw new Error(`Timed out: ${expression}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(exceptions)}\n${await evaluate("JSON.stringify([...document.querySelectorAll('[data-pane],.continuous-page,.document-scroll')].map(e=>({c:e.className,p:e.getAttribute('data-pane'),shown:e.getAttribute('data-shown'),w:e.clientWidth,h:e.clientHeight,sw:e.scrollWidth,top:e.scrollTop,rect:e.getBoundingClientRect().toJSON(),s:e.getAttribute('style')})))")}\n${logs}`) }
   const reload = async () => {
     const epoch = `reload-${Date.now()}-${sequence}`
     await evaluate(`window.__testNavigationEpoch=${JSON.stringify(epoch)}; location.reload()`)
     await wait(`Boolean(window.prism && window.__testNavigationEpoch !== ${JSON.stringify(epoch)})`)
+    // Windows may classify the repeatedly reloaded test window as occluded even
+    // with renderer throttling disabled. Bring it forward before measuring PDF
+    // geometry so a zero-sized paint lifecycle cannot masquerade as a layout bug.
+    await send('Page.bringToFront')
+    // Capturing one compositor frame is the reliable Windows CDP wake-up signal;
+    // Page.bringToFront alone can leave the hidden test surface occluded.
+    await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+    await wait(`document.visibilityState === 'visible' && innerWidth > 0 && innerHeight > 0`)
   }
   const shot = async name => { const image = await send('Page.captureScreenshot', { format: 'png' }); await fs.mkdir('tmp/ui', { recursive: true }); await fs.writeFile(`tmp/ui/${name}.png`, Buffer.from(image.data, 'base64')) }
   captureFailure = () => Promise.race([shot('product-ui-failure'), sleep(2000)])
@@ -234,8 +242,9 @@ try {
   assert(captionSource)
   await fs.writeFile(paper.translationPath, JSON.stringify({ segments: [...preservedCache, { ...captionSource, kind: captionSource.type, translation: 'Figure 1. 벡터 도식.' }] }))
   await reload()
-  await wait(`Boolean(document.querySelector('.paper-layout-page.rendered .paper-layout-block.caption span[data-anchor="${captionSource.id}"]'))`)
-  assert(await evaluate(`document.querySelector('.paper-layout-page.rendered .paper-layout-block.caption span[data-anchor="${captionSource.id}"]').textContent.includes('벡터 도식')`), 'A real caption translation must remain visible even if the body is untranslated')
+  // Re-extraction may legitimately replace a coordinate-derived segment id; the
+  // cache also restores by normalized source, so assert the user-visible result.
+  await wait(`Array.from(document.querySelectorAll('.paper-layout-page.rendered .paper-layout-block.caption span[data-anchor]')).some(node => node.textContent.includes('벡터 도식'))`)
   const translations = new Map([
     ['Cells respond to changes in their environment.', '세포는 주변 환경의 변화에 반응한다. 번역문이 원문보다 길어져도 수식이나 표를 덮지 않고 자연스럽게 다음 줄로 이어져야 한다.'],
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
