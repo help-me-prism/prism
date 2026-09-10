@@ -1,6 +1,6 @@
 # Paper structure extraction audit
 
-Date: 2026-09-10  
+Date: 2026-09-10
 Branch: `feat/formula-table-figure-extraction`
 
 ## Method
