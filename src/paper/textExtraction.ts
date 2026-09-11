@@ -29,7 +29,15 @@ function isEquation(text: string) {
   if (!compact) return false
   // Parenthesized labels, file types and citations are not display equations.
   if (!/[=+\-×÷∑∫√∞≈≠≤≥<>^_\\\u2200-\u22ff]/.test(compact)) return false
-  const proseWords = text.match(/[A-Za-z]{3,}/g)?.length ?? 0
+  // A multi-letter identifier inside an expression is not a prose word. Display
+  // equations are full of them — pos, sin, model, softmax, Concat, head — and
+  // counting them made "PE(pos,2i) = sin(pos/10000^(2i/dmodel))" read as a
+  // sentence of four words and stop being an equation at all, which is why
+  // machine-learning papers lost so many of theirs. A prose word has prose on
+  // both sides; an identifier sits against an operator, a bracket or a digit.
+  // Square brackets stay out of that test so a citation does not disqualify the
+  // word in front of it.
+  const proseWords = text.match(/(?<![=+\-×÷/^_(){}\d]\s*)\b[A-Za-z]{3,}\b(?!\s*[=+\-×÷/^_(){}\d])/g)?.length ?? 0
   // Explanatory clauses can be mostly symbols ("where T(t)=…") while still
   // belonging to the surrounding sentence. A grammatical lead is stronger
   // evidence than symbol density and must stay translatable prose.
@@ -37,7 +45,15 @@ function isEquation(text: string) {
   if (proseWords >= 4) return false
   const symbols = (compact.match(/[=+\-×÷∑∫√∞≈≠≤≥<>^_{}()[\]\\|\u2200-\u22ff︷︸]/g) ?? []).length
   const letters = (compact.match(/[A-Za-z가-힣]/g) ?? []).length
+  // An equation built from long named functions carries its meaning in letters
+  // rather than glyphs, so symbol density alone puts it just under the bar:
+  // "MultiHead(Q,K,V) = Concat(head1, ..., headh)WO" measures .119 against .12
+  // and stopped being an equation over one hundredth. A definition is a safer
+  // shape to recognise than a density — an assignment, brackets, no prose and no
+  // sentence to end — so it is allowed a lower density rather than a special case.
+  const defines = /=/.test(compact) && symbols >= 4 && proseWords <= 1 && !/[.!?]$/.test(text.trim())
   return (symbols >= 2 && symbols / compact.length > .12) || (letters === 0 && symbols > 0)
+    || (defines && symbols / compact.length > .09)
 }
 
 /** Where the prose after a display equation begins, or -1 when the paragraph is
@@ -55,6 +71,17 @@ function trailingProseOffset(paragraph: string) {
   // it: a display is regularly introduced by a sentence of its own ("... we
   // obtain (2.4) k = ... ds. Then we rewrite"), and measuring the whole head
   // counts that introduction's words and reads the maths as prose.
+  // A numbered section title never belongs inside the paragraph before it, and
+  // the title that follows a short definition was being kept with it — "d ff =
+  // 2048 . 3.4 Embeddings and Softmax" arrived as one preserved block, so the
+  // heading vanished from the translation. The assignment in front is too small
+  // to read as an equation on its own, so this boundary does not ask it to.
+  for (const match of paragraph.matchAll(/[.!?]\s+(?=\d)/g)) {
+    const at = (match.index ?? 0) + match[0].length
+    const tail = paragraph.slice(at)
+    if (tail.length > 80 || /[.!?]\s/.test(tail) || !numberedTitle.test(tail)) continue
+    return at
+  }
   let previous = 0
   for (const match of paragraph.matchAll(/[.!?]\s+(?=\p{Lu})/gu)) {
     const at = (match.index ?? 0) + match[0].length
@@ -314,6 +341,25 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
     // it from translation entirely — the sentence simply vanished from the
     // reading view. A scrap has no sentence in it; this one does.
     const linkingProse = next && (next.source.match(/[A-Za-z]{3,}/g)?.length ?? 0) >= 4 && /\p{Ll}\s+\p{L}/u.test(next.source)
+    // An inline expression that ends a sentence is emitted in its own font run
+    // and became a block of its own: "... can be represented as a linear
+    // function of" and then "PE pos ." on a line by itself, one sentence torn
+    // in two with the half that carries the maths left untranslated. A sentence
+    // that has not ended yet is still owed its ending, so a short expression
+    // directly after it belongs to it.
+    const unfinishedProse = current.kind === 'text' && !/[.!?:;]["')\]]?$/.test(current.source.trim())
+    // A centred display below the same unfinished line is a different thing and
+    // must stay its own block, so the continuation has to begin at the column's
+    // own left edge rather than indented into the middle of the page.
+    const leftOf = (segment?: TranslationSegment) => Math.min(...(segment?.itemIndexes ?? []).map(at => items[at]?.transform[4] ?? Infinity))
+    const trailingExpression = next && ['artifact', 'equation'].includes(next.kind) && next.source.trim().length <= 24
+      && !/[.!?].*\S/.test(next.source.trim()) && current.page === next.page
+      && Number.isFinite(leftOf(next)) && Number.isFinite(leftOf(current)) && leftOf(next) - leftOf(current) < 24
+    if (unfinishedProse && trailingExpression) {
+      const source = `${current.source} ${next.source}`.replace(/\s+/g, ' ').trim()
+      merged.push({ ...current, source, itemIndexes: [...(current.itemIndexes ?? []), ...(next.itemIndexes ?? [])], itemSlices: [...(current.itemSlices ?? []), ...(next.itemSlices ?? [])] })
+      index += 1; continue
+    }
     if (current.kind === 'equation' && next?.kind === 'artifact' && after?.kind === 'equation' && linkingProse) {
       // Sitting between two displays is what made it look like part of one.
       merged.push(current, { ...next, kind: 'text' })

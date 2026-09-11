@@ -77,7 +77,7 @@ export type TableRect = { left: number; top: number; width: number; height: numb
  * not assumed. A region needs horizontal alignment and either contained cell
  * text or a table-like wide shape; nearby figures are therefore not claimed
  * merely because they happen to precede a caption. */
-export function tableRegionFromEvidence(evidence: TableRect[], regions: TableRect[], scale = 1) {
+export function tableRegionFromEvidence(evidence: TableRect[], regions: TableRect[], scale = 1, rules: TableRect[] = []) {
   if (!evidence.length) return undefined
   const left = Math.min(...evidence.map(rect => rect.left)); const top = Math.min(...evidence.map(rect => rect.top))
   const right = Math.max(...evidence.map(rect => rect.left + rect.width)); const bottom = Math.max(...evidence.map(rect => rect.top + rect.height))
@@ -94,10 +94,38 @@ export function tableRegionFromEvidence(evidence: TableRect[], regions: TableRec
     if (horizontalOverlap < .28 || verticalGap > 96 * scale || (!centersInside && (!tableShape || verticalGap > 28 * scale))) return []
     return [{ rect, index, score: horizontalOverlap + Math.max(0, proximity) + Math.min(1.5, centersInside * .18) + (tableShape ? .2 : 0) }]
   }).sort((a, b) => b.score - a.score)
+  // Rules are matched on their own terms: they run across the table's columns
+  // and sit inside it or just against its edges. They are never "claimed" the
+  // way a figure region is, because nothing else would have drawn them.
+  const attachedRules = rules.filter(rule => {
+    const overlap = Math.max(0, Math.min(right, rule.left + rule.width) - Math.max(left, rule.left)) / Math.max(1, Math.min(evidenceWidth, rule.width))
+    const gap = Math.max(0, Math.max(top, rule.top) - Math.min(bottom, rule.top + rule.height))
+    return overlap >= .6 && gap <= 12 * scale
+  })
+  const withRules = (rect: TableRect): TableRect => {
+    if (!attachedRules.length) return rect
+    const ruleLeft = Math.min(rect.left, ...attachedRules.map(rule => rule.left))
+    const ruleTop = Math.min(rect.top, ...attachedRules.map(rule => rule.top))
+    return { left: ruleLeft, top: ruleTop,
+      width: Math.max(rect.left + rect.width, ...attachedRules.map(rule => rule.left + rule.width)) - ruleLeft,
+      height: Math.max(rect.top + rect.height, ...attachedRules.map(rule => rule.top + rule.height)) - ruleTop } as TableRect
+  }
   const match = ranked[0]
-  if (!match) return { rect: { left, top, width: evidenceWidth, height: bottom - top } as TableRect }
-  const unionLeft = Math.min(left, match.rect.left); const unionTop = Math.min(top, match.rect.top)
-  return { index: match.index, rect: { left: unionLeft, top: unionTop, width: Math.max(right, match.rect.left + match.rect.width) - unionLeft, height: Math.max(bottom, match.rect.top + match.rect.height) - unionTop } as TableRect }
+  if (!match) return { rect: withRules({ left, top, width: evidenceWidth, height: bottom - top } as TableRect) }
+  // A ruled table is drawn as separate strokes — one above the header, one
+  // below it, one under the last row — and they are too far apart to join into
+  // a single region. Taking only the best-scoring one cropped the table to
+  // whichever rule won, so the opposite edge was cut off the picture. Every
+  // rule that runs across this table's columns and sits against it belongs to
+  // it, so the region is the union of all of them.
+  const parts = ranked.filter(candidate => candidate === match
+    || (candidate.rect.width >= Math.max(70 * scale, candidate.rect.height * 1.15)
+      && Math.max(0, Math.max(top, candidate.rect.top) - Math.min(bottom, candidate.rect.top + candidate.rect.height)) <= 28 * scale))
+  const unionLeft = Math.min(left, ...parts.map(part => part.rect.left))
+  const unionTop = Math.min(top, ...parts.map(part => part.rect.top))
+  const unionRight = Math.max(right, ...parts.map(part => part.rect.left + part.rect.width))
+  const unionBottom = Math.max(bottom, ...parts.map(part => part.rect.top + part.rect.height))
+  return { index: match.index, indexes: parts.map(part => part.index), rect: withRules({ left: unionLeft, top: unionTop, width: unionRight - unionLeft, height: unionBottom - unionTop } as TableRect) }
 }
 
 /** PDF tables do not require a downloadable TeX source. Keep the cells in one

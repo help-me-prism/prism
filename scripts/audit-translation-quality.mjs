@@ -154,6 +154,9 @@ function looksLikeTableRow(text) {
   // numbers, not a row of cells. Parenthesised numbers never carry table data.
   // Reference markers carry numbers that belong to no cell: "(2.19)" as an
   // equation label, "[71, 39, 11]" as a citation list.
+  // A citation carries a year, a page range, a volume(issue) or a DOI. Those
+  // numbers belong to a reference or a publication line, never to a cell.
+  if (/\b(?:1[89]|20)\d{2}\b/.test(trimmed) && (/\b\d{1,4}\s*[–—-]\s*\d{1,4}\b/.test(trimmed) || /\bdoi\b/i.test(trimmed) || /\b\d+\s*\(\s*\d+\s*\)/.test(trimmed))) return false
   const bare = trimmed.replace(/\((?:\d+(?:\.\d+)*[a-z]?)\)/g, '').replace(/\[[\d,\s–-]+\]/g, '')
   const numbers = bare.match(/\d+(?:\.\d+)?/g)?.length ?? 0
   return numbers >= 4 && digitShare(bare) > .2 && words(bare) <= 6
@@ -241,7 +244,10 @@ export function auditAnalysis(analysis) {
     for (const [index, segment] of segments.entries()) {
       const text = segment.source.trim()
       const previous = segments[index - 1]
-      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id)) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
+      // A sentence whose maths font mapped "±" onto a thorn is not readable
+      // prose and preserving it is the right call, so it is not a loss.
+      const damaged = typeof hasDamagedMathEncoding === 'function' && hasDamagedMathEncoding(text)
+      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id) && !damaged) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
       if (segment.kind === 'text' && body.has(segment.id) && looksLikeTableRow(text)) add('table-as-prose', segment, '표 셀 행이 번역 대상 산문으로 분류됨')
       if (inScope(segment) && looksLikeDisplayedEquation(text)) add('equation-as-prose', segment, '수식이 번역 대상으로 분류됨')
       if (inScope(segment) && segment.kind !== 'caption' && inlineMathCut(text)) add('inline-math-cut', segment, '줄글 내 수식 중간에서 조각이 끊김')

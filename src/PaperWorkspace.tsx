@@ -9,7 +9,7 @@ import { preservePublicationFurniture } from './paper/publicationFurniture'
 import { segmentsFromItems, hasDamagedMathEncoding, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { figureRegionWithCaption, figureOverlapsProse, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
+import { figureRegionWithCaption, figureOverlapsProse, joinBitmapRegions, joinVectorRegions, horizontalRules, sourceFigureRegion } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { preservePdfTables, tableRegionFromEvidence } from './paper/tableRegions'
 import { monotoneMatches } from './paper/equationAlignment'
@@ -259,6 +259,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   const [pageError, setPageError] = useState('')
   const [renderAttempt, setRenderAttempt] = useState(0)
   const [detectedFigureRects, setDetectedFigureRects] = useState<ItemRect[]>([])
+  // Table rules are too thin to be figure candidates and are collected apart.
+  const [detectedRuleRects, setDetectedRuleRects] = useState<ItemRect[]>([])
   const pageSize = { width: naturalWidth * scale, height: naturalHeight * scale }
   const [nearViewport, setNearViewport] = useState(pageNumber <= 2); const [rendered, setRendered] = useState(false)
   const [selection, setSelection] = useState<{ startX: number; startY: number; x: number; y: number }>()
@@ -314,8 +316,9 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
           }
         }
         const regions = [...joinBitmapRegions(figures, scale, viewport.width * viewport.height), ...joinVectorRegions(vectors, scale, viewport.width * viewport.height)]
+        if (!cancelled) setDetectedRuleRects(horizontalRules(vectors, scale))
         if (!cancelled) setDetectedFigureRects(regions.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
-      } catch { if (!cancelled) setDetectedFigureRects([]) }
+      } catch { if (!cancelled) { setDetectedFigureRects([]); setDetectedRuleRects([]) } }
     }).catch(reason => { if (!cancelled) setPageError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { cancelled = true; renderTask?.cancel() }
   }, [pdfDocument, pageNumber, scale, nearViewport, renderAttempt, translationFormat])
@@ -378,9 +381,11 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   const claimedFigureRects = new Set<number>()
   for (const segment of segments.filter((candidate) => candidate.kind === 'table')) {
     const boxes = segmentRects(segment, itemRects, scale); if (!boxes.length) continue
-    const matched = tableRegionFromEvidence(boxes, safeDetectedRects, scale)
+    const matched = tableRegionFromEvidence(boxes, safeDetectedRects, scale, detectedRuleRects)
     if (!matched) continue
-    if (matched.index !== undefined) claimedFigureRects.add(matched.index)
+    // Every rule the table absorbed is claimed, or the leftovers are drawn again
+    // as figures on top of the table they belong to.
+    for (const index of matched.indexes ?? []) claimedFigureRects.add(index)
     tableVectorRects.set(segment.id, matched.rect)
   }
   const displayFigureRects = safeDetectedRects.filter((_rect, index) => !claimedFigureRects.has(index))

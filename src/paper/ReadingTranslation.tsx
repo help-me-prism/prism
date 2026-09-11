@@ -1,3 +1,4 @@
+import { Sigma, Table2 } from 'lucide-react'
 import { paddedExcerptBounds } from './excerptBounds'
 import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
@@ -137,7 +138,10 @@ export default function ReadingTranslation({ segments, translation, source, read
       const lineHeight = !preserved && kind === 'text' && startsParagraph && block.items.every(segment => segment.preciseRects?.length)
         ? sourceParagraphLineHeight(block.items.flatMap(rectangles), fontSize) : undefined
       return [{ id: block.id, rect, kind, fontSize, lineHeight, firstLineIndent, content: preserved
-        ? block.original && block.items.length > 1 && intactProseParagraphs.has(block.items[0].blockId ?? '') ? intactProseCrop(block.items, block.rect) : <button data-anchor={block.items[0].id} className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button>
+        ? block.original && block.items.length > 1 && intactProseParagraphs.has(block.items[0].blockId ?? '') ? intactProseCrop(block.items, block.rect) : <button data-anchor={block.items[0].id} className={`original-excerpt${['equation', 'table'].includes(kind) ? ` structure-anchor ${kind}${highlighted === block.items[0].id ? ' highlighted' : ''}` : ''}`} title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : kind === 'table' ? '표 · 클릭: 채팅 태그 · 우클릭: 노트에 담기' : kind === 'equation' ? '수식 · 클릭: 채팅 태그 · 우클릭: 노트에 담기' : '원문 근거를 질문에 추가'} onMouseEnter={() => onHighlight(block.items[0].id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}{/* The source pane marks every equation and table with a green region the
+            reader can click. The translated pane showed the same crop with no
+            marker at all, so the two panes disagreed about what was tagged. */}
+          {kind === 'table' ? <Table2 size={11} /> : kind === 'equation' ? <Sigma size={11} /> : null}</button>
         : text(block.items) }]
     })
     const figureItems = figures.map((rect, index) => ({ id: `figure-${index}`, rect, kind: 'figure', content: <figure>{figureCrop(rect)}</figure> }))
