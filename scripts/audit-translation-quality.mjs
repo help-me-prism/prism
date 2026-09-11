@@ -32,6 +32,7 @@ const { preservePublicationFurniture } = await optional('src/paper/publicationFu
 const { preservePdfTables } = await optional('src/paper/tableRegions.ts', ['preservePdfTables'])
 const { joinBitmapRegions, joinVectorRegions, figureOverlapsProse } = await optional('src/paper/figureGeometry.ts', ['joinBitmapRegions', 'joinVectorRegions', 'figureOverlapsProse'])
 const { collectSourceFontWeights, dominantSourceWeight } = await optional('src/paper/sourceEmphasis.ts', ['collectSourceFontWeights', 'dominantSourceWeight'])
+const { joinPreservedRegions, mergeOverlappingRegions } = await optional('src/paper/preservedRegions.ts', ['joinPreservedRegions', 'mergeOverlappingRegions'])
 
 const standardFonts = path.join(path.dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json'))), 'standard_fonts').split(path.sep).join('/') + '/'
 
@@ -199,6 +200,13 @@ function inlineMathCut(text) {
 
 const captionLabel = /^(?:Figure|Fig\.?|FIG\.?|FIGURE|Table|TABLE|Algorithm|ALGORITHM|Scheme|Chart|Extended\s+Data\s+Fig\.?|Supplementary\s+(?:Fig\.?|Figure|Table))\s*\d/
 
+const boundsOf = segment => {
+  const rects = segment.preciseRects ?? []
+  if (!rects.length) return undefined
+  const left = Math.min(...rects.map(rect => rect.left)), top = Math.min(...rects.map(rect => rect.top))
+  return { left, top, width: Math.max(...rects.map(rect => rect.left + rect.width)) - left, height: Math.max(...rects.map(rect => rect.top + rect.height)) - top }
+}
+
 export function auditAnalysis(analysis) {
   const { flat, byPage, figures, pageSizes, numPages } = analysis
   const findings = []
@@ -262,6 +270,29 @@ export function auditAnalysis(analysis) {
       if (segment.kind !== 'caption' && captionLabel.test(text) && /^(?:Figure|Fig\.?|Table|Algorithm|TABLE|FIGURE|Supplementary Fig\.?|Extended Data Fig\.?)\s*\d+(?:\.\d+)*\s*[:|]|^(?:Figure|Fig\.?|Table|Algorithm|TABLE|FIGURE)\s*\d+(?:\.\d+)*\.\s+[A-Z]/.test(text)) add('missed-caption', segment, '캡션 라벨이 캡션으로 인식되지 않음')
       // A caption that swallowed the grid it labels sends the table body to the model.
       if (segment.kind === 'caption' && /^(?:Table|TABLE|Algorithm)\s*\d+/.test(text) && (text.match(/\d+(?:\.\d+)/g)?.length ?? 0) >= 4) add('caption-absorbed-table', segment, '표 캡션이 표 본문 행을 흡수함')
+    }
+  }
+
+  // A table arrives as one segment per row, and the reader joins the adjacent
+  // fragments back together before outlining or cropping it. When that join
+  // fails the reader draws one marker per row over a single table, which is
+  // what a reader sees as "the table is not recognised properly". Two joined
+  // regions that are still side by side and touching were one table.
+  if (joinPreservedRegions) {
+    for (const [page, segments] of byPage) {
+      const joined = joinPreservedRegions(segments.map(segment => ({ id: segment.id, items: [{ kind: segment.kind, blockId: segment.blockId }], rect: boundsOf(segment) })).filter(region => region.rect))
+      // Mirror the reader: reading-order join, then the geometric merge that
+      // recovers rows a PDF emitted column by column.
+      const inOrder = joined.filter(region => region.items.every(item => ['equation', 'table'].includes(item.kind)))
+      const prose = segments.filter(segment => ['text', 'heading'].includes(segment.kind)).map(boundsOf).filter(Boolean)
+      const structural = mergeOverlappingRegions ? mergeOverlappingRegions(inOrder, prose) : inOrder
+      for (let index = 1; index < structural.length; index += 1) {
+        const a = structural[index - 1].rect, b = structural[index].rect
+        if (!structural[index - 1].items.some(item => item.kind === 'table') || !structural[index].items.some(item => item.kind === 'table')) continue
+        const overlap = Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left)) / Math.max(1, Math.min(a.width, b.width))
+        const gap = Math.max(a.top, b.top) - Math.min(a.top + a.height, b.top + b.height)
+        if (overlap > .4 && gap >= 0 && gap < 14) findings.push({ type: 'table-region-split', page, kind: 'table', id: structural[index].id, note: `표가 ${Math.round(gap)}pt 간격으로 두 영역으로 나뉨`, source: segments.find(segment => segment.id === structural[index].id)?.source.slice(0, 120) ?? '' })
+      }
     }
   }
 

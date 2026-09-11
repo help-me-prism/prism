@@ -320,3 +320,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .paper-layout-block .original-excerpt.structure-anchor:hover, .paper-layout-block .original-excerpt.structure-anchor.highlighted { border-color: light-dark(#80beab, #63ab96); background: light-dark(#76b8a40b, #63ab960b); }
 .paper-layout-block .original-excerpt.structure-anchor.table:hover, .paper-layout-block .original-excerpt.structure-anchor.table.highlighted { border-color: light-dark(#4d9a7d, #69ae94); background: light-dark(#65a68d0d, #67a78f0d); }
 .paper-layout-block .original-excerpt.structure-anchor:hover > svg, .paper-layout-block .original-excerpt.structure-anchor.highlighted > svg { opacity: 1; }
+.paper-layout-block .original-excerpt.structure-anchor.figure > svg { border-color: light-dark(#bfded5, #2e5549); background: light-dark(#63ae98, #63ab96); color: light-dark(#fff, #1a1a1a); }

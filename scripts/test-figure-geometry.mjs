@@ -68,3 +68,24 @@ assert.equal('preview' in durableAnchorPreview({ type: 'figure', preview: cropAn
 assert.equal(mayMaskExcerpt([{ kind: 'artifact', blockId: 'mixed' }], new Set(['mixed']), new Set()), true, 'Precise protected prose still masks neighboring sentences')
 assert.equal(mayMaskExcerpt([{ kind: 'artifact', blockId: 'mixed' }], new Set(['mixed']), new Set(['mixed'])), false)
 console.log('Figure geometry passed: real engineering table outer rules, page-background exclusion, independent figure, zoom and safe prose masking.')
+
+// A grid whose cells the PDF emitted column by column: the rows never become
+// neighbours in reading order, so joinPreservedRegions leaves several regions
+// over one table and the reader draws a marker on each. Geometry recovers them.
+const { mergeOverlappingRegions } = await load('src/paper/preservedRegions.ts')
+const scattered = [
+  { id: 'r1', items: [{ kind: 'table' }], rect: { left: 146, top: 138, width: 210, height: 11 } },
+  { id: 'r2', items: [{ kind: 'table' }], rect: { left: 116, top: 132, width: 386, height: 34 } },
+  { id: 'r3', items: [{ kind: 'table' }], rect: { left: 118, top: 185, width: 14, height: 10 } },
+  { id: 'r4', items: [{ kind: 'table' }], rect: { left: 119, top: 169, width: 375, height: 66 } },
+]
+assert.equal(mergeOverlappingRegions(scattered).length, 1, 'Interleaved rows of one table become one region')
+assert.deepEqual(mergeOverlappingRegions(scattered)[0].rect, { left: 116, top: 132, width: 386, height: 103 })
+// Prose between two tables keeps them apart, whatever their columns look like.
+const separated = [
+  { id: 'a', items: [{ kind: 'table' }], rect: { left: 116, top: 100, width: 380, height: 40 } },
+  { id: 'b', items: [{ kind: 'table' }], rect: { left: 116, top: 148, width: 380, height: 40 } },
+]
+assert.equal(mergeOverlappingRegions(separated, [{ left: 116, top: 142, width: 380, height: 4 }]).length, 2, 'A paragraph between two tables stops the merge')
+assert.equal(mergeOverlappingRegions(separated).length, 1, 'Without prose between them the same two are one table')
+console.log('Preserved region merge passed: interleaved table rows, prose barrier.')

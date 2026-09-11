@@ -1,4 +1,4 @@
-import { Sigma, Table2 } from 'lucide-react'
+import { Image, Sigma, Table2 } from 'lucide-react'
 import { paddedExcerptBounds } from './excerptBounds'
 import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
@@ -95,7 +95,10 @@ export default function ReadingTranslation({ segments, translation, source, read
   // Reposition only a precisely located protected sentence between translated prose.
   // Its PDF anchors and source rectangles remain untouched.
   const protectedProse = (items: TranslationSegment[]) => items.length === 1 && items[0].kind === 'artifact' && !!items[0].preciseRects?.length && !!items[0].blockId && mixedParagraphs.has(items[0].blockId) && !originalParagraphs.has(items[0].blockId)
-  const figureCrop = (rect: Rect) => <button className="original-excerpt" title="피겨를 질문에 추가" onClick={() => onFigureRect(rect)}>{crop(rect, '원문 피겨')}</button>
+  // Equations and tables carry a green marker in both panes; a figure carried
+  // one only in the source pane, so the translated page looked as though its
+  // figures were not taggable at all.
+  const figureCrop = (rect: Rect) => <button className="original-excerpt structure-anchor figure" title="피겨 · 클릭: 채팅 태그" onClick={() => onFigureRect(rect)}>{crop(rect, '원문 피겨')}<Image size={11} /></button>
   const inlineTag = (segment: TranslationSegment, source: string, index: number) => onTag({ ...segment, id: `${segment.id}-inline-${index}`, kind: 'equation', source, scientificSpans: undefined })
   const text = (items: TranslationSegment[]) => items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} onInlineMath={(source, index) => inlineTag(segment, source, index)} />{' '}</span>)
   const intactProseCrop = (items: TranslationSegment[], rect: Rect) => {

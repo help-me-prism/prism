@@ -417,8 +417,8 @@ try {
   const questionPrefix = '첫 문단.\n\n\n둘째 문단: 여기 '
   await send('Input.insertText', { text: questionPrefix + '뒤에 근거를 넣습니다.\n셋째 문단.' })
   await evaluate('(() => { const editor=document.querySelector(".composer-editor"), walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT); let node; while(node=walker.nextNode()) { const at=node.textContent.replaceAll(String.fromCharCode(160)," ").indexOf("둘째 문단: 여기 "); if(at<0) continue; const range=document.createRange(); range.setStart(node,at+"둘째 문단: 여기 ".length); range.collapse(true); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); editor.dispatchEvent(new KeyboardEvent("keyup",{bubbles:true,key:"ArrowRight"})); return; } throw new Error("Middle paragraph was lost: " + editor.innerHTML); })()')
-  await wait(`Boolean(document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]'))`)
-  await evaluate(`document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]').click()`)
+  await wait(`Boolean(document.querySelector('.reading-translation figure button.structure-anchor.figure'))`)
+  await evaluate(`document.querySelector('.reading-translation figure button.structure-anchor.figure').click()`)
   await wait('Boolean(document.querySelector(".composer-anchor .type-figure"))')
   assert.equal(await evaluate('document.querySelector(".composer-editor").firstChild.textContent'), questionPrefix, 'A new figure anchor must stay at the middle-paragraph caret, including every blank line')
   const composerEvidence = await evaluate('(() => { const chip=document.querySelector(".composer-anchor-label"), editor=document.querySelector(".composer-editor"); return {location:chip.querySelector(".composer-anchor-location")?.textContent,excerpt:chip.querySelector(".composer-anchor-excerpt")?.textContent,text:chip.textContent,width:chip.getBoundingClientRect().width,available:editor.clientWidth}; })()')
