@@ -11,7 +11,7 @@ function fallbackMembers(segments: TableSegment[], captionIndex: number, limit: 
   const members = new Set([captionIndex])
   for (const direction of [-1, 1]) for (let step = 1; step <= limit; step += 1) {
     const index = captionIndex + direction * step; const candidate = segments[index]
-    if (!candidate || candidate.kind === 'caption' || candidate.kind === 'heading') break
+    if (!candidate || candidate.kind === 'caption' || candidate.kind === 'heading' || candidate.kind === 'table') break
     const wordCount = candidate.source.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0
     if (/[.!?]$/.test(candidate.source) && wordCount >= 4) break
     const shortCellText = candidate.source.length <= 180 && wordCount <= 18 && !/[.!?]$/.test(candidate.source)
@@ -29,27 +29,42 @@ function fallbackMembers(segments: TableSegment[], captionIndex: number, limit: 
 export function tableMemberIndexes(segments: TableSegment[], captionIndex: number, limit = 48) {
   const caption = segments[captionIndex]; const captionBox = bounds(caption?.preciseRects)
   if (!caption || !captionBox) return fallbackMembers(segments, captionIndex, Math.min(limit, 16))
+  // Prompt listings are text-only tables: sentences are cell contents, not a
+  // reason to stop. Their explicit title closes the upward walk.
+  if (/prompt format/i.test(caption.source)) {
+    const members: number[] = []
+    for (let index = captionIndex - 1; index >= Math.max(0, captionIndex - 20); index--) {
+      const candidate = segments[index]; const box = bounds(candidate.preciseRects)
+      if (candidate.page !== caption.page || candidate.kind === 'caption' || !box || Math.abs(box.left - captionBox.left) > 35) break
+      members.push(index)
+      if (/^(?:Inference\s+)?(?:Input|Prompt) Format/i.test(candidate.source)) return [...members.reverse(), captionIndex]
+      if (candidate.kind === 'heading') break
+    }
+  }
   const captionCenter = captionBox.left + captionBox.width / 2
   const runs = [-1, 1].map(direction => {
-    const indexes: number[] = []; let previousBox = captionBox; let score = 0
+    const indexes: number[] = []; let previousBox = captionBox; let score = 0; let firstGap = Infinity
     for (let step = 1; step <= limit; step += 1) {
       const index = captionIndex + direction * step; const candidate = segments[index]; const box = bounds(candidate?.preciseRects)
-      if (!candidate || candidate.page !== caption.page || !box || candidate.kind === 'caption' || candidate.kind === 'heading') break
+      if (!candidate || candidate.page !== caption.page || !box || candidate.kind === 'caption' || candidate.kind === 'heading' || candidate.kind === 'table') break
       const wordCount = candidate.source.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0
       const numericCount = candidate.source.match(/\d+(?:\.\d+)?/g)?.length ?? 0
       // Abbreviated model names in cells often end in a period ("Uncond.",
       // "Self-cond."). A short numeric row is still table evidence, not prose.
       const proseSentence = /[.!?]$/.test(candidate.source) && wordCount >= 5
+        && !/\b(?:acc|avg|std|dev|uncond|cond)\.$/i.test(candidate.source)
         && numericCount < 3 && !(candidate.source.length < 90 && numericCount >= 1)
       const verticalGap = Math.max(0, Math.max(box.top, previousBox.top) - Math.min(box.top + box.height, previousBox.top + previousBox.height))
       const candidateCenter = box.left + box.width / 2
       const aligned = Math.abs(candidateCenter - captionCenter) <= Math.max(150, captionBox.width * .72)
       const tableLike = ['artifact', 'equation'].includes(candidate.kind) || numericCount >= 2 || (candidate.source.length <= 220 && wordCount <= 24)
       if (verticalGap > 34 || !aligned || !tableLike || proseSentence) break
+      if (!indexes.length) firstGap = verticalGap
       indexes.push(index); previousBox = box
       score += (candidate.kind === 'artifact' ? 2 : 0) + Math.min(4, numericCount) + (box.width > captionBox.width * .45 ? 1 : 0)
     }
-    return { indexes, score }
+    const firstNumeric = indexes.length ? (segments[indexes[0]].source.match(/\d+(?:\.\d+)?/g)?.length ?? 0) : 0
+    return { indexes, score: score ? 100 / (8 + firstGap) + Math.min(2, score * .05) + (firstNumeric >= 3 ? 1 : 0) : 0 }
   })
   const selected = runs.sort((left, right) => right.score - left.score || right.indexes.length - left.indexes.length)[0]
   return [captionIndex, ...(selected?.score ? selected.indexes : [])].sort((left, right) => left - right)
@@ -83,4 +98,38 @@ export function tableRegionFromEvidence(evidence: TableRect[], regions: TableRec
   if (!match) return { rect: { left, top, width: evidenceWidth, height: bottom - top } as TableRect }
   const unionLeft = Math.min(left, match.rect.left); const unionTop = Math.min(top, match.rect.top)
   return { index: match.index, rect: { left: unionLeft, top: unionTop, width: Math.max(right, match.rect.left + match.rect.width) - unionLeft, height: Math.max(bottom, match.rect.top + match.rect.height) - unionTop } as TableRect }
+}
+
+/** PDF tables do not require a downloadable TeX source. Keep the cells in one
+ * original-pixel block and translate the caption independently. */
+export function preservePdfTables<T extends TableSegment & { id: string; blockId?: string }>(segments: T[]): T[] {
+  const result = segments.map(segment => ({ ...segment }))
+  for (const [index, caption] of segments.entries()) {
+    if (caption.kind !== 'caption' || !/^(?:table|algorithm)\s*(?:\d+|[IVX]+)\b/i.test(caption.source)) continue
+    const members = tableMemberIndexes(result, index).filter(member => member !== index)
+    // A short prose fragment by itself is not evidence of a table.
+    if (!/prompt format/i.test(caption.source) && !members.some(member => ['artifact', 'equation', 'table'].includes(segments[member].kind) || (segments[member].source.match(/\d+(?:\.\d+)?/g)?.length ?? 0) >= 3)) continue
+    for (const member of members) result[member] = { ...result[member], kind: 'table', blockId: `pdf-table-${caption.id}` }
+  }
+  // A listing can already be classified as a table before its fraction-heavy
+  // rows are split into other segments. Follow explicit row labels, not kinds.
+  for (const [index, start] of segments.entries()) {
+    const algorithm = /^Algorithm\s+\d+\b/i.test(start.source)
+    const code = /^\w+\s*=\s*(?:Sequential|\w+Model)\s*\(\s*\[/.test(start.source)
+    if (!algorithm && !code) continue
+    const blockId = `pdf-listing-${start.id}`
+    result[index] = { ...result[index], kind: 'table', blockId }
+    let previous = bounds(start.preciseRects)
+    for (let cursor = index + 1; cursor < segments.length; cursor++) {
+      const item = segments[cursor]; const box = bounds(item.preciseRects)
+      if (item.page !== start.page || item.kind === 'heading' || item.kind === 'caption') break
+      if (box && previous && (box.top - previous.top - previous.height > 35 || box.top < previous.top - 12)) break
+      const row = /^\d{1,3}\s*[:.]/.test(item.source)
+      const continuation = code && /^(?:Dense|Conv\w*|Dropout|Flatten|\]|\))\s*[(\]),]/.test(item.source)
+      if (!(algorithm ? row : continuation)) break
+      result[cursor] = { ...result[cursor], kind: 'table', blockId }
+      previous = box ?? previous
+    }
+  }
+  return result
 }

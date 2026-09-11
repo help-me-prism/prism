@@ -94,3 +94,8 @@ assert.match(matrixDisplay[1].source,/\(28\)$/); assert.match(matrixDisplay[3].s
 const mixedSizes = [item('A smaller sidebar sentence contributes its font size.',720,true,8),item('Another smaller sidebar sentence contributes its font size.',706,true,8),item('The main paragraph ends with a continuation. While',680,true,10)]
 assert.equal(segmentsFromItems(2,mixedSizes).find(s=>s.source==='While').kind,'text')
 console.log('PDF extraction passed: real PLOS engineering dimensions/subscript/caption/footer regressions and section boundaries.')
+
+const compound = segmentsFromItems(1,[positioned('Use a multi-',100,700),positioned('dimensional array.',160,700,true)])
+assert.equal(compound[0].source,'Use a multi-dimensional array.','Same-line compound hyphens are not PDF line-wrap hyphens')
+const wrapped = segmentsFromItems(1,[positioned('The experi-',100,700,true),positioned('ment succeeded.',100,687,true)])
+assert.equal(wrapped[0].source,'The experiment succeeded.')

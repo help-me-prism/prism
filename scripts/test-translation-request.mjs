@@ -17,10 +17,10 @@ const request=prepareTranslationRequest(fixture.input)
 assert.deepEqual(request.items.map(i=>i.id),Array.from({length:16},(_,i)=>`t${i}`))
 assert(request.prompt.includes('"id":"t0"'))
 assert(!request.prompt.includes('p11-s15-p3qndn'),'Long cache anchors must not enter the model copy task')
-const reply=request.modelItems.map(i=>({id:i.id,translation:i.source})).reverse()
+const reply=request.modelItems.map(i=>({id:i.id,translation:"검증 번역: "+i.source})).reverse()
 const checked=inspectTranslationRequest(JSON.stringify(reply),request)
 assert.equal(checked.accepted.size,16)
-assert.equal(checked.accepted.get(fixture.input[14].id),fixture.input[14].source,'Response order must not affect exact reverse mapping')
+assert.equal(checked.accepted.get(fixture.input[14].id),'검증 번역: '+fixture.input[14].source,'Response order must not affect exact reverse mapping')
 const missing=inspectTranslationRequest(JSON.stringify(reply.slice(1)),request)
 assert.equal(missing.accepted.size,15)
 assert.deepEqual(missing.rejected.map(r=>r.id),[fixture.input[15].id])
@@ -31,3 +31,10 @@ assert.throws(()=>prepareTranslationRequest([fixture.input[0],fixture.input[0]])
 const repeated=prepareTranslationRequest([{id:'a',source:'Same.'},{id:'b',source:'Same.'}])
 assert.equal(inspectTranslationRequest('[{"id":"t1","translation":"두 번째"},{"id":"t0","translation":"첫 번째"}]',repeated).accepted.get('a'),'첫 번째')
 console.log('Translation request passed: short exact identities, ordered-independent mapping, missing salvage, strict duplicate/unknown rejection, real Luna corruption remains rejected.')
+
+// Placeholder indices are implementation details, never scientific quantities.
+{
+  const request = prepareTranslationRequest([{id:'affiliation',source:'3 Max F. Perutz Laboratories, University of Vienna, A-1030 Vienna, Austria.'}])
+  const payload = JSON.parse(request.prompt.split('INPUT:\n')[1].split('\nCopy each')[0])
+  assert.deepEqual(payload.items[0].preserve, ['-1030', 'A-1030'])
+}

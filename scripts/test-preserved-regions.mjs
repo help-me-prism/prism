@@ -25,3 +25,6 @@ assert.equal(actualJoined.length,3, 'Engineering page 4: two full equations and 
 assert.deepEqual(actualJoined.map(r=>r.items.length),[2,2,3])
 assert(actualJoined[0].rect.left<=352.12 && actualJoined[0].rect.left+actualJoined[0].rect.width>=575.9)
 console.log('Preserved regions passed: fraction/table continuity, prose barriers, separate columns and gap bounds.')
+const captionAndTable = { id:'table',items:[{kind:'artifact',blockId:'caption'},{kind:'table',blockId:'table'}],rect:{left:320,top:60,width:230,height:200} }
+const runningHead = { id:'head',items:[{kind:'artifact',blockId:'furniture-7-header'}],rect:{left:50,top:40,width:510,height:20} }
+assert.equal(joinPreservedRegions([captionAndTable,runningHead]).length,2,'A full-width running head must not merge with a protected table and crop duplicate prose from the other column')

@@ -90,3 +90,10 @@ for (const scale of [.15, .4, .5, 1, 2]) {
   }
 }
 console.log('Real PDF fallback font geometry passed at 15%, 40%, 50%, 100%, 200%: hit bounds isolated from nominal em; precise and fallback scaling agree.')
+const stamp = textItemRect([0,12,12,0,22,100],132,1,.8,'HHMI Author Manuscript')
+assert(Math.abs(stamp.width-12)<1e-8)
+assert.equal(stamp.height,132)
+assert(stamp.left+stamp.width<40,'Rotated manuscript stamp stays in the margin')
+const halfStamp = segmentRects({itemSlices:[{itemIndex:0,start:.5,end:1}]},[stamp])[0]
+assert.equal(halfStamp.top,166)
+assert.equal(halfStamp.height,66)

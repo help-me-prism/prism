@@ -13,10 +13,12 @@ const {code}=await transformWithOxc(body,'translation-runtime.ts')
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'prism-scoped-translation-'))
 try {
  const file=path.join(root,'translation.json'),events=[],runs=new Map(),calls=[]
- let fail=false,cancel=false
+ let fail=false,cancel=false, omitOnce=false, malformedOnce=false
  const deps={fs,createHash,atomicWriteFile,...harness,...scope,readSettings:async()=>({translationProvider:'codex',translationModel:'fixture'}),translationRuns:runs,safeSend:(_sender,channel,event)=>events.push({channel,...event}),runTranslationCli:async(_provider,_model,prompt,key)=>{
   calls.push(prompt);if(fail)throw new Error('fixture failure');if(cancel)runs.get(key).cancelled=true
   const data=JSON.parse(prompt.split('INPUT:\n')[1].split('\nCopy each short')[0])
+  if(omitOnce){omitOnce=false;return '[]'}
+  if(malformedOnce){malformedOnce=false;return 'not json'}
   return JSON.stringify(data.items.map(item=>({id:item.id,translation:'세포는 변화에 반응합니다.'})))
  }}
  const translate=Function(...Object.keys(deps),code+';return translatePaper')(...Object.values(deps))
@@ -35,6 +37,16 @@ try {
  assert.equal(await fs.readFile(file,'utf8'),before,'Failed retry must not replace the saved cache')
  fail=false;cancel=true;await translate({},record,segments,true,[2])
  assert.equal(await fs.readFile(file,'utf8'),before,'Cancelled retry must not replace the saved cache')
+ cancel=false; calls.length=0; omitOnce=true
+ await translate({},record,segments,true,[2])
+ assert.equal(calls.length,2,'Missing output retries only the failed page once')
+ assert.equal(JSON.parse(await fs.readFile(file,'utf8')).segments[1].translation,'세포는 변화에 반응합니다.')
+ calls.length=0; malformedOnce=true
+ await translate({},record,segments,true,[2])
+ assert.equal(calls.length,2,'Malformed batch receives one bounded retry')
+ calls.length=0
+ await translate({},record,segments,true,[3])
+ assert.equal(calls.length,0,'Page translation must not bypass the bibliography exclusion')
  assert.equal(runs.size,0)
  console.log('Scoped retranslation: other pages and references preserved; failure/cancel keep last saved cache; task released.')
 } finally {await fs.rm(root,{recursive:true,force:true})}

@@ -1,15 +1,17 @@
+import { latexSentenceSource } from './paper/latexProse'
 import { textItemRect, segmentRects, type ItemRect } from './paper/itemGeometry'
 import { reuseTranslations } from '../electron/translationHarness'
 import { collectSourceFontWeights, dominantSourceWeight } from './paper/sourceEmphasis'
 import { captureGlyphGeometry } from './paper/glyphGeometry'
 import { mixedProseParagraphs } from './paper/excerptGeometry'
 import { readReadingPosition, saveReadingPosition, type ReadingPosition } from './paper/readingPosition'
-import { segmentsFromItems, type PdfTextItem } from './paper/textExtraction'
+import { preservePublicationFurniture } from './paper/publicationFurniture'
+import { segmentsFromItems, hasDamagedMathEncoding, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { figureRegionWithCaption, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
+import { figureRegionWithCaption, figureOverlapsProse, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
-import { tableMemberIndexes, tableRegionFromEvidence } from './paper/tableRegions'
+import { preservePdfTables, tableRegionFromEvidence } from './paper/tableRegions'
 import { monotoneMatches } from './paper/equationAlignment'
 import { matchFigureCaptions } from '../electron/figureCaptionMatching'
 import ReadingTranslation from './paper/ReadingTranslation'
@@ -88,13 +90,6 @@ function tokenSimilarity(left: string, right: string) {
   return shared / Math.max(1, Math.max(a.size, b.size))
 }
 
-function latexSentenceSource(source: string, pdfSource: string) {
-  const candidates = typeof Intl.Segmenter === 'function'
-    ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(source)].map((part) => part.segment.trim())
-    : source.split(/(?<=[.!?])\s+/)
-  const ranked = candidates.filter((candidate) => /\$[^$\n]+\$/.test(candidate)).map((candidate) => ({ candidate, score: tokenSimilarity(candidate, pdfSource) })).sort((a, b) => b.score - a.score)
-  return ranked[0]?.score >= .45 ? ranked[0].candidate : undefined
-}
 
 function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructure | null) {
   if (!structure?.blocks.length) return { segments: segments.map((segment) => ({ ...segment, sourceMode: 'pdf' as const })), matched: 0 }
@@ -114,9 +109,10 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     }
     const threshold = tokens.length < 5 ? .78 : .58
     if (!best || best.score < threshold) return { ...segment, sourceMode: 'pdf' as const }
-    matched += 1
     const inlineSource = ['paragraph', 'theorem'].includes(best.block.kind) ? latexSentenceSource(best.block.source, segment.source) : undefined
-    return { ...segment, source: inlineSource ?? segment.source, scientificSpans: inlineSource ? undefined : segment.scientificSpans, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+    if (!inlineSource) return { ...segment, sourceMode: 'pdf' as const }
+    matched += 1
+    return { ...segment, source: inlineSource, scientificSpans: undefined, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: undefined }
   })
   const theoremBlocks = structure.blocks.filter((block) => block.kind === 'theorem')
   const pdfTheorems = new Map<string, number[]>()
@@ -129,7 +125,7 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     if (!best || best.score < .3) continue
     for (const index of indexes) if (enriched[index].kind === 'equation') {
       const inlineSource = latexSentenceSource(best.block.source, enriched[index].source)
-      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: best.block.source.slice(0, 12_000) }
+      if (inlineSource) enriched[index] = { ...enriched[index], source: inlineSource, scientificSpans: undefined, sourceMode: structuredMode, sectionTitle: best.block.section, paragraphContext: undefined }
     }
   }
   const equationIndexes = enriched.map((segment, index) => segment.kind === 'equation' ? index : -1).filter((index) => index >= 0)
@@ -144,22 +140,6 @@ function enrichWithLatex(segments: TranslationSegment[], structure: LatexStructu
     enriched[index] = { ...enriched[index], kind: 'equation', source: block.source, scientificSpans: undefined, sourceMode: structuredMode, blockId: block.id, sectionTitle: block.section }
   }
 
-  const tableBlocks = structure.blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.kind === 'table')
-  const captionIndexes = enriched.map((segment, index) => ['caption', 'table'].includes(segment.kind) && /(?:^|\n)(?:table|algorithm)\s*\d+/i.test(segment.source) ? index : -1).filter((index) => index >= 0)
-  const usedCaptions = new Set<number>()
-  for (let tableIndex = 0; tableIndex < tableBlocks.length; tableIndex += 1) {
-    const { block, index: blockIndex } = tableBlocks[tableIndex]
-    const nextBlock = structure.blocks[blockIndex + 1]; const latexCaption = nextBlock?.kind === 'caption' ? nextBlock : undefined
-    const available = captionIndexes.filter((index) => !usedCaptions.has(index))
-    const ranked = available.map((index) => ({ index, score: tokenSimilarity(latexCaption?.source ?? block.source, enriched[index].source) })).sort((a, b) => b.score - a.score)
-    const selected = ranked[0]?.score >= .12 ? ranked[0].index : available[0]
-    if (selected === undefined) continue
-    usedCaptions.add(selected); const caption = enriched[selected]
-    const members = tableMemberIndexes(enriched, selected)
-    const memberSlices = members.flatMap((memberIndex) => enriched[memberIndex].itemSlices ?? [])
-    for (const memberIndex of members) if (memberIndex !== selected) enriched[memberIndex] = { ...enriched[memberIndex], kind: 'artifact', sourceMode: 'pdf' }
-    enriched[selected] = { ...caption, kind: 'table', source: block.source, sourceMode: structuredMode, blockId: block.id, sectionTitle: block.section, paragraphContext: latexCaption?.source, itemIndexes: [...new Set(memberSlices.map((slice) => slice.itemIndex))], itemSlices: memberSlices }
-  }
   return { segments: enriched, matched }
 }
 
@@ -172,9 +152,12 @@ async function prepareFigureAsset(asset: PaperFigureAsset): Promise<PaperFigureA
     }
     if (mimeType !== 'application/pdf') return undefined
     const encoded = dataUrl.split(',')[1]; const raw = atob(encoded); const data = Uint8Array.from(raw, (character) => character.charCodeAt(0))
-    const figurePdf = await pdfjs.getDocument({ data, ...pdfOptions }).promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(4, 1600 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
+    const figureTask = pdfjs.getDocument({ data, ...pdfOptions })
+    try {
+    const figurePdf = await figureTask.promise; const page = await figurePdf.getPage(1); const base = page.getViewport({ scale: 1 }); const renderScale = Math.min(4, 1600 / Math.max(1, base.width)); const viewport = page.getViewport({ scale: renderScale })
     const canvas = window.document.createElement('canvas'); canvas.width = Math.max(1, Math.round(viewport.width)); canvas.height = Math.max(1, Math.round(viewport.height)); await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
     return { preview: canvas.toDataURL('image/jpeg', .86), pixelWidth: base.width, pixelHeight: base.height }
+    } finally { await figureTask.destroy() }
   }
   try {
     const first = await prepared(asset.dataUrl, asset.mimeType)
@@ -314,7 +297,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
           if (operation === pdfjs.OPS.save) stack.push([...transform])
           else if (operation === pdfjs.OPS.restore) transform = stack.pop() ?? [1, 0, 0, 1, 0, 0]
           else if (operation === pdfjs.OPS.transform && args.length >= 6) transform = pdfjs.Util.transform(transform, args.slice(0, 6).map(Number))
-          else if (operation === pdfjs.OPS.constructPath && args[2] && typeof args[2] === 'object') {
+          else if (operation === pdfjs.OPS.constructPath && args[0] !== pdfjs.OPS.endPath && args[0] !== pdfjs.OPS.clip && args[0] !== pdfjs.OPS.eoClip && args[2] && typeof args[2] === 'object') {
             const bounds = Array.from(args[2] as ArrayLike<number>)
             if (bounds.length === 4 && bounds.every(Number.isFinite)) {
               const matrix = pdfjs.Util.transform(viewport.transform, transform)
@@ -390,15 +373,17 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     captureFigure(x, y, Math.min(width, pageSize.width - x), Math.min(height, pageSize.height - y))
   }
   const tableVectorRects = new Map<string, ItemRect>()
+  const proseEvidence = segments.map(segment => ({ kind: segment.kind, source: segment.source, rects: segmentRects(segment, itemRects, scale) }))
+  const safeDetectedRects = detectedFigureRects.filter(rect => !figureOverlapsProse(rect, proseEvidence))
   const claimedFigureRects = new Set<number>()
   for (const segment of segments.filter((candidate) => candidate.kind === 'table')) {
     const boxes = segmentRects(segment, itemRects, scale); if (!boxes.length) continue
-    const matched = tableRegionFromEvidence(boxes, detectedFigureRects, scale)
+    const matched = tableRegionFromEvidence(boxes, safeDetectedRects, scale)
     if (!matched) continue
     if (matched.index !== undefined) claimedFigureRects.add(matched.index)
     tableVectorRects.set(segment.id, matched.rect)
   }
-  const displayFigureRects = detectedFigureRects.filter((_rect, index) => !claimedFigureRects.has(index))
+  const displayFigureRects = safeDetectedRects.filter((_rect, index) => !claimedFigureRects.has(index))
   const rectanglesFor = (segment: TranslationSegment) => tableVectorRects.get(segment.id) ? [tableVectorRects.get(segment.id)!] : segmentRects(segment, itemRects, scale)
   const structuredRegions = segments.filter((segment) => ['equation', 'table'].includes(segment.kind)).flatMap((segment) => {
     const rects = rectanglesFor(segment); if (!rects.length) return []
@@ -413,7 +398,10 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const lefts = contentRects.map(rect => rect.left).sort((a, b) => a - b); const rights = contentRects.map(rect => rect.left + rect.width).sort((a, b) => a - b)
     const contentLeft = lefts[Math.floor(lefts.length * .1)] ?? pageSize.width * .09; const contentRight = rights[Math.min(rights.length - 1, Math.floor(rights.length * .9))] ?? pageSize.width * .91
     const estimated = sourceFigureRegion(rects, figure.components ?? [], pageSize.width, contentLeft, contentRight, scale, figure.hasPanelLabels)
-    if (estimated) return [{ figure, rect: figureRegionWithCaption(estimated, rects, scale) }]
+    if (estimated && !figureOverlapsProse(estimated, proseEvidence)) {
+      const rect = figureRegionWithCaption(estimated, rects, scale)
+      if (!figureOverlapsProse(rect, proseEvidence)) return [{ figure, rect }]
+    }
     // Without source dimensions, prefer a nearby detected region. A guessed
     // caption-upward rectangle is deliberately not emitted because it can cover unrelated research content.
     return []
@@ -428,7 +416,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
       const caption = figureRegionWithCaption(rect, item.boxes, scale)
       const added = caption.width * caption.height - rect.width * rect.height
       const sourceMatch = sourceFigures.some(figure => figure.captionAnchorId === item.segment.id) ? 1 : 0
-      return { ...item, caption, score: added > .5 ? sourceMatch * 10 - added / Math.max(1, rect.width * rect.height) : -Infinity }
+      return { ...item, caption, score: added > .5 && !figureOverlapsProse(caption, proseEvidence) ? sourceMatch * 10 - added / Math.max(1, rect.width * rect.height) : -Infinity }
     }).sort((a, b) => b.score - a.score)[0]
     const caption = ranked?.score > -Infinity ? ranked : undefined
     if (caption) usedCaptionIds.add(caption.segment.id)
@@ -552,9 +540,9 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   const mixedParagraphs = mixedProseParagraphs(allSegments)
   const translatedParagraphs = new Set(allSegments.filter(segment => translationMap.get(segment.id)).map(segment => segment.blockId))
   const protectedProseCount = allSegments.filter(segment => segment.page === pageNumber && segment.kind === 'artifact' && mixedParagraphs.has(segment.blockId ?? '') && !preservedParagraphs.has(segment.blockId ?? '') && translatedParagraphs.has(segment.blockId)).length
-  const translatableSegments = allSegments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && !preservedParagraphs.has(segment.blockId ?? ''))
+  const translatableSegments = withoutBibliography(allSegments).filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind) && !preservedParagraphs.has(segment.blockId ?? ''))
   const translatedCount = translatableSegments.filter(segment => translationMap.get(segment.id)).length
-  const scopedSegments = translationScope === 'all' ? withoutBibliography(translatableSegments) : translatableSegments.filter(segment => segment.page === pageNumber)
+  const scopedSegments = translationScope === 'all' ? translatableSegments : translatableSegments.filter(segment => segment.page === pageNumber)
   const scopedMissing = scopedSegments.filter(segment => !translation.some(saved => saved.id === segment.id && saved.source === segment.source && saved.translation)).length
   const scopedOriginalProse = allSegments.some(segment => (translationScope === 'all' || segment.page === pageNumber) && (segment.kind === 'artifact' || preservedParagraphs.has(segment.blockId ?? '')))
   const hasCachedTranslation = cacheExists
@@ -714,12 +702,19 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       if (disposed) return; loadingTask = pdfjs.getDocument({ data, ...pdfOptions }); const loaded = await loadingTask.promise; if (disposed) return; if (navigationTarget.current) navigationTarget.current = { ...navigationTarget.current, page: Math.min(navigationTarget.current.page, loaded.numPages) }; setPdfPaperId(activePaper.arxivId); setPdf(loaded); setLoadStatus({ phase: 'analyzing', completed: 0, total: loaded.numPages })
       await new Promise((resolve) => window.setTimeout(resolve, 0))
       const segments: TranslationSegment[] = []
+      const pageSizes = new Map<number, { width: number; height: number }>()
+      const layoutRects = new Map<string, Array<{ left: number; top: number; width: number; height: number; fontSize: number }>>()
       for (let page = 1; page <= loaded.numPages; page += 1) {
         if (disposed) return
-        const pdfPage = await loaded.getPage(page); const text = await pdfPage.getTextContent()
+        const pdfPage = await loaded.getPage(page); pageSizes.set(page, pdfPage.getViewport({ scale: 1 })); const text = await pdfPage.getTextContent()
         const items = text.items.filter((item) => 'str' in item) as unknown as PdfTextItem[]
         const weights = await collectSourceFontWeights(pdfPage, items)
-        const pageSegments = segmentsFromItems(page, items).map(segment => ({ ...segment, sourceFontWeight: dominantSourceWeight(segment, items, weights) }))
+        const pageSegments = segmentsFromItems(page, items, weights).map(segment => ({ ...segment, sourceFontWeight: dominantSourceWeight(segment, items, weights) }))
+        // Coarse PDF boxes are sufficient to identify a table or running head.
+        // They must never masquerade as validated glyph boundaries for masking.
+        const viewport = pdfPage.getViewport({ scale: 1 })
+        const fallbackRects = items.map(item => textItemRect(pdfjs.Util.transform(viewport.transform, item.transform), item.width, 1, .8, item.str))
+        for (const segment of pageSegments) layoutRects.set(segment.id, segmentRects(segment, fallbackRects).map(rect => ({ ...rect, fontSize: rect.fontSize ?? rect.height })))
         const geometry = await captureGlyphGeometry(pdfPage, items, pageSegments)
         if (disposed) return
         segments.push(...pageSegments.map(segment => geometry.ok ? { ...segment, preciseRects: geometry.rectangles.get(segment.id), scientificSpans: geometry.scientificSpans.get(segment.id) } : segment))
@@ -727,13 +722,19 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
         if (page % 2 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0))
       }
       if (disposed) return
-      const source = enrichWithLatex(segments, latex); const translatable = source.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length
+      const originalGeometry = new Map(segments.map(segment => [segment.id, segment.preciseRects]))
+      const prepared = preservePdfTables(preservePublicationFurniture(segments.map(segment => ({ ...segment, preciseRects: segment.preciseRects ?? layoutRects.get(segment.id) })), pageSizes))
+        .map(segment => ({ ...segment, kind: segment.kind !== 'table' && hasDamagedMathEncoding(segment.source) ? 'artifact' as const : segment.kind, preciseRects: originalGeometry.get(segment.id) }))
+      const source = enrichWithLatex(prepared, latex);
+      const bodyIds = new Set(withoutBibliography(source.segments).map(segment => segment.id))
+      source.segments = source.segments.map(segment => bodyIds.has(segment.id) ? segment : { ...segment, kind: 'artifact', sourceMode: 'pdf' }); const translatable = source.segments.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length
       setSourceStatus({ mode: source.matched > translatable * .35 ? (latex?.format === 'jats' ? 'jats' : 'latex') : 'pdf', matched: source.matched, total: translatable })
       setAllSegments(source.segments)
       void window.prism.savePaperAnchors(activePaper.arxivId, source.segments).then(() => {
         if (!disposed && settings.libraryPath) void loadGuide(activePaper.arxivId, settings.libraryPath, settings.autoReadingGuide !== false)
       }).catch(reason => { if (!disposed) setError(String(reason)) })
       const cache = await window.prism.readTranslation(activePaper.arxivId); if (disposed) return
+      let restoredTranslations: TranslationSegment[] = []
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
@@ -743,9 +744,13 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
           return { ...segment, translation: previous?.translation ?? translatedBySource, source: previous?.translation ? previous.source : segment.source }
         })
         const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)
+        restoredTranslations = restored
         setCacheExists(restored.some(segment => ['text', 'heading', 'caption'].includes(segment.kind))); setTranslation(restored); setTranslationProgress({ completed: restored.filter((segment) => ['text', 'heading', 'caption'].includes(segment.kind)).length, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
       }
-      else if (settings.autoTranslate && translationProvider?.available && !autoStartedRef.current.has(activePaper.arxivId)) {
+      const restoredIds = new Set(restoredTranslations.map(segment => segment.id))
+      const unsafeIds = unsafeParagraphIds(source.segments)
+      const hasMissing = source.segments.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !unsafeIds.has(segment.blockId ?? '') && !restoredIds.has(segment.id))
+      if (hasMissing && settings.autoTranslate && translationProvider?.available && !autoStartedRef.current.has(activePaper.arxivId)) {
         autoStartedRef.current.add(activePaper.arxivId); setTranslating(true); setTranslationProgress({ completed: 0, total: translatable }); if (!arrangedRef.current) applyLayout(withTranslated(layoutRef.current), activePaper.arxivId)
         void window.prism.startTranslation(activePaper.arxivId, source.segments, { force: false }).catch((reason) => { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) })
       }
@@ -769,7 +774,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
   }
   async function chooseFolder() { const next = await window.prism.chooseWorkspace(); if (next) { const papers = await window.prism.listLibrary(); setSettings(next); setLibrary(papers); setTabs(papers[0] ? [papers[0].arxivId] : []); setActiveId(papers[0]?.arxivId); if (!papers.length) setFinderOpen(true) } }
   async function updateSettings(patch: Partial<AppSettings>) { setSettings(await window.prism.updateSettings(patch)) }
-  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
+  async function startTranslation(force = false) { if (!activePaper || !allSegments.length) return; setError(''); setTranslationTargetPage(pageNumber); queueReadingPosition(); setTranslating(true); setTranslationProgress({ completed: 0, total: translatableSegments.length }); applyLayout(withTranslated(layoutRef.current), activePaper.arxivId); try { await window.prism.startTranslation(activePaper.arxivId, allSegments, { force, pages: translationScope === 'page' ? [pageNumber] : undefined }) } catch (reason) { setTranslating(false); setError(reason instanceof Error ? reason.message : String(reason)) } }
   async function cancelTranslation() { if (!activePaper) return; try { await window.prism.cancelTranslation(activePaper.arxivId); setTranslating(false) } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)) } }
   function highlightHoveredAnchor(anchorId?: string) {
     // Centering an explicit source can move another sentence under a stationary

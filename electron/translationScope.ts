@@ -1,10 +1,20 @@
-/** Bibliographic lists are preserved as source, unless the reader explicitly translates that page. */
+/** Bibliographic lists are preserved as source, for both whole-document and page translation. */
 export function withoutBibliography<T extends { source: string; kind: string }>(segments: T[]): T[] {
   let bibliography = false
-  return segments.filter(segment => {
-    const heading = segment.source.trim().replace(/^\d+[.\s]+/, '')
-    if (segment.kind === 'heading' && /^(references|bibliography|literature cited|참고문헌)$/i.test(heading)) bibliography = true
-    else if (segment.kind === 'heading' && /^(appendi(?:x|ces)|supplement|supporting information)\b/i.test(heading)) bibliography = false
+  // Some journal PDFs omit a References title. Require a consecutive numbered
+  // list with publication-year evidence, not an isolated inline citation.
+  const unlabeledStart = segments.findIndex((segment, index) => {
+    if (!/^\[1\]\s+[A-Z]/.test(segment.source.trim())) return false
+    const following = segments.slice(index, index + 45)
+    const labels = following.flatMap(item => { const match = item.source.trim().match(/^\[(\d+)\]\s+[A-Z]/); return match ? [Number(match[1])] : [] })
+    return labels[0] === 1 && labels[1] === 2 && labels[2] === 3 && following.filter(item => /\b(?:19|20)\d{2}\b/.test(item.source)).length >= 3
+  })
+  return segments.filter((segment, index) => {
+    if (index === unlabeledStart) bibliography = true
+    const heading = segment.source.trim().replace(/^(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+/, '')
+    if (segment.kind === 'heading' && /^(references(?: and notes)?|bibliography|literature cited|참고문헌)$/i.test(heading)) bibliography = true
+    else if (segment.kind === 'heading' && (/^(appendi(?:x|ces)|supplement|supporting information)\b/i.test(heading) || /^[A-Z](?:\.\d+)*\.?\s+[A-Z]/.test(heading))) bibliography = false
+    else if (segment.kind === 'caption' && /^(?:fig(?:ure)?\.?|table|algorithm)\s*(?:\d+|[IVX]+)\b/i.test(heading)) bibliography = false
     return !bibliography
   })
 }
