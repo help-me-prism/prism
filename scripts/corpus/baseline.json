@@ -40,14 +40,14 @@
    "papers": 33,
    "unreadable": 0,
    "pages": 800,
-   "findings": 344,
+   "findings": 336,
    "byType": {
     "equation-as-prose": 57,
     "dropped-prose": 14,
-    "micro-fragment": 156,
+    "micro-fragment": 151,
     "heading-too-long": 30,
     "inline-math-cut": 18,
-    "table-as-prose": 51,
+    "table-as-prose": 48,
     "figure-over-reading-page": 16,
     "split-mid-sentence": 1,
     "running-furniture": 1
@@ -56,19 +56,19 @@
     "arxiv": {
      "papers": 20,
      "pages": 640,
-     "findings": 272
+     "findings": 271
     },
     "journal": {
      "papers": 13,
      "pages": 160,
-     "findings": 72
+     "findings": 65
     }
    },
    "byLang": {
     "en": {
      "papers": 27,
      "pages": 730,
-     "findings": 327
+     "findings": 319
     },
     "und": {
      "papers": 2,
