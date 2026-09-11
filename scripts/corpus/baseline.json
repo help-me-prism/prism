@@ -2,16 +2,16 @@
  "recorded": "2026-09-11",
  "splits": {
   "tune": {
-   "papers": 15,
+   "papers": 17,
    "unreadable": 0,
-   "pages": 264,
-   "findings": 33,
+   "pages": 285,
+   "findings": 41,
    "byType": {
     "running-furniture": 1,
     "micro-fragment": 10,
     "inline-math-cut": 2,
     "dropped-prose": 5,
-    "heading-too-long": 5,
+    "heading-too-long": 13,
     "equation-as-prose": 6,
     "table-as-prose": 2,
     "prose-as-table": 1,
@@ -24,9 +24,9 @@
      "findings": 24
     },
     "journal": {
-     "papers": 5,
-     "pages": 89,
-     "findings": 9
+     "papers": 7,
+     "pages": 110,
+     "findings": 17
     }
    },
    "byLang": {
@@ -34,21 +34,31 @@
      "papers": 15,
      "pages": 264,
      "findings": 33
+    },
+    "ko": {
+     "papers": 1,
+     "pages": 18,
+     "findings": 4
+    },
+    "zh": {
+     "papers": 1,
+     "pages": 3,
+     "findings": 4
     }
    }
   },
   "holdout": {
-   "papers": 54,
+   "papers": 64,
    "unreadable": 0,
-   "pages": 1032,
-   "findings": 371,
+   "pages": 1114,
+   "findings": 413,
    "byType": {
-    "equation-as-prose": 62,
-    "dropped-prose": 36,
-    "micro-fragment": 141,
-    "heading-too-long": 44,
-    "inline-math-cut": 30,
-    "table-as-prose": 36,
+    "equation-as-prose": 70,
+    "dropped-prose": 41,
+    "micro-fragment": 130,
+    "heading-too-long": 86,
+    "inline-math-cut": 26,
+    "table-as-prose": 38,
     "figure-over-reading-page": 16,
     "split-mid-sentence": 1,
     "running-furniture": 4,
@@ -58,19 +68,19 @@
     "arxiv": {
      "papers": 20,
      "pages": 640,
-     "findings": 244
+     "findings": 208
     },
     "journal": {
-     "papers": 34,
-     "pages": 392,
-     "findings": 127
+     "papers": 44,
+     "pages": 474,
+     "findings": 205
     }
    },
    "byLang": {
     "en": {
      "papers": 48,
      "pages": 962,
-     "findings": 357
+     "findings": 321
     },
     "und": {
      "papers": 2,
@@ -91,6 +101,21 @@
      "papers": 1,
      "pages": 2,
      "findings": 1
+    },
+    "ja": {
+     "papers": 1,
+     "pages": 4,
+     "findings": 3
+    },
+    "zh": {
+     "papers": 5,
+     "pages": 15,
+     "findings": 40
+    },
+    "ko": {
+     "papers": 4,
+     "pages": 63,
+     "findings": 35
     }
    }
   }

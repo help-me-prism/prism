@@ -34,7 +34,12 @@ const { joinBitmapRegions, joinVectorRegions, figureOverlapsProse } = await opti
 const { collectSourceFontWeights, dominantSourceWeight } = await optional('src/paper/sourceEmphasis.ts', ['collectSourceFontWeights', 'dominantSourceWeight'])
 const { joinPreservedRegions, mergeOverlappingRegions } = await optional('src/paper/preservedRegions.ts', ['joinPreservedRegions', 'mergeOverlappingRegions'])
 
-const standardFonts = path.join(path.dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json'))), 'standard_fonts').split(path.sep).join('/') + '/'
+// The same resources PaperWorkspace gives pdf.js. Without cMapUrl a CJK font
+// cannot be decoded at all, so a Japanese or Chinese paper came back as empty
+// or mojibake text and the audit reported it as clean.
+const pdfResources = path.dirname(fileURLToPath(import.meta.resolve('pdfjs-dist/package.json'))).split(path.sep).join('/')
+const standardFonts = `${pdfResources}/standard_fonts/`
+const pdfOptions = { standardFontDataUrl: standardFonts, cMapUrl: `${pdfResources}/cmaps/`, cMapPacked: true, wasmUrl: `${pdfResources}/wasm/` }
 
 // Bitmap and vector ink, in viewport coordinates. Same operator walk and the
 // same size gates the reader uses to decide what counts as a figure.
@@ -69,7 +74,7 @@ function graphicRegions(operators, viewport, scale = 1) {
 }
 
 export async function analysePdf(pdfPath) {
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fs.readFile(pdfPath)), disableWorker: true, standardFontDataUrl: standardFonts }).promise
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await fs.readFile(pdfPath)), disableWorker: true, ...pdfOptions }).promise
   const collected = []
   const pageSizes = new Map()
   const figuresByPage = new Map()
@@ -127,7 +132,14 @@ export async function segmentsForPdf(pdfPath) {
   return { pages: [...analysis.byPage.keys()].sort((a, b) => a - b).map(page => analysis.byPage.get(page)), flat: analysis.flat, numPages: analysis.numPages }
 }
 
-const words = text => text.match(/[A-Za-z][A-Za-z'-]{1,}/g)?.length ?? 0
+// Counting only Latin words made every CJK defect invisible: a Korean paragraph
+// scored zero words, so heading-too-long never fired on it and looksLikeProse
+// rejected it before any other test. Korean spaces its words; Han and Kana do
+// not, so their characters are counted at roughly two to a word.
+const words = text => (text.match(/[A-Za-z][A-Za-z'-]{1,}/g)?.length ?? 0)
+  + (text.match(/[가-힣]+/g)?.length ?? 0)
+  + Math.round((text.match(/[぀-ヿ一-鿿]/g)?.length ?? 0) / 2)
+const hasCjk = text => /[぀-ヿ一-鿿가-힯]/.test(text)
 const letters = text => text.match(/[\p{L}]/gu)?.length ?? 0
 const digitShare = text => (text.match(/\d/g)?.length ?? 0) / Math.max(1, text.length)
 const mathChars = /[=+*/×÷±∓∑∏∫∮√∞≈≠≡≤≥∈∉⊂⊆⊕⊗∀∃∇∂←→↦⟨⟩‖·°µ]/g
@@ -138,6 +150,14 @@ const translatableKinds = ['text', 'heading', 'caption']
 // translation is the "번역 누락" failure the reader actually sees.
 function looksLikeProse(text) {
   const trimmed = text.trim()
+  // CJK prose carries neither a leading capital nor English function words, so
+  // the Latin tests below reject all of it. Its own sentence enders are the
+  // evidence: a full stop, an ideographic full stop, or a Korean verb ending.
+  if (hasCjk(trimmed)) {
+    if (words(trimmed) < 6) return false
+    if (digitShare(trimmed) > .16 || mathShare(trimmed) > .1) return false
+    return /(?:[.。!?！？]|[다요죠음함됨임])["')\]』」]?$/.test(trimmed)
+  }
   if (words(trimmed) < 6) return false
   if (digitShare(trimmed) > .16) return false
   if (mathShare(trimmed) > .1) return false

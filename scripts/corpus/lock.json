@@ -131,6 +131,66 @@
   "url": "https://doi.org/10.30546/300045.2026.03.1.505",
   "fetched": "2026-09-11"
  },
+ "holdout/cjk-ja-10": {
+  "sha256": "f487953102de6a29c35c36f0243bbf960b163fc71160708901eb36f5b6c069ef",
+  "bytes": 643287,
+  "url": "https://kguopac.kanto-gakuin.ac.jp/webopac/bdyview.do?bodyid=NI30004362&elmid=Body&fname=007.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2023-16-20-1": {
+  "sha256": "e2c2c62d078b5acedb3fe54b338d322b38fff3d7cf397e9cc996926a0c2e350f",
+  "bytes": 3367472,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.20.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2023-16-44-2": {
+  "sha256": "241ac52a546ec109523fe189c74aa61d41423ea71083cdc374f5c23722880d4a",
+  "bytes": 903359,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.44.2",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2024-17-1-1": {
+  "sha256": "be4bf17c351e73c5894d0665a5162da4af7f9ae529238229114562f847c278f7",
+  "bytes": 1027054,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.1.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2024-17-5-1": {
+  "sha256": "d184d57bcc6a06b91da10a085d0e933fbf88a3f6e2e5ca9837424252771a99cc",
+  "bytes": 1007062,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.5.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-2": {
+  "sha256": "5958db023f9ec12a7c7a9c3c4bf6ffa6150e07c8e97e5126e8239828f4ae9a99",
+  "bytes": 245776,
+  "url": "http://ojs.omniscient.sg/index.php/grep/article/download/20204/19194/",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-3": {
+  "sha256": "a611600da6f6ca73283bc07020ab26da085d114f4b793421f84a08c197794ca0",
+  "bytes": 240273,
+  "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/26893/25880/",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-4": {
+  "sha256": "9d5d61910bee186fbbade16547aa93d370ab3dbbf6d0adddc1c19939f5c73c5a",
+  "bytes": 233877,
+  "url": "http://ojs.omniscient.sg/index.php/esra/article/download/53798/52662",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-5": {
+  "sha256": "0be5434fa805451bfab3e255a16aa2d6b0f339b93bed8684746c1ea57bfaa44e",
+  "bytes": 232135,
+  "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/28188/27168",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-6": {
+  "sha256": "f6039aaa3f3e27b6e8601640735e1fdf1b400d722fb5d2ba5fb7e11e2e586dfd",
+  "bytes": 1136582,
+  "url": "https://doi.org/10.67606/lixq.yj6",
+  "fetched": "2026-09-11"
+ },
  "holdout/clinical-and-experimental-otorhino": {
   "sha256": "14cfadcf76be9147d885e7e58bc328e3e41a80cbd4f4637dea36aa4f10779bbe",
   "bytes": 919734,
@@ -383,6 +443,12 @@
   "url": "https://arxiv.org/pdf/2609.00689",
   "fetched": "2026-09-11"
  },
+ "tune/cjk-ko-2024-17-30-1": {
+  "sha256": "fe7b80e2451af033951d4d791a66e1ce975ca9930af560aebf41a1e44243c24a",
+  "bytes": 1463988,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.30.1",
+  "fetched": "2026-09-11"
+ },
  "tune/plos-biology-3001161": {
   "sha256": "b38401e28cb75cb546b3d27b48f7655f6635d240b5476b868d741bdbf3e9571a",
   "bytes": 4274684,
@@ -399,6 +465,12 @@
   "sha256": "ed0cca5dadb432aa2eaa337746431b8a06ec657cef3f1448ee6276f6c5201de9",
   "bytes": 842453,
   "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0311693&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "tune/cjk-zh-0": {
+  "sha256": "d534cf1ff3a523e25e1131b6fece98df7a7238ede4732a76ee4abf1d82e61488",
+  "bytes": 257065,
+  "url": "http://ojs.omniscient.sg/index.php/mece/article/download/24596/23567/",
   "fetched": "2026-09-11"
  }
 }

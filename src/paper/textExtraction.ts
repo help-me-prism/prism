@@ -11,6 +11,12 @@ const sentenceGuard = '\uE000'
 const namedHeading = /^(?:abstract|one-sentence summary:?|references(?: and notes)?|bibliography|literature cited|acknowledg(?:e)?ments?|introduction|conclusions?|discussion|results|methods|materials and methods)$/i
 const numberedTitle = /^(?:[IVX]+\.|\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+[A-Z]/
 
+const sentenceEnd = /[.!?:。！？：]["')\]』」]?$/
+/** How short is too short to be a sentence, for the script it is written in. */
+function shortFragmentLength(text: string) {
+  return /[぀-ヿ一-鿿]/.test(text) ? 16 : 38
+}
+
 function isPublicationFurniture(text: string) {
   return /^PLOS\s+(?:ONE|BIOLOGY|GENETICS|MEDICINE|PATHOGENS|COMPUTATIONAL BIOLOGY)\b/i.test(text)
     || /^arXiv:\d{4}\.\d{4,5}v\d+\b/i.test(text)
@@ -126,6 +132,11 @@ function trailingProseOffset(paragraph: string) {
     const at = boundary?.index === undefined ? -1 : boundary.index + boundary[0].length
     if (at > 0 && at < 120 && paragraph.length - at > 40) return at
   }
+  // The same shape in a script with no capitals and few spaces: "1.1 开发语言
+  // 工程软件二次开发语言多种多样，...". Han and Kana bodies almost never space
+  // their words, so the one space after a numbered title is the title's end.
+  const cjkTitle = paragraph.match(/^\d+(?:\.\d+)+\.?\s+([぀-ヿ一-鿿]{2,12})\s+(?=[぀-ヿ一-鿿])/)
+  if (cjkTitle && paragraph.length > 60) return cjkTitle[0].length
   let previous = 0
   for (const match of paragraph.matchAll(/[.!?]\s+(?=\p{Lu})/gu)) {
     const at = (match.index ?? 0) + match[0].length
@@ -156,6 +167,27 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
   const ranges: Array<{ start: number; end: number; itemIndex: number }> = []
   const bodyHeights = items.filter((item) => item.str.trim().length > 20).map((item) => Math.max(1, Math.abs(item.height || item.transform[3]))).sort((a, b) => a - b)
   const bodyHeight = bodyHeights[Math.floor(bodyHeights.length / 2)] ?? 10
+  // How far apart this page sets its lines. A paragraph break used to be a
+  // fixed multiple of glyph height, which assumes the leading every Latin
+  // journal happens to use. Korean journals set 200% leading, so every single
+  // line cleared the bar and became its own paragraph: sentences were cut at
+  // the margin, tails became one-word segments, and lines with no punctuation
+  // were read as headings. Measuring the page's own leading costs nothing and
+  // needs to know nothing about the script.
+  // Only the leading between body lines: a table's rows and a display's parts
+  // jump by their own amounts and would drag the median away from the prose.
+  const bodyLine = (item?: PdfTextItem) => !!item && item.str.trim().length > 12
+    && Math.abs(Math.abs(item.height || item.transform[3]) - bodyHeight) < bodyHeight * .15
+  const baselineGaps = items.slice(1).flatMap((item, index) => {
+    if (!bodyLine(items[index]) || !bodyLine(item)) return []
+    const gap = Math.abs(items[index].transform[5] - item.transform[5])
+    return gap > bodyHeight * .4 && gap < bodyHeight * 4 ? [gap] : []
+  }).sort((a, b) => a - b)
+  const lineGap = baselineGaps[Math.floor(baselineGaps.length / 2)] ?? bodyHeight * 1.2
+  // Only a page that really is set wide gets the derived threshold; anything at
+  // ordinary Latin leading keeps exactly the behaviour it had.
+  const wideLeading = baselineGaps.length >= 8 && lineGap > bodyHeight * 1.45
+  const paragraphBreak = (height: number, factor: number) => wideLeading ? Math.max(height * factor, lineGap * (factor / 1.5)) : height * factor
   let previous: PdfTextItem | undefined
   let pendingEOL = false
   let displayMathRun = false
@@ -209,8 +241,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
       const captionBodyBoundary = captionStart.test(currentParagraph) && verticalGap > height * .75
         && weights[previous.fontName ?? ''] === 700
         && (weights[item.fontName ?? ''] === 400 || nextHeight > height * 1.08)
-      const paragraphGap = captionBodyBoundary || headingToBody || (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
-        || (!equationContinuation && pendingEOL && verticalGap > height * 1.64) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
+      const paragraphGap = captionBodyBoundary || headingToBody || (!equationContinuation && previous.hasEOL && verticalGap > paragraphBreak(height, 1.55))
+        || (!equationContinuation && pendingEOL && verticalGap > paragraphBreak(height, 1.64)) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
       // A number at an inline font boundary is often a subscript or a measured
       // dimension, not a section number (e.g. rho + "0 of ...", 300 mm × 300 mm).
       const headingBoundary = (verticalGap > height * .75 && (namedHeading.test(value) || /^appendix\b/i.test(value)))
@@ -221,7 +253,7 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
         // bold weight or splitting the body that follows on the same baseline.
         || (verticalGap > height * .75 && /^\(\d{1,3}\)\s+[A-Z][^.!?]{1,100}[.:]$/.test(value) && value.split(/\s+/).length <= 9)
       const bulletBoundary = verticalGap > height * .6 && /^[•●▪]\s*/.test(value)
-      const displayGap = !equationContinuation && verticalGap > height * 1.8
+      const displayGap = !equationContinuation && verticalGap > paragraphBreak(height, 1.8)
       const fontSizeBoundary = !equationContinuation && verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
       // An empty table cell arrives as a lone '-'. A word broken across lines keeps a
       // letter in front of its hyphen, so only join in that case. Otherwise one
@@ -325,22 +357,22 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
     const numberedHeading = /^(?:\d+(?:\.\d+)+|[A-Z]\.\d+)\.?\s+/.test(part.text) || (/^(?:\d+\.?|[IVX]+\.)\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
     const sectionHeading = numberedHeading || namedHeading.test(part.text) || /^appendix\b/i.test(part.text)
     const caption = captionStart.test(part.text)
-    const shortFragments = matchedItems.filter((item) => item.str.trim().length < 32).length
+    const shortFragments = matchedItems.filter((item) => item.str.trim().length < (/[぀-ヿ一-鿿]/.test(item.str) ? 14 : 32)).length
     const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
     const digitRatio = digits / Math.max(1, part.text.length)
     const numericLayout = digits >= 6 && digitRatio > .12 && matchedItems.length >= 5
-    const proseWordCount = part.text.match(/[A-Za-z]{2,}/g)?.length ?? 0
+    const proseWordCount = wordCount(part.text)
     // A short emphasised phrase ("Arti-PG toolbox.") arrives as several bold runs
     // and looks like table debris, yet it sits inside a paragraph of full
     // sentences. Tables and bibliography entries never form such a paragraph, so
     // require a long, multi-sentence context before granting the exception. One
     // fragment misread here drops its whole paragraph from translation.
     const digitShare = (part.text.match(/\d/g)?.length ?? 0) / Math.max(1, part.text.length)
-    const inProseParagraph = (part.paragraphContext.match(/[A-Za-z]{2,}/g)?.length ?? 0) >= 60
+    const inProseParagraph = wordCount(part.paragraphContext) >= 60
       && (part.paragraphContext.match(/[.!?]\s/g)?.length ?? 0) >= 3
-    const proseLooking = inProseParagraph && /\b[a-z]{4,}\b/.test(part.text)
+    const proseLooking = inProseParagraph && (/\b[a-z]{4,}\b/.test(part.text) || /[぀-ヿ一-鿿가-힣]{4,}/.test(part.text))
       && !/[=+×÷∑∫√∞≈≠≤≥∈⊂⊆∀∃∇∂]/.test(part.text) && digitShare < .08
-    const hasProseSentence = (/[.!?]$/.test(part.text) && (proseWordCount >= 4 || proseLooking)) || (/[,;:]$/.test(part.text) && proseWordCount >= 6)
+    const hasProseSentence = (/[.!?。！？]$/.test(part.text) && (proseWordCount >= 4 || proseLooking)) || (/[,;:，；：]$/.test(part.text) && proseWordCount >= 6)
     const likelyGraphicOrTable = !caption && !hasProseSentence && averageHeight <= bodyHeight * 1.08 && (numericLayout || (!sectionHeading && (
       (shortFragments >= 2 && shortFragments === matchedItems.length && lineYs.size <= 3)
       || (digitRatio > .18 && matchedItems.length >= 4)
@@ -376,12 +408,12 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
           : sectionHeading || (part.text === part.paragraphContext && punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading' : 'text'
     return { id: `p${page}-s${index}-${shortHash(part.text)}`, page, source: part.text, kind, blockId: part.blockId, paragraphContext: part.paragraphContext, itemIndexes: itemSlices.map((slice) => slice.itemIndex), itemSlices }
   })
-  const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)).length
+  const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < shortFragmentLength(segment.source) && !sentenceEnd.test(segment.source)).length
   const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
   const classified = preliminary.map((segment, index) => {
     if (segment.kind === 'heading' && !numberedTitle.test(segment.source) && !namedHeading.test(segment.source) && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     const semanticHeading = numberedTitle.test(segment.source) || /^(?:abstract|references|acknowledg(?:e)?ments?|appendix\b|\d+(?:\.\d+)*\s+|[A-Z]\.\d+\s+)/i.test(segment.source)
-    if (denseLayoutPage && ['text', 'heading'].includes(segment.kind) && !semanticHeading && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
+    if (denseLayoutPage && ['text', 'heading'].includes(segment.kind) && !semanticHeading && segment.source.length < shortFragmentLength(segment.source) && !sentenceEnd.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     return segment
   })
   const merged: TranslationSegment[] = []
@@ -488,5 +520,5 @@ function coalesceFragments(sentences: SentencePiece[]): SentencePiece[] {
 }
 
 function wordCount(value: string) {
-  return value.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0
+  return (value.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0) + Math.round((value.match(/[぀-ヿ一-鿿]/g)?.length ?? 0) / 2)
 }

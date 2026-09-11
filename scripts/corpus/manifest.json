@@ -124,6 +124,24 @@
     "lang": "en",
     "family": "journal",
     "domain": "Biology"
+   },
+   {
+    "id": "cjk-ko-2024-17-30-1",
+    "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.30.1",
+    "publisher": "Korea Disease Control and Prevention Agency",
+    "journal": "Public Health Weekly Report",
+    "lang": "ko",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-0",
+    "url": "http://ojs.omniscient.sg/index.php/mece/article/download/24596/23567/",
+    "publisher": "机械与电子控制工程",
+    "journal": "机械与电子控制工程",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
    }
   ],
   "holdout": [
@@ -599,6 +617,96 @@
     "lang": "en",
     "family": "journal",
     "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "cjk-ja-10",
+    "url": "https://kguopac.kanto-gakuin.ac.jp/webopac/bdyview.do?bodyid=NI30004362&elmid=Body&fname=007.pdf",
+    "publisher": "National Institute of Informatics",
+    "journal": "Institutional Repositories DataBase (IRDB)",
+    "lang": "ja",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-2",
+    "url": "http://ojs.omniscient.sg/index.php/grep/article/download/20204/19194/",
+    "publisher": "地质研究与环境保护",
+    "journal": "地质研究与环境保护",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-3",
+    "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/26893/25880/",
+    "publisher": "现代工程项目管理",
+    "journal": "现代工程项目管理",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-4",
+    "url": "http://ojs.omniscient.sg/index.php/esra/article/download/53798/52662",
+    "publisher": "工程学研究与实用",
+    "journal": "工程学研究与实用",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-5",
+    "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/28188/27168",
+    "publisher": "现代工程项目管理",
+    "journal": "现代工程项目管理",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-zh-6",
+    "url": "https://doi.org/10.67606/lixq.yj6",
+    "publisher": "现代医学与研究",
+    "journal": "现代医学与研究",
+    "lang": "zh",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-ko-2024-17-1-1",
+    "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.1.1",
+    "publisher": "Korea Disease Control and Prevention Agency",
+    "journal": "Public Health Weekly Report",
+    "lang": "ko",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-ko-2024-17-5-1",
+    "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.5.1",
+    "publisher": "Korea Disease Control and Prevention Agency",
+    "journal": "Public Health Weekly Report",
+    "lang": "ko",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-ko-2023-16-20-1",
+    "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.20.1",
+    "publisher": "Korea Disease Control and Prevention Agency",
+    "journal": "Public Health Weekly Report",
+    "lang": "ko",
+    "family": "journal",
+    "domain": "CJK"
+   },
+   {
+    "id": "cjk-ko-2023-16-44-2",
+    "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.44.2",
+    "publisher": "Korea Disease Control and Prevention Agency",
+    "journal": "Public Health Weekly Report",
+    "lang": "ko",
+    "family": "journal",
+    "domain": "CJK"
    }
   ]
  }
