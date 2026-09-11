@@ -162,6 +162,13 @@ function looksLikeTableRow(text) {
 // so a maths-dense segment that is still translatable is a defect.
 function looksLikeDisplayedEquation(text) {
   const trimmed = text.trim()
+  // "where t ∼ U[0,1], x ∼ p_t(x)" is a clause of the sentence above it, and the
+  // reader wants its lead word in Korean. A displayed equation opens on a symbol
+  // or a single-letter variable, never on a spelled-out lower-case word — which
+  // holds without knowing that the word is "where", "где" or "donde".
+  if (/^\p{Ll}{2,}\s/u.test(trimmed)) return false
+  // A URL is all slashes and colons and scores as maths under any density test.
+  if (/https?:\/\/|\bdoi\.org\/|\barxiv\.org\//i.test(trimmed)) return false
   if (letters(trimmed) > 0 && words(trimmed) >= 8 && mathShare(trimmed) < .06) return false
   const symbols = (trimmed.match(mathChars) ?? []).length
   if (symbols === 0) return false

@@ -5,22 +5,22 @@
    "papers": 13,
    "unreadable": 0,
    "pages": 231,
-   "findings": 74,
+   "findings": 71,
    "byType": {
     "running-furniture": 1,
     "micro-fragment": 29,
     "dropped-prose": 26,
     "inline-math-cut": 2,
-    "equation-as-prose": 5,
     "heading-too-long": 4,
     "caption-absorbed-table": 3,
+    "equation-as-prose": 2,
     "table-as-prose": 4
    },
    "byFamily": {
     "arxiv": {
      "papers": 10,
      "pages": 175,
-     "findings": 68
+     "findings": 65
     },
     "journal": {
      "papers": 3,
@@ -32,7 +32,7 @@
     "en": {
      "papers": 13,
      "pages": 231,
-     "findings": 74
+     "findings": 71
     }
    }
   },
@@ -40,9 +40,9 @@
    "papers": 33,
    "unreadable": 0,
    "pages": 800,
-   "findings": 349,
+   "findings": 344,
    "byType": {
-    "equation-as-prose": 62,
+    "equation-as-prose": 57,
     "dropped-prose": 14,
     "micro-fragment": 156,
     "heading-too-long": 30,
@@ -56,19 +56,19 @@
     "arxiv": {
      "papers": 20,
      "pages": 640,
-     "findings": 276
+     "findings": 272
     },
     "journal": {
      "papers": 13,
      "pages": 160,
-     "findings": 73
+     "findings": 72
     }
    },
    "byLang": {
     "en": {
      "papers": 27,
      "pages": 730,
-     "findings": 332
+     "findings": 327
     },
     "und": {
      "papers": 2,
