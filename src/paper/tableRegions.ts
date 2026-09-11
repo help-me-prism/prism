@@ -147,7 +147,12 @@ export function preservePdfTables<T extends TableSegment & { id: string; blockId
   // A listing can already be classified as a table before its fraction-heavy
   // rows are split into other segments. Follow explicit row labels, not kinds.
   for (const [index, start] of segments.entries()) {
+    // "Algorithm 1 displays the complete training procedure" is a sentence
+    // about a listing, not the listing itself, and preserving it as pixels lost
+    // a paragraph of DDPM's method section. A real listing shows its own
+    // machinery: numbered steps, an assignment arrow, or a Require/Ensure line.
     const algorithm = /^Algorithm\s+\d+\b/i.test(start.source)
+      && /(?:\b\d+\s*:|←|\b(?:Input|Output|Require|Ensure|repeat|until|end for|end while):?)/i.test(start.source)
     const code = /^\w+\s*=\s*(?:Sequential|\w+Model)\s*\(\s*\[/.test(start.source)
     if (!algorithm && !code) continue
     const blockId = `pdf-listing-${start.id}`

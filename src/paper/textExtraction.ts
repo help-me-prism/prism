@@ -82,6 +82,16 @@ function trailingProseOffset(paragraph: string) {
     if (tail.length > 80 || /[.!?]\s/.test(tail) || !numberedTitle.test(tail)) continue
     return at
   }
+  // A run-in section title shares its line with the paragraph it introduces —
+  // "3.3. 2D system in a disk Ω . To further verify ..." — so no line break and
+  // no change of glyph size marks the boundary, and the whole thing became one
+  // 189-character heading that the reader shows as a title. The numbering is
+  // the evidence, and the first sentence end is the boundary.
+  if (/^\d+(?:\.\d+)+\.?\s+\S/.test(paragraph) && paragraph.length > 120) {
+    const boundary = paragraph.match(/[.!?]\s+(?=\p{Lu})/u)
+    const at = boundary?.index === undefined ? -1 : boundary.index + boundary[0].length
+    if (at > 0 && at < 120 && paragraph.length - at > 40) return at
+  }
   let previous = 0
   for (const match of paragraph.matchAll(/[.!?]\s+(?=\p{Lu})/gu)) {
     const at = (match.index ?? 0) + match[0].length
@@ -407,7 +417,10 @@ function endsOnInitial(value: string) {
   const text = value.trim().replace(/["')\]]+$/, '')
   if (!text.endsWith('.')) return false
   const lastToken = text.slice(0, -1).match(/[\p{L}\p{N}]+$/u)?.[0] ?? ''
-  return lastToken.length === 1 && /^\p{Lu}$/u.test(lastToken)
+  // Names are written in Latin or Cyrillic; a lone Greek capital is a variable.
+  // Reading "a disk Ω ." as an initial joined a section title to the paragraph
+  // under it and produced a 189-character heading.
+  return lastToken.length === 1 && /^[A-ZА-Я]$/.test(lastToken)
 }
 
 /** Rejoins sentence fragments with their neighbour, preferring the sentence

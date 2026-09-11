@@ -255,12 +255,21 @@ export function auditAnalysis(analysis) {
       // A sentence whose maths font mapped "±" onto a thorn is not readable
       // prose and preserving it is the right call, so it is not a loss.
       const damaged = typeof hasDamagedMathEncoding === 'function' && hasDamagedMathEncoding(text)
-      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id) && !damaged) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
+      // A sentence printed inside a figure — the example text in an attention
+      // visualisation — is part of the picture. Preserving it is correct, and
+      // the figure's own crop already carries it.
+      const insideFigure = (figures?.get(segment.page) ?? []).some(region => (segment.preciseRects ?? []).length
+        && (segment.preciseRects ?? []).every(rect => rect.left >= region.left - 4 && rect.top >= region.top - 4
+          && rect.left + rect.width <= region.left + region.width + 4 && rect.top + rect.height <= region.top + region.height + 4))
+      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id) && !damaged && !insideFigure) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
       if (segment.kind === 'text' && body.has(segment.id) && looksLikeTableRow(text)) add('table-as-prose', segment, '표 셀 행이 번역 대상 산문으로 분류됨')
       // The mirror of table-as-prose, and the more expensive mistake: a sentence
       // absorbed into a table is preserved as pixels and never translated at
       // all, with nothing on screen to say it was skipped.
-      if (segment.kind === 'table' && looksLikeProse(text) && words(text) >= 8) add('prose-as-table', segment, '산문 문장이 표로 분류되어 번역에서 제외됨')
+      // A prompt listing really is a table whose cells are sentences, and its
+      // rows are labelled. Those are cells, not prose lost to a table.
+      const promptCell = /^(?:System|User|Assistant|Human|Question|Answer|Prompt|Input|Output|Instruction|Context|Document\s*\d*)\s*:/i.test(text)
+      if (segment.kind === 'table' && !promptCell && looksLikeProse(text) && words(text) >= 8) add('prose-as-table', segment, '산문 문장이 표로 분류되어 번역에서 제외됨')
       if (inScope(segment) && looksLikeDisplayedEquation(text)) add('equation-as-prose', segment, '수식이 번역 대상으로 분류됨')
       if (inScope(segment) && segment.kind !== 'caption' && inlineMathCut(text)) add('inline-math-cut', segment, '줄글 내 수식 중간에서 조각이 끊김')
       if (segment.kind === 'heading' && words(text) >= 14) add('heading-too-long', segment, '문단이 제목으로 분류됨')
