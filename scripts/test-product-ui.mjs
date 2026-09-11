@@ -215,6 +215,7 @@ try {
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
     ['The control group received no treatment.', '대조군에는 처치를 시행하지 않았다.'],
     ['Results should not imply causation.', '결과를 인과 관계로 해석해서는 안 된다.'],
+    ['Stress concentrates at the fillet radius.', '응력은 필렛 반경에 집중된다.'],
   ])
   // A cache on one page must not label an untouched neighboring page as saved Korean.
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: anchor.page === 1 ? translations.get(anchor.source) : undefined })) }))
@@ -548,7 +549,11 @@ try {
   await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1].rendered [data-anchor="${citedSource.id}"].highlighted'))`)
   assert(await evaluate('document.querySelector("[data-page=original-1]").closest(".document-scroll").clientWidth > 500'), 'A source link from Korean-only mode must open a readable original pane even with chat open')
   await evaluate('window.prism.choosePaperStorage()')
-  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, fixturePdf(content.replace('Cell biology: a reading fixture', 'Engineering: a reading fixture'))); await fs.writeFile(path.join(root, 'selection.txt'), second)
+  // Both papers keep the cited sentence so their anchor IDs still collide, which
+  // is what this step exists to exercise. They also need one sentence each that
+  // the other does not have: the titles used to serve, but a title is now
+  // preserved as publication metadata and renders no anchor to look for.
+  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, fixturePdf(content.replace('Cell biology: a reading fixture', 'Engineering: a reading fixture').replace('Results should not imply causation.', 'Stress concentrates at the fillet radius.'))); await fs.writeFile(path.join(root, 'selection.txt'), second)
   const external = await evaluate('window.prism.importLocalPaper()')
   assert(external.pdfPath.startsWith(path.join(root, 'external-papers')))
   assert(external.notePath.startsWith(vault)); assert.equal(external.externalAssets, true)
@@ -568,8 +573,14 @@ try {
   assert(externalAnchors, 'Second PDF must finish real extraction')
   const externalCited = externalAnchors.anchors.find(anchor => anchor.source === citedSource.source)
   assert.equal(externalCited.id, citedSource.id, 'Fixture exercises a cross-paper anchor ID collision')
-  const engineeringTitle = externalAnchors.anchors.find(anchor => anchor.source.includes('Engineering:'))
-  const biologyTitle = anchorData.anchors.find(anchor => anchor.source.includes('Cell biology:'))
+  // This step needs one anchor each paper renders and the other paper does not,
+  // to tell whose PDF the source pane is showing. It used to take the title
+  // line, which is now preserved as original publication metadata rather than
+  // translated: an artifact carries no anchor element, so the wait below could
+  // never succeed. Take the first page-1 anchor that is actually rendered.
+  const distinctAnchor = (anchors, others) => anchors.find(anchor => anchor.page === 1 && anchor.type !== 'artifact' && !others.some(other => other.id === anchor.id))
+  const engineeringTitle = distinctAnchor(externalAnchors.anchors, anchorData.anchors)
+  const biologyTitle = distinctAnchor(anchorData.anchors, externalAnchors.anchors)
   assert(engineeringTitle && biologyTitle && engineeringTitle.id !== biologyTitle.id)
   await fs.writeFile(external.translationPath, JSON.stringify({ segments: externalAnchors.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
   for (const [targetPaper, targetTitle, previousPaper, previousTitle] of [[paper, biologyTitle, external, engineeringTitle], [external, engineeringTitle, paper, biologyTitle]]) {
