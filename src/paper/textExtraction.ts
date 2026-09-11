@@ -7,11 +7,13 @@ export type PdfTextItem = { str: string; width: number; height: number; transfor
 // reference is the case of the next letter: a title starts capitalised, while
 // prose continues in lower case ("Figure 3 illustrates ..."). Matching must
 // therefore be case-sensitive, so the label's own spellings are listed out.
-const captionStart = /^(?:[Ff]igure|FIGURE|[Ff]ig\.?|FIG\.?|[Tt]able|TABLE|[Aa]lgorithm|ALGORITHM)\s*\d+(?:\s*[.:](?:\s|$)|\s*$|\s+(?=[A-Z]))/
+const captionStart = /^(?:[Ff]igure|FIGURE|[Ff]ig\.?|FIG\.?|[Tt]able|TABLE|[Aa]lgorithm|ALGORITHM)\s*(?:\d+|[IVX]+)(?:\s*[.:](?:\s|$)|\s*$|\s+(?=[A-Z]))/
 // Stands in for a full stop that must not end a sentence. It is exactly one
 // character so offsets survive masking: segments address PDF glyph ranges by
 // character position, so never drop it or replace it with a longer string.
-const sentenceGuard = '\u0001'
+const sentenceGuard = '\uE000'
+const namedHeading = /^(?:abstract|one-sentence summary:?|references(?: and notes)?|bibliography|literature cited|acknowledg(?:e)?ments?|introduction|conclusions?|discussion|results|methods|materials and methods)$/i
+const numberedTitle = /^(?:[IVX]+\.|\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+[A-Z]/
 
 function isPublicationFurniture(text: string) {
   return /^PLOS\s+(?:ONE|BIOLOGY|GENETICS|MEDICINE|PATHOGENS|COMPUTATIONAL BIOLOGY)\b/i.test(text)
@@ -49,7 +51,12 @@ function isPdfMetadataArtifact(text: string) {
   return compact.length > 120 && /^[A-Za-z0-9+/=]+$/.test(compact) && /[+/=]/.test(compact)
 }
 
-export function segmentsFromItems(page: number, items: PdfTextItem[]): TranslationSegment[] {
+/** Legacy math fonts sometimes map plus/parentheses to standalone thorn/eth. */
+export function hasDamagedMathEncoding(source: string) {
+  return /[\u0080-\u009f]|(?:ffi){3,}|(?:^|\s)[þðÞ](?=\s|$)/.test(source)
+}
+
+export function segmentsFromItems(page: number, items: PdfTextItem[], weights: Record<string, number | undefined> = {}): TranslationSegment[] {
   let combined = ''
   const ranges: Array<{ start: number; end: number; itemIndex: number }> = []
   const bodyHeights = items.filter((item) => item.str.trim().length > 20).map((item) => Math.max(1, Math.abs(item.height || item.transform[3]))).sort((a, b) => a - b)
@@ -85,11 +92,15 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
         && displayMathLead && horizontalGap > 24 && verticalGap > height * .42
       const startsDisplayMath = (pendingEOL && wordCount(currentParagraph) >= 3 && verticalGap > height * .9 && displayMathLead
         && Math.abs(item.transform[4] - previous.transform[4]) > 40) || centeredMathAfterProse
-      const equationContinuation = (isEquation(currentParagraph) && (isEquation(value)
+      const inlineRadical = !pendingEOL && !previous.hasEOL && Math.abs(horizontalGap) < height * .8 && verticalGap < height * 1.2
+        && (value === '√' || (previous.str.trim() === '√' && value.length <= 3))
+      const equationContinuation = inlineRadical || (isEquation(currentParagraph) && (isEquation(value)
         || (pendingEOL && mathFont(item))
         || (value.length <= 4 && Math.abs(item.transform[4] - previous.transform[4]) < 24)))
         || (displayMathRun && (isEquation(value) || mathFont(item) || /^\(?\d{1,4}\)?$/.test(value) || value.length <= 4))
-      const columnReset = rawColumnReset && !equationContinuation
+      const orientationBoundary = (Math.abs(previous.transform[1]) > Math.abs(previous.transform[0])) !== (Math.abs(item.transform[1]) > Math.abs(item.transform[0]))
+        && (previous.str.length > 12 || item.str.length > 12)
+      const columnReset = orientationBoundary || (rawColumnReset && !equationContinuation)
       const displayToProse = previous.hasEOL && verticalGap > height * .9 && isEquation(currentParagraph) && !isEquation(value) && !equationContinuation
       const numberedDisplayToProse = previous.hasEOL && /^\(\d{1,4}\)$/.test(previous.str.trim()) && verticalGap > height * .9
       const centeredDisplayAfterProse = startsDisplayMath
@@ -98,28 +109,34 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       // against 0.80x), so the title kept absorbing the paragraph that follows it.
       // A numbered title followed by a real change in glyph size is a boundary.
       const headingToBody = !equationContinuation && verticalGap > height * .75
-        && /^\d+(?:\.\d+)*\s+[A-Z]/.test(currentParagraph) && !/[.!?]$/.test(currentParagraph)
-        && currentParagraph.length < 120 && Math.abs(nextHeight - height) > height * .08
-      const paragraphGap = headingToBody || (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
+        && ((numberedTitle.test(currentParagraph) && !/[.!?]$/.test(currentParagraph)
+        && currentParagraph.length < 120 && (Math.abs(nextHeight - height) > height * .08 || (!!item.fontName && item.fontName !== previous.fontName))) || namedHeading.test(currentParagraph))
+      const captionBodyBoundary = captionStart.test(currentParagraph) && verticalGap > height * .75
+        && weights[previous.fontName ?? ''] === 700
+        && (weights[item.fontName ?? ''] === 400 || nextHeight > height * 1.08)
+      const paragraphGap = captionBodyBoundary || headingToBody || (!equationContinuation && previous.hasEOL && verticalGap > height * 1.55)
         || (!equationContinuation && pendingEOL && verticalGap > height * 1.64) || displayToProse || numberedDisplayToProse || centeredDisplayAfterProse
       // A number at an inline font boundary is often a subscript or a measured
       // dimension, not a section number (e.g. rho + "0 of ...", 300 mm × 300 mm).
-      const headingBoundary = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix)\b/i.test(value)
+      const headingBoundary = (verticalGap > height * .75 && (namedHeading.test(value) || /^appendix\b/i.test(value)))
         || captionStart.test(value)
-        || (verticalGap > height * .75 && /^\d+(?:\.\d+)*\s+[A-Z]/.test(value))
+        || (verticalGap > height * .75 && numberedTitle.test(value))
         // Numbered run-in subsection titles can use the same regular font and
         // line spacing as prose. Preserve their new paragraph without inventing
         // bold weight or splitting the body that follows on the same baseline.
         || (verticalGap > height * .75 && /^\(\d{1,3}\)\s+[A-Z][^.!?]{1,100}[.:]$/.test(value) && value.split(/\s+/).length <= 9)
+      const bulletBoundary = verticalGap > height * .6 && /^[•●▪]\s*/.test(value)
       const displayGap = !equationContinuation && verticalGap > height * 1.8
       const fontSizeBoundary = !equationContinuation && verticalGap > height * .75 && (nextHeight < height * .8 || nextHeight > height * 1.2)
       // An empty table cell arrives as a lone '-'. A word broken across lines keeps a
       // letter in front of its hyphen, so only join in that case. Otherwise one
       // empty cell swallows the caption boundary that follows it, because a true
       // joinHyphen skips every boundary test below, and table and caption merge.
-      const joinHyphen = /[A-Za-zÀ-ɏ가-힣]-$/.test(previous.str.trimEnd()) && !columnReset
+      const trailingHyphen = /[A-Za-zÀ-ɏ가-힣]-$/.test(previous.str.trimEnd())
+      const joinHyphen = trailingHyphen && !columnReset && !headingBoundary && /^[a-zà-ɏ가-힣]/.test(value) && verticalGap > height * .6
+      const inlineHyphen = trailingHyphen && verticalGap < height * .3 && !headingBoundary
       if (joinHyphen && combined.endsWith('-')) { combined = combined.slice(0, -1); const lastRange = ranges.at(-1); if (lastRange) lastRange.end -= 1 }
-      combined += joinHyphen ? '' : (columnReset || paragraphGap || headingBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
+      combined += joinHyphen || inlineHyphen ? '' : (columnReset || paragraphGap || headingBoundary || bulletBoundary || displayGap || fontSizeBoundary ? '\n\n' : ' ')
       if (startsDisplayMath) displayMathRun = true
       if (numberedDisplayToProse || (displayMathRun && !equationContinuation && !mathFont(item) && wordCount(value) >= 3)) displayMathRun = false
     }
@@ -141,15 +158,16 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
       parts.push({ text: displayWithProse[2], start: paragraphStart + proseOffset, end: paragraphStart + proseOffset + displayWithProse[2].length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: displayWithProse[2] })
       continue
     }
-    if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph)) {
+    if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph) || (numberedTitle.test(paragraph) && paragraph.length < 140 && !/[.!?]\s+[A-Z]/.test(paragraph.replace(/^(?:[IVX]+\.|\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+/, ''))) || namedHeading.test(paragraph)) {
       parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
     }
     // The English sentence segmenter reads the full stop in "0 . 5" or "Fig. 2" as
     // an ending and chops formulas and abbreviations apart. Masking keeps the same
     // length, so offsets hold and each cut can be read back out of the original.
     const masked = paragraph
+      .replace(/\b([A-Z][a-z]+\s+[A-Z])\.(?=\s+[A-Z][a-z])/g, `$1${sentenceGuard}`)
       .replace(/(\d)(\s*)\.(\s*)(\d)/g, `$1$2${sentenceGuard}$3$4`)
-      .replace(/\b(?:Fig|Figs|Eq|Eqs|Sec|Ref|Refs|Tab|No|vs|cf|al|approx|resp|etc)\./gi, (whole) => `${whole.slice(0, -1)}${sentenceGuard}`)
+      .replace(/\b(?:Fig|Figs|Eq|Eqs|Sec|Ref|Refs|Tab|No|vs|cf|al|approx|resp|etc|Dr|Prof|Mr|Mrs|Ms|St)\./gi, (whole) => `${whole.slice(0, -1)}${sentenceGuard}`)
     const sentences = typeof Intl.Segmenter === 'function'
       ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(masked)]
         .map((part) => ({ segment: paragraph.slice(part.index, part.index + part.segment.length), index: part.index }))
@@ -176,8 +194,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     const averageHeight = heights.reduce((sum, value) => sum + value, 0) / Math.max(1, heights.length)
     const punctuation = (part.text.match(/[.!?;:]/g) ?? []).length
     const digits = (part.text.match(/\d/g) ?? []).length
-    const numberedHeading = /^\d+(?:\.\d+)+\s+/.test(part.text) || (/^\d+\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
-    const sectionHeading = numberedHeading || /^(?:abstract$|references$|acknowledg(?:e)?ments?$|appendix\b)/i.test(part.text)
+    const numberedHeading = /^(?:\d+(?:\.\d+)+|[A-Z]\.\d+)\.?\s+/.test(part.text) || (/^(?:\d+\.?|[IVX]+\.)\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
+    const sectionHeading = numberedHeading || namedHeading.test(part.text) || /^appendix\b/i.test(part.text)
     const caption = captionStart.test(part.text)
     const shortFragments = matchedItems.filter((item) => item.str.trim().length < 32).length
     const lineYs = new Set(matchedItems.map((item) => Math.round(item.transform[5] / 3)))
@@ -204,7 +222,21 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
     const fontMarkedEquation = !caption && !proseMathClause && part.text.length < 260 && mathFontRatio >= .45 && (part.text.match(/[A-Za-z]{3,}/g)?.length ?? 0) < 4
     // A missing font mapping can be an inequality or an experimental condition.
     // Preserve the original pixels instead of asking a translator to guess it.
-    const kind: TranslationSegment['kind'] = part.text.includes('\uFFFD') ? 'artifact' : caption ? 'caption'
+      const algorithm = /^Algorithm\s+\d+\b/i.test(part.text) && /(?:\b\d+\s*:|←|\b(?:Input|Output|Require|Ensure):)/.test(part.text)
+    const rotatedLabels = matchedItems.length > 1 && matchedItems.every(item => Math.abs(item.transform[1]) > Math.abs(item.transform[0]) * 2)
+      && items.some(item => item.str.length > 60 && Math.abs(item.transform[0]) > Math.abs(item.transform[1]) * 2)
+    const codeListing = /\b\w+\s*=\s*[A-Za-z]\w*\(/.test(part.text) && /\);/.test(part.text)
+      || (part.text.match(/\b[A-Z]\w*\([^)]*\);/g)?.length ?? 0) >= 2
+    // Panel headings can be emitted right-to-left on the same baseline. They
+    // are separate labels, not one prose sentence spanning the entire diagram.
+    const panelLabels = !/[.!?]/.test(part.text) && matchedItems.some((item, at) => {
+      const previous = matchedItems[at - 1]
+      return previous && item.transform[4] + item.width < previous.transform[4] - averageHeight * 3
+        && Math.abs(item.transform[5] - previous.transform[5]) < averageHeight * .4
+        && wordCount(item.str) >= 3 && wordCount(previous.str) >= 3
+    })
+    const kind: TranslationSegment['kind'] = algorithm ? 'table' : (rotatedLabels || codeListing || panelLabels || part.text.includes('\uFFFD') || /[\u0080-\u009f]|(?:ffi){3,}/.test(part.text) || ((part.text.match(/[ðÞþ¼]/g)?.length ?? 0) >= 3 && /[=χρ∑∫]/.test(part.text))) ? 'artifact' : caption ? 'caption'
+      : sectionHeading && part.text.length < 140 ? 'heading'
       : isEquation(part.text) || fontMarkedEquation ? 'equation'
         : likelyGraphicOrTable ? 'artifact'
           : sectionHeading || (part.text === part.paragraphContext && punctuation === 0 && part.text.length < 140 && averageHeight > bodyHeight * 1.08) ? 'heading' : 'text'
@@ -213,8 +245,8 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
   const shortLayoutFragments = preliminary.filter((segment) => ['text', 'heading'].includes(segment.kind) && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)).length
   const denseLayoutPage = shortLayoutFragments >= 6 && shortLayoutFragments / Math.max(1, preliminary.length) > .18
   const classified = preliminary.map((segment, index) => {
-    if (segment.kind === 'heading' && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
-    const semanticHeading = /^(?:abstract|references|acknowledg(?:e)?ments?|appendix\b|\d+(?:\.\d+)*\s+)/i.test(segment.source)
+    if (segment.kind === 'heading' && !numberedTitle.test(segment.source) && !namedHeading.test(segment.source) && preliminary[index + 1]?.kind === 'caption' && !/^(?:figure|table|algorithm)/i.test(segment.source)) return { ...segment, kind: 'artifact' as const }
+    const semanticHeading = numberedTitle.test(segment.source) || /^(?:abstract|references|acknowledg(?:e)?ments?|appendix\b|\d+(?:\.\d+)*\s+|[A-Z]\.\d+\s+)/i.test(segment.source)
     if (denseLayoutPage && ['text', 'heading'].includes(segment.kind) && !semanticHeading && segment.source.length < 38 && !/[.!?:]$/.test(segment.source)) return { ...segment, kind: 'artifact' as const }
     return segment
   })
@@ -234,4 +266,3 @@ export function segmentsFromItems(page: number, items: PdfTextItem[]): Translati
 function wordCount(value: string) {
   return value.match(/[A-Za-z가-힣]{2,}/g)?.length ?? 0
 }
-

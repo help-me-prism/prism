@@ -1094,7 +1094,7 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   const preservedParagraphs = unsafeParagraphIds(merged)
   const translatable = (segment: TranslationSegment) => ['text', 'heading', 'caption'].includes(segment.kind) && segment.source.trim().length > 1 && !preservedParagraphs.has(segment.blockId ?? '')
   const bodyIds = new Set(withoutBibliography(merged).map(segment => segment.id))
-  const inScope = (segment: TranslationSegment) => translatable(segment) && (pages ? pages.includes(segment.page) : bodyIds.has(segment.id))
+  const inScope = (segment: TranslationSegment) => translatable(segment) && bodyIds.has(segment.id) && (!pages || pages.includes(segment.page))
   if (force) for (const segment of merged) if (inScope(segment)) segment.translation = undefined
   const missing = merged.filter((segment) => inScope(segment) && !segment.translation)
   const rejectedIds = new Set<string>()
@@ -1113,18 +1113,36 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     const request = prepareTranslationRequest(input, contextFor(input))
     const output = await runTranslationCli(settings.translationProvider, settings.translationModel, request.prompt, jobKey)
     if (run.cancelled) return
-    const checked = inspectTranslationRequest(output, request)
+    let checked: ReturnType<typeof inspectTranslationRequest>
+    try { checked = inspectTranslationRequest(output, request) } catch (error) {
+      checked = { accepted: new Map<string, string>(), rejected: input.map(item => ({ id: item.id, reason: error instanceof Error ? error.message : '번역 응답 형식 오류' })) }
+    }
     const translated = checked.accepted
+    // Retry only failed items, once, in smaller batches; completed work is never billed twice.
     checked.rejected.forEach(item => rejectedIds.add(item.id))
     for (const segment of merged) if (translated.has(segment.id)) segment.translation = translated.get(segment.id)
     cache = { version: 1, provider: settings.translationProvider, model: settings.translationModel, sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: merged }
     await atomicWriteFile(record.translationPath, JSON.stringify(cache, null, 2))
+    for (let retryIndex = 0; retryIndex < checked.rejected.length; retryIndex += 6) {
+      if (run.cancelled) return
+      const ids = new Set(checked.rejected.slice(retryIndex, retryIndex + 6).map(item => item.id))
+      const retryInput = input.filter(item => ids.has(item.id))
+      const retryRequest = prepareTranslationRequest(retryInput, contextFor(retryInput))
+      const retryOutput = await runTranslationCli(settings.translationProvider, settings.translationModel, retryRequest.prompt, jobKey)
+      if (run.cancelled) return
+      let retry: ReturnType<typeof inspectTranslationRequest>
+      try { retry = inspectTranslationRequest(retryOutput, retryRequest) } catch { continue }
+      for (const segment of merged) if (retry.accepted.has(segment.id)) {
+        segment.translation = retry.accepted.get(segment.id); rejectedIds.delete(segment.id)
+      }
+      await atomicWriteFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2))
+    }
     const completedSegments = merged.filter((segment) => inScope(segment) && segment.translation).length
     safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, completedSegments, totalSegments, segments: merged, force })
   }
   for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'table' || segment.kind === 'artifact') segment.translation = segment.source
   await atomicWriteFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2))
-  safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged, warning: rejectedIds.size ? `${rejectedIds.size}개 문장은 수치·수식 보존 검사를 통과하지 못해 원문을 유지했습니다. 나머지 번역은 저장했습니다. 해당 페이지에서 다시 시도할 수 있습니다.` : undefined })
+  safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged, warning: rejectedIds.size ? `${rejectedIds.size}개 문장은 자동 재시도 후에도 번역 검증을 통과하지 못해 원문을 유지했습니다. 나머지 번역은 저장했습니다. 해당 페이지에서 다시 시도할 수 있습니다.` : undefined })
   } catch (reason) { if (!run.cancelled) throw reason } finally { if (translationRuns.get(jobKey) === run) translationRuns.delete(jobKey) }
 }
 

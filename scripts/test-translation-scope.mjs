@@ -20,3 +20,5 @@ for (const invalid of [[], [{ left: 0, top: 0, width: NaN, height: 9, fontSize: 
   assert(unsafeParagraphIds([precise[0], { ...precise[1], preciseRects: invalid }]).has('mixed'), 'Incomplete or malformed geometry must retain the safe original paragraph')
 }
 console.log('Translation scope passed: bibliography excluded from body, appendices retained, prose mentions unaffected.')
+
+assert.equal(withoutBibliography([{kind:'heading',source:'References and Notes'}, {kind:'text',source:'1. Author (2020).'}, {kind:'caption',source:'Fig. 1. Experimental results.'}]).length,1,'Figures placed after references still have translatable captions')

@@ -1,5 +1,7 @@
+import { paddedExcerptBounds } from './excerptBounds'
 import { useEffect, useRef } from 'react'
 import { joinPreservedRegions } from './preservedRegions'
+import { figureOverlapsProse } from './figureGeometry'
 import PaperTranslationLayout from './PaperTranslationLayout'
 import FlowProseExcerpt from './FlowProseExcerpt'
 import { clearCropBoundary, sourceParagraphIndent, sourceParagraphLineHeight } from './paperLayout'
@@ -10,7 +12,7 @@ import { publicationDoiRects } from './publicationFurniture'
 import ScientificTranslationText from './ScientificTranslationText'
 
 type Rect = { left: number; top: number; width: number; height: number; fontSize?: number }
-export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, alignProse = false }: { source: HTMLCanvasElement; rect: Rect; label: string; padding?: number; clipRects?: Rect[]; alignProse?: boolean }) {
+export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, alignProse = false, neighbors = [] }: { source: HTMLCanvasElement; rect: Rect; label: string; padding?: number; clipRects?: Rect[]; alignProse?: boolean; neighbors?: Rect[] }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     // PDF.js can release/reset a source canvas between the render that passed
@@ -28,9 +30,10 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
       canvas.current.getContext('2d')?.drawImage(source, 0, 0)
       return
     }
-    const left = Math.max(0, rect.left - padding); const top = Math.max(0, rect.top - padding)
-    const width = Math.min(source.width / ratio - left, rect.width + padding * 2)
-    const height = Math.min(source.height / ratio - top, rect.height + padding * 2)
+    const bounded = paddedExcerptBounds(rect, neighbors, padding)
+    const { left, top } = bounded
+    const width = Math.min(source.width / ratio - left, bounded.width)
+    const height = Math.min(source.height / ratio - top, bounded.height)
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
     canvas.current.width = Math.round(width * ratio); canvas.current.height = Math.round(height * ratio)
     canvas.current.style.width = `${width}px`
@@ -44,7 +47,7 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
           (destination.left - left) * ratio, (destination.top - top) * ratio, slice.width * ratio, slice.height * ratio)
       }
     } else context.drawImage(source, left * ratio, top * ratio, width * ratio, height * ratio, 0, 0, canvas.current.width, canvas.current.height)
-  }, [source, rect.left, rect.top, rect.width, rect.height, padding, clipRects, alignProse])
+  }, [source, rect.left, rect.top, rect.width, rect.height, padding, clipRects, alignProse, neighbors])
   return <canvas ref={canvas} role="img" aria-label={label} />
 }
 
@@ -54,6 +57,9 @@ export default function ReadingTranslation({ segments, translation, source, read
   rectangles: (segment: TranslationSegment) => Rect[]; figures: Rect[]; sourceRects?: Array<Rect & { text?: string }>; highlighted?: string;
   onFigureRect: (rect: Rect) => void; onHighlight: (id?: string) => void; onTag: (segment: TranslationSegment) => void; onFindNotes: (segment: TranslationSegment) => void;
 }) {
+  // Defense in depth: a bad or stale figure estimate must never replace an
+  // abstract with a full-page bitmap while the UI reports successful translation.
+  figures = figures.filter(rect => !figureOverlapsProse(rect, segments.map(segment => ({ kind: segment.kind, source: segment.source, rects: rectangles(segment) }))))
   const mixedParagraphs = mixedProseParagraphs(segments)
   const unsafeParagraphs = unsafeParagraphIds(segments)
   // Cached original equations/tables/artifacts are preservation records, not
@@ -82,7 +88,7 @@ export default function ReadingTranslation({ segments, translation, source, read
   const clips = (items: TranslationSegment[]) => mayMaskExcerpt(items, mixedParagraphs, originalParagraphs) && (items.every(item => item.preciseRects?.length) || items.every(item => ['text', 'artifact'].includes(item.kind) && item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId))) ? items.flatMap(rectangles) : undefined
   const crop = (rect: Rect, label: string, clipRects?: Rect[], alignProse = false) => {
     if (!source || !ready) return null
-    const original = <OriginalExcerpt source={source} rect={rect} label={label} clipRects={clipRects} alignProse={alignProse} />
+    const original = <OriginalExcerpt source={source} rect={rect} label={label} clipRects={clipRects} alignProse={alignProse} neighbors={sourceRects} />
     return format === 'flow' && alignProse && clipRects ? <FlowProseExcerpt source={source} rects={clipRects} label={label} fallback={original} /> : original
   }
   // Reposition only a precisely located protected sentence between translated prose.
@@ -94,10 +100,11 @@ export default function ReadingTranslation({ segments, translation, source, read
   const intactProseCrop = (items: TranslationSegment[], rect: Rect) => {
     // Keep every original sentence selectable even when its paragraph is one
     // bitmap. These are siblings of the canvas, never nested interactive buttons.
-    const left = Math.max(0, rect.left - 3), top = Math.max(0, rect.top - 3)
+    const bounded = paddedExcerptBounds(rect, sourceRects)
+    const { left, top } = bounded
     const sourceWidth = source ? parseFloat(source.style.width) || source.width : rect.left + rect.width + 6
     const sourceHeight = source ? parseFloat(source.style.height) || source.height : rect.top + rect.height + 6
-    const width = Math.min(sourceWidth - left, rect.width + 6), height = Math.min(sourceHeight - top, rect.height + 6)
+    const width = Math.min(sourceWidth - left, bounded.width), height = Math.min(sourceHeight - top, bounded.height)
     return <div style={{ position: 'relative' }}>{crop(rect, '번역 전 원문 문단')}
       <div className="anchor-layer">{items.flatMap(segment => rectangles(segment).map((box, index) => <span key={`${segment.id}-${index}`} data-anchor={segment.id} role="button" tabIndex={0} aria-label={segment.source.slice(0, 100)} className={highlighted === segment.id ? 'highlighted' : ''} style={{ left: `${(box.left - left) / width * 100}%`, top: `${(box.top - top) / height * 100}%`, width: `${box.width / width * 100}%`, height: `${box.height / height * 100}%`, pointerEvents: 'auto' }} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
     </div>
@@ -115,7 +122,7 @@ export default function ReadingTranslation({ segments, translation, source, read
       // A detected figure crop commonly includes its caption so the evidence
       // tag remains one visual region. Do not let that crop suppress a real
       // caption translation; layout will place the translated caption after it.
-      if (containedInFigure(block.rect) && !(block.kind === 'caption' && block.items.some(hasProseTranslation))) return []
+      if (containedInFigure(block.rect) && !block.items.some(hasProseTranslation)) return []
       const kind = block.kind
       const missingProse = block.items.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id))
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind) || missingProse
@@ -135,7 +142,7 @@ export default function ReadingTranslation({ segments, translation, source, read
     })
     const figureItems = figures.map((rect, index) => ({ id: `figure-${index}`, rect, kind: 'figure', content: <figure>{figureCrop(rect)}</figure> }))
     const contentRects = [...items, ...figureItems].map(item => item.rect)
-    const top = Math.max(0, clearCropBoundary(Math.min(sourceHeight, ...contentRects.map(rect => rect.top)) - 12, sourceRects, 'before'))
+    const top = Math.max(0, clearCropBoundary(Math.min(sourceHeight, ...contentRects.map(rect => rect.top)) - 2, sourceRects, 'before'))
     const bottom = Math.min(sourceHeight, clearCropBoundary(Math.max(sourceHeight * .92, Math.max(0, ...contentRects.map(rect => rect.top + rect.height)) + 12), sourceRects, 'after'))
     const furniture = contentRects.length ? [
       { left: 0, top: 0, width: sourceWidth, height: top },

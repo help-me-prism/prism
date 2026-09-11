@@ -1,6 +1,6 @@
 export type PreservedRect = { left: number; top: number; width: number; height: number }
-type Region = { id: string; items: Array<{ kind: string }>; rect?: PreservedRect }
-const preserved = (region: Region) => region.items.every(item => ['equation', 'table', 'artifact'].includes(item.kind))
+type Region = { id: string; items: Array<{ kind: string; blockId?: string }>; rect?: PreservedRect }
+const preserved = (region: Region) => region.items.every(item => ['equation', 'table', 'artifact'].includes(item.kind) && !item.blockId?.startsWith('furniture-'))
 
 /** Reassemble adjacent original-pixel fragments before cropping a fraction or table. */
 export function joinPreservedRegions<T extends Region>(regions: T[]): T[] {

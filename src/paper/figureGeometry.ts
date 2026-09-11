@@ -1,6 +1,27 @@
 export type FigureRect = { left: number; top: number; width: number; height: number }
 export type FigureComponentMetrics = { relativeWidth?: number; row?: number; pixelWidth?: number; pixelHeight?: number }
 
+export type FigureTextEvidence = { kind: string; source: string; rects: FigureRect[] }
+
+/** PDF paths include frames, watermarks and backgrounds, not just diagrams.
+ * A graphic's bounding box is not evidence that the prose inside it is a figure.
+ * Use individual text rectangles so empty space between columns cannot veto a
+ * real plot; short axis/panel labels and captions do not count as body prose. */
+export function figureOverlapsProse(figure: FigureRect, evidence: FigureTextEvidence[]): boolean {
+  return evidence.some(item => {
+    if (!['text', 'heading'].includes(item.kind)) return false
+    const words = item.source.match(/[\p{L}]{2,}/gu)?.length ?? 0
+    if (words < (item.kind === 'heading' ? 8 : 12)) return false
+    let area = 0, overlap = 0
+    for (const rect of item.rects) {
+      area += rect.width * rect.height
+      overlap += Math.max(0, Math.min(figure.left + figure.width, rect.left + rect.width) - Math.max(figure.left, rect.left))
+        * Math.max(0, Math.min(figure.top + figure.height, rect.top + rect.height) - Math.max(figure.top, rect.top))
+    }
+    return area > 0 && overlap / area > .2
+  })
+}
+
 /** Include an adjacent caption above or below a figure. Horizontal alignment
  * and a bounded gap prevent unrelated prose from being absorbed. */
 export function figureRegionWithCaption(figure: FigureRect, captionRects: FigureRect[], scale = 1): FigureRect {

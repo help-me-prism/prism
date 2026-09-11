@@ -58,3 +58,14 @@ assert.throws(()=>inspectTranslationBatch(JSON.stringify([{id:'valid',translatio
 assert.throws(()=>inspectTranslationBatch(JSON.stringify([{id:'valid',translation:'24 h 후.'},{id:'foreign',translation:'다른 문장.'}]),mixedInput),/ID/)
 assert.throws(()=>inspectTranslationBatch('truncated [',mixedInput),/JSON/)
 console.log('Translation science passed: quantities, units, comparison direction, identifiers, repeated math/citations and bounded format recovery.')
+
+assert.throws(() => check('We measured 12 samples.', '12개 표본을 측정했다. 12'), /반복/)
+assert.throws(() => check('We measured the sample carefully.', 'We measured the sample carefully.'), /한국어/)
+assert.equal(reuseTranslations([{id:'renumbered',source:engineering}],[{id:'old-id',source:engineering,translation:engineeringKo}])[0].translation,engineeringKo,'Boundary repairs reuse validated exact source translations')
+
+assert.equal(check('Convert the input into a one-dimensional array.', '입력을 1차원 배열로 변환한다.').size,1,'Spelled-out numbers may become Korean numerical notation without introducing new values')
+assert.equal(check('On September 14, 2015 at 09:50:45 UTC the detectors observed a signal.', '2015년 9월 14일 09:50:45 UTC에 검출기들이 신호를 관측했다.').size,1,'Named calendar months may become Korean month numbers')
+assert.equal(check('Received 21 January 2016; published 11 February 2016.', '2016년 1월 21일 접수, 2016년 2월 11일 게재.').size,1)
+assert.equal(check('These advances in the past decade [14 – 16] enabled modeling.', '지난 10년 동안의 이러한 발전 [14 – 16]은 모델링을 가능하게 했다.').size,1)
+assert.throws(()=>check('These advances may enable modeling.', '이러한 발전은 5개의 모델링을 가능하게 할 수 있다.'), /수치/,'Modal may is not a source month')
+assert.throws(()=>check('On September 14, 2015 we observed a signal.', '2015년 8월 14일 신호를 관측했다.'), /수치/,'A different month remains a numerical error')

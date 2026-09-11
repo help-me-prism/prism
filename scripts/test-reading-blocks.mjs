@@ -33,3 +33,5 @@ assert.equal(groupReadingSegments([heading,body],new Set(),item=>item.id==='body
 const theorem=groupReadingSegments([{id:'theorem-title',kind:'text',source:'Theorem 2.',blockId:'thm'},{id:'theorem-body',kind:'text',source:'Assume x is positive.',blockId:'thm'},{id:'theorem-math',kind:'equation',source:'Hence, x = y.',blockId:'thm'}],new Set(),item=>item.kind==='equation'?'source':'translated')
 assert.equal(theorem.length,1,'A theorem remains one semantic block even when its final inline expression looks like display math')
 assert.equal(theorem[0].kind,'theorem')
+const metadata = [{id:'author-a',kind:'artifact',blockId:'furniture-authors'},{id:'author-b',kind:'artifact',blockId:'furniture-authors'},{id:'author-c',kind:'artifact',blockId:'furniture-authors'}]
+assert.equal(groupReadingSegments(metadata,new Set(),s=>s.id==='author-b'?'translated':'source').length,1,'Original author/affiliation pixels are one crop even when only some cached source strings pass translation validation')
