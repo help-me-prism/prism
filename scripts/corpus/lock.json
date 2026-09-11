@@ -125,10 +125,28 @@
   "url": "https://arxiv.org/pdf/2609.11716",
   "fetched": "2026-09-11"
  },
+ "holdout/baku-state-university-journal-of-l": {
+  "sha256": "4f37b4b76a139bf999c32687b2760c8e0c2cb67873b4a18c309c70c5f85367bb",
+  "bytes": 416868,
+  "url": "https://doi.org/10.30546/300045.2026.03.1.505",
+  "fetched": "2026-09-11"
+ },
  "holdout/clinical-and-experimental-otorhino": {
   "sha256": "14cfadcf76be9147d885e7e58bc328e3e41a80cbd4f4637dea36aa4f10779bbe",
   "bytes": 919734,
   "url": "https://www.e-ceo.org/upload/pdf/ceo-2025-00124.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cukurova-anestezi-ve-cerrahi-bilim": {
+  "sha256": "6396fccfd29655700a9b1cc55d9464b7c08c720d2b3c9bb2384899cb6a04ca18",
+  "bytes": 1179231,
+  "url": "https://dergipark.org.tr/en/download/article-file/4823950",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cureus": {
+  "sha256": "71a08152f361ba6beef869fbe8c7a8d911b0b4d3908eff98dc4bb962965bd997",
+  "bytes": 697239,
+  "url": "https://www.cureus.com/articles/439668-expanding-the-clinical-spectrum-of-piezo2-duplications-a-case-of-global-motor-delay-congenital-sensory-neuropathy-and-musculoskeletal-abnormalities.pdf",
   "fetched": "2026-09-11"
  },
  "holdout/digital-repository-of-ostroh-acade": {
@@ -143,6 +161,12 @@
   "url": "https://ajspiie.com/index.php/history/article/download/1148/1043/3982",
   "fetched": "2026-09-11"
  },
+ "holdout/endocrine-journal": {
+  "sha256": "ef197192a9973e33cfbc8e6a0d5bf220da3d4d2a0035d1be33636d79221dc3d3",
+  "bytes": 2300527,
+  "url": "https://www.jstage.jst.go.jp/article/endocrj/advpub/0/advpub_EJ25-0117/_pdf",
+  "fetched": "2026-09-11"
+ },
  "holdout/entukhpiir-repository-kharkiv-poly": {
   "sha256": "721143bb183471d9cfb59989b510a5a1d33cf55b8685da2f9811b01151b4f09c",
   "bytes": 390597,
@@ -155,10 +179,34 @@
   "url": "https://www.cambridge.org/core/services/aop-cambridge-core/content/view/24EA7930229EFC66F786EF1FCD7B902D/S1867299X26100993a.pdf/div-class-title-salus-case-organic-medicinal-herbal-teas-cannot-be-labelled-as-organic-div.pdf",
   "fetched": "2026-09-11"
  },
+ "holdout/financial-and-credit-activity-prob": {
+  "sha256": "e7036ac4ad32a3203c5d9e5baefb54d77610d1b2dd7722d1e233464832b6b872",
+  "bytes": 295581,
+  "url": "https://fkd.net.ua/index.php/fkd/article/download/4885/4457",
+  "fetched": "2026-09-11"
+ },
  "holdout/frontiers-in-plant-science": {
   "sha256": "f820814ca880c73696c3652d367321f1d3990c456f54aba4181da521c7c713a3",
   "bytes": 7710659,
   "url": "https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2024.1429890/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/frontiers-in-sustainable-food-syst": {
+  "sha256": "9db676cd2f2108ca23c0928450b88ff1d7ad786486c17daa3579179ccb5e1098",
+  "bytes": 525207,
+  "url": "https://www.frontiersin.org/journals/sustainable-food-systems/articles/10.3389/fsufs.2025.1653775/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/g-m-hane-niversitesi-sa-l-k-biliml": {
+  "sha256": "0655de98c1a60bca61e1bacda2251741220fa7a197303e46c929dffa067ac598",
+  "bytes": 470320,
+  "url": "https://dergipark.org.tr/en/download/article-file/2868552",
+  "fetched": "2026-09-11"
+ },
+ "holdout/galen-medical-journal": {
+  "sha256": "23486e1473e3f8cc97de610c591946cfc57d19b0067726bcd6397cbb8e2e2906",
+  "bytes": 1976367,
+  "url": "https://journals.salviapub.com/index.php/gmj/article/download/3810/3188",
   "fetched": "2026-09-11"
  },
  "holdout/hacettepe-journal-of-mathematics-a": {
@@ -173,10 +221,70 @@
   "url": "https://www.jstage.jst.go.jp/article/haigan/65/7/65_1086/_pdf",
   "fetched": "2026-09-11"
  },
+ "holdout/international-journal-of-applied-r": {
+  "sha256": "bdfc55de1815adbe2f6b1d34291f59ffa98b989479d5732c4d3c221d347da1e0",
+  "bytes": 760153,
+  "url": "https://journal.multitechpublisher.com/index.php/ijarss/article/download/2192/2352",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-journal-of-general-m": {
+  "sha256": "447d9aea1d0a336b55a931917f3edb752c841e312b24788f6ac4b4798e4e1915",
+  "bytes": 304567,
+  "url": "https://www.dovepress.com/article/download/102893",
+  "fetched": "2026-09-11"
+ },
  "holdout/international-journal-of-research-": {
   "sha256": "bc35c7343bdc69d3b30ea7e1c5d012dfd3cd5341b677ea8a63d8ec60fe8920c7",
   "bytes": 1008965,
   "url": "https://rsisinternational.org/journals/ijriss/uploads/vol10-iss7-pg2972-2995-202607_pdf.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-research-journal-on-": {
+  "sha256": "7b7f4a4c467d9ac120dc29cd897c356abb8a8a7dee2f02097b52628f57f0a3a6",
+  "bytes": 546448,
+  "url": "https://goldncloudpublications.com/index.php/irjaem/article/download/972/960",
+  "fetched": "2026-09-11"
+ },
+ "holdout/jci-insight": {
+  "sha256": "e4fae8fde8885d346f3dde6ca46348d17b988517868b4b5f59b430daa3ab341e",
+  "bytes": 2798651,
+  "url": "http://insight.jci.org/articles/view/200002/files/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-apicultural-research": {
+  "sha256": "d1b37e407ed02dc9507a6c1ae0047da8b403029376cbfc4c33ab083078df0fad",
+  "bytes": 1723875,
+  "url": "http://www.alice.cnptia.embrapa.br/bitstream/doc/1164765/1/EffectPasteurizationDehumidificationRefrigerationMaturationHoneyJAR2024.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-computing-and-electroni": {
+  "sha256": "ccd6793f6410dafdba036752a76202540a58dfebccdd5231124ba0c959feb5a9",
+  "bytes": 206837,
+  "url": "https://drpress.org/ojs/index.php/jceim/article/download/28765/28238",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-environmental-analysis-": {
+  "sha256": "314b9fb6ea42690bb863c094b5cf8919a5f2313fabf6067e56c5279e3ac06999",
+  "bytes": 246764,
+  "url": "https://www.journals.ufrpe.br/index.php/JEAP/article/download/5645/482485152",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-global-nutrition": {
+  "sha256": "0d8e2c2b7e39fa610cce945bbf8fc900e9e31d84bfd0d29b026ab816c6f5aa23",
+  "bytes": 352900,
+  "url": "https://jurnal.isagi.or.id/index.php/jgn/article/download/167/124",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-health-sciences-and-med": {
+  "sha256": "e9d02c8358350432bd3649f300b63ade3204465c0f2a5a8c83bd8dd80b395eae",
+  "bytes": 559884,
+  "url": "https://dergipark.org.tr/en/download/article-file/4979653",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-medical-and-dental-scie": {
+  "sha256": "6fa957fe76b8e1c20ea577e559b954e26c879e7c8dfc5fdb37dfa2f8b723e7c1",
+  "bytes": 420708,
+  "url": "https://doi.org/10.35629/076x-11087375",
   "fetched": "2026-09-11"
  },
  "holdout/medunab": {
@@ -191,10 +299,28 @@
   "url": "https://journals.plos.org/globalpublichealth/article/file?id=10.1371/journal.pgph.0004946&type=printable",
   "fetched": "2026-09-11"
  },
+ "holdout/plos-one": {
+  "sha256": "0c984c763455cc92b636f0de14b7a8ccce3f1d6ad02219186d397f1dbd5b0508",
+  "bytes": 680626,
+  "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0324080&type=printable",
+  "fetched": "2026-09-11"
+ },
  "holdout/riggs-journal-of-artificial-intell": {
   "sha256": "7d97967cf3c687b1fd58bcc982e0d83ba791dc1bc2077197c699f55fb9971acb",
   "bytes": 184326,
   "url": "https://journal.ilmudata.co.id/index.php/RIGGS/article/download/4345/3124",
+  "fetched": "2026-09-11"
+ },
+ "holdout/turkish-bulletin-of-hygiene-and-ex": {
+  "sha256": "deb58dadb99bb41790f0dd570532ff249b93cf11f78b7ee9c7698e02a5938298",
+  "bytes": 935288,
+  "url": "https://doi.org/10.5505/turkhijyen.2023.65481",
+  "fetched": "2026-09-11"
+ },
+ "holdout/university-journal-of-dental-scien": {
+  "sha256": "d57e87a384614c21e720efd02412fdd28672b46949f88db0a99c996080460e91",
+  "bytes": 258882,
+  "url": "https://www.ujds.in/index.php/ujds/article/download/876/469",
   "fetched": "2026-09-11"
  },
  "tune/arxiv-1011.4715": {

@@ -218,11 +218,30 @@ export function auditAnalysis(analysis) {
     findings.push({ type: 'running-furniture', page: entry.samples[0].page, kind: entry.samples[0].kind, id: entry.samples[0].id, note: `${entry.pages.size}/${numPages}쪽에 반복되는 머리말·워터마크가 번역 대상`, source: key.slice(0, 160) })
   }
 
+  // Page furniture that the extractor already preserved, over every kind rather
+  // than only the translatable ones. A PMC author-manuscript stamp ("Science.
+  // Author manuscript; available in PMC 2018 December 07.") is a grammatical
+  // sentence on every page, so the dropped-prose check read each copy as a
+  // sentence lost to translation. Preserving it is the correct behaviour; a line
+  // that repeats across the document is furniture, not prose.
+  const furniture = new Map()
+  for (const segment of flat) {
+    const key = segment.source.trim().replace(/\s+/g, ' ').replace(/\b\d+\b/g, '#')
+    if (key.length > 160 || key.length < 3) continue
+    const entry = furniture.get(key) ?? { pages: new Set(), ids: [] }
+    entry.pages.add(segment.page); entry.ids.push(segment.id); furniture.set(key, entry)
+  }
+  const repeatedIds = new Set()
+  for (const entry of furniture.values()) {
+    if (entry.pages.size < Math.max(3, numPages * .25)) continue
+    for (const id of entry.ids) repeatedIds.add(id)
+  }
+
   for (const segments of byPage.values()) {
     for (const [index, segment] of segments.entries()) {
       const text = segment.source.trim()
       const previous = segments[index - 1]
-      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text)) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
+      if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id)) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
       if (segment.kind === 'text' && body.has(segment.id) && looksLikeTableRow(text)) add('table-as-prose', segment, '표 셀 행이 번역 대상 산문으로 분류됨')
       if (inScope(segment) && looksLikeDisplayedEquation(text)) add('equation-as-prose', segment, '수식이 번역 대상으로 분류됨')
       if (inScope(segment) && segment.kind !== 'caption' && inlineMathCut(text)) add('inline-math-cut', segment, '줄글 내 수식 중간에서 조각이 끊김')

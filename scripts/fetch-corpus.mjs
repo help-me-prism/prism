@@ -41,6 +41,13 @@ for (const split of splits) {
     if (onDisk && !recheck) { report.cached.push(key); continue }
 
     let bytes = onDisk
+    // A paper the reader owns but no one can download — paywalled, or a PDF the
+    // user added themselves. It is copied from where it already is, and simply
+    // skipped on a machine that does not have it.
+    if (!bytes && paper.local) {
+      bytes = await fs.readFile(paper.local).catch(() => null)
+      if (!bytes) { report.failed.push(`${key}: local file not present (${paper.local})`); continue }
+    }
     if (!bytes) {
       try {
         const response = await fetch(paper.url, { headers, redirect: 'follow' })

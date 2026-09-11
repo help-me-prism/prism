@@ -106,6 +106,24 @@
     "journal": "PLOS Biology",
     "lang": "en",
     "family": "journal"
+   },
+   {
+    "id": "doi_10.1126_science.1225829",
+    "local": "C:/Users/User/Documents/paper_review/papers/doi_10.1126_science.1225829/original.pdf",
+    "publisher": "Science",
+    "journal": "Science",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Biology"
+   },
+   {
+    "id": "doi_10.1038_s41586-021-04058-1",
+    "local": "C:/Users/User/Documents/paper_review/papers/doi_10.1038_s41586-021-04058-1/original.pdf",
+    "publisher": "Nature",
+    "journal": "Nature",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Biology"
    }
   ],
   "holdout": [
@@ -392,6 +410,195 @@
     "journal": "Hacettepe Journal of Mathematics and Statistics",
     "lang": "en",
     "family": "journal"
+   },
+   {
+    "id": "galen-medical-journal",
+    "url": "https://journals.salviapub.com/index.php/gmj/article/download/3810/3188",
+    "publisher": "Galen Medical Journal",
+    "journal": "Galen Medical Journal",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Biochemistry, Genetics and Molecular Biology"
+   },
+   {
+    "id": "journal-of-health-sciences-and-med",
+    "url": "https://dergipark.org.tr/en/download/article-file/4979653",
+    "publisher": "Association of Food Technology, Turkey",
+    "journal": "Journal of Health Sciences and Medicine",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "financial-and-credit-activity-prob",
+    "url": "https://fkd.net.ua/index.php/fkd/article/download/4885/4457",
+    "publisher": "University of Banking of the National Bank of Ukraine",
+    "journal": "Financial and credit activity problems of theory and practice",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "turkish-bulletin-of-hygiene-and-ex",
+    "url": "https://doi.org/10.5505/turkhijyen.2023.65481",
+    "publisher": "Turkish Bulletin of Hygiene and Experimental Biology",
+    "journal": "Turkish Bulletin of Hygiene and Experimental Biology",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "journal-of-computing-and-electroni",
+    "url": "https://drpress.org/ojs/index.php/jceim/article/download/28765/28238",
+    "publisher": "Journal of Computing and Electronic Information Management",
+    "journal": "Journal of Computing and Electronic Information Management",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "international-journal-of-applied-r",
+    "url": "https://journal.multitechpublisher.com/index.php/ijarss/article/download/2192/2352",
+    "publisher": "International Journal of Applied Research and Sustainable Sciences",
+    "journal": "International Journal of Applied Research and Sustainable Sciences",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "jci-insight",
+    "url": "http://insight.jci.org/articles/view/200002/files/pdf",
+    "publisher": "American Society for Clinical Investigation",
+    "journal": "JCI Insight",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Biochemistry, Genetics and Molecular Biology"
+   },
+   {
+    "id": "journal-of-global-nutrition",
+    "url": "https://jurnal.isagi.or.id/index.php/jgn/article/download/167/124",
+    "publisher": "Journal of Global Nutrition",
+    "journal": "Journal of Global Nutrition",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "plos-one",
+    "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0324080&type=printable",
+    "publisher": "Public Library of Science",
+    "journal": "PLoS ONE",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "cureus",
+    "url": "https://www.cureus.com/articles/439668-expanding-the-clinical-spectrum-of-piezo2-duplications-a-case-of-global-motor-delay-congenital-sensory-neuropathy-and-musculoskeletal-abnormalities.pdf",
+    "publisher": "Cureus, Inc.",
+    "journal": "Cureus",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "international-journal-of-general-m",
+    "url": "https://www.dovepress.com/article/download/102893",
+    "publisher": "Dove Medical Press",
+    "journal": "International Journal of General Medicine",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "frontiers-in-sustainable-food-syst",
+    "url": "https://www.frontiersin.org/journals/sustainable-food-systems/articles/10.3389/fsufs.2025.1653775/pdf",
+    "publisher": "Frontiers Media",
+    "journal": "Frontiers in Sustainable Food Systems",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "university-journal-of-dental-scien",
+    "url": "https://www.ujds.in/index.php/ujds/article/download/876/469",
+    "publisher": "University Journal of Dental Sciences",
+    "journal": "University Journal of Dental Sciences",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "international-research-journal-on-",
+    "url": "https://goldncloudpublications.com/index.php/irjaem/article/download/972/960",
+    "publisher": "International Research Journal on Advanced Engineering and Management (IRJAEM)",
+    "journal": "International Research Journal on Advanced Engineering and Management (IRJAEM)",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "journal-of-medical-and-dental-scie",
+    "url": "https://doi.org/10.35629/076x-11087375",
+    "publisher": "Journal of medical and dental science research.",
+    "journal": "Journal of medical and dental science research.",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "journal-of-environmental-analysis-",
+    "url": "https://www.journals.ufrpe.br/index.php/JEAP/article/download/5645/482485152",
+    "publisher": "Federal Rural University of Pernambuco",
+    "journal": "Journal of Environmental Analysis and Progress",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
+   },
+   {
+    "id": "baku-state-university-journal-of-l",
+    "url": "https://doi.org/10.30546/300045.2026.03.1.505",
+    "publisher": "Baku State University Journal of Life Sciences & Biology",
+    "journal": "Baku State University Journal of Life Sciences & Biology",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "g-m-hane-niversitesi-sa-l-k-biliml",
+    "url": "https://dergipark.org.tr/en/download/article-file/2868552",
+    "publisher": "Gümüşhane Üniversitesi Sağlık Bilimleri Dergisi",
+    "journal": "Gümüşhane Üniversitesi Sağlık Bilimleri Dergisi",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "endocrine-journal",
+    "url": "https://www.jstage.jst.go.jp/article/endocrj/advpub/0/advpub_EJ25-0117/_pdf",
+    "publisher": "Japan Endocrine Society",
+    "journal": "Endocrine Journal",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "cukurova-anestezi-ve-cerrahi-bilim",
+    "url": "https://dergipark.org.tr/en/download/article-file/4823950",
+    "publisher": "Süleyman Demirel University",
+    "journal": "Cukurova Anestezi ve Cerrahi Bilimler Dergisi",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Medicine"
+   },
+   {
+    "id": "journal-of-apicultural-research",
+    "url": "http://www.alice.cnptia.embrapa.br/bitstream/doc/1164765/1/EffectPasteurizationDehumidificationRefrigerationMaturationHoneyJAR2024.pdf",
+    "publisher": "Taylor & Francis",
+    "journal": "Journal of Apicultural Research",
+    "lang": "en",
+    "family": "journal",
+    "domain": "Agricultural and Biological Sciences"
    }
   ]
  }

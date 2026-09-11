@@ -2,15 +2,15 @@
  "recorded": "2026-09-11",
  "splits": {
   "tune": {
-   "papers": 13,
+   "papers": 15,
    "unreadable": 0,
-   "pages": 231,
-   "findings": 48,
+   "pages": 264,
+   "findings": 50,
    "byType": {
     "running-furniture": 1,
-    "micro-fragment": 9,
+    "micro-fragment": 10,
     "inline-math-cut": 2,
-    "heading-too-long": 5,
+    "heading-too-long": 6,
     "dropped-prose": 23,
     "caption-absorbed-table": 3,
     "equation-as-prose": 2,
@@ -23,34 +23,36 @@
      "findings": 42
     },
     "journal": {
-     "papers": 3,
-     "pages": 56,
-     "findings": 6
+     "papers": 5,
+     "pages": 89,
+     "findings": 8
     }
    },
    "byLang": {
     "en": {
-     "papers": 13,
-     "pages": 231,
-     "findings": 48
+     "papers": 15,
+     "pages": 264,
+     "findings": 50
     }
    }
   },
   "holdout": {
-   "papers": 33,
+   "papers": 54,
    "unreadable": 0,
-   "pages": 800,
-   "findings": 312,
+   "pages": 1032,
+   "findings": 407,
    "byType": {
-    "equation-as-prose": 66,
-    "dropped-prose": 10,
-    "micro-fragment": 123,
-    "heading-too-long": 30,
-    "inline-math-cut": 19,
-    "table-as-prose": 46,
+    "equation-as-prose": 69,
+    "dropped-prose": 33,
+    "micro-fragment": 141,
+    "heading-too-long": 46,
+    "inline-math-cut": 28,
+    "table-as-prose": 66,
     "figure-over-reading-page": 16,
     "split-mid-sentence": 1,
-    "running-furniture": 1
+    "running-furniture": 4,
+    "caption-absorbed-table": 2,
+    "replacement-glyph": 1
    },
    "byFamily": {
     "arxiv": {
@@ -59,16 +61,16 @@
      "findings": 256
     },
     "journal": {
-     "papers": 13,
-     "pages": 160,
-     "findings": 56
+     "papers": 34,
+     "pages": 392,
+     "findings": 151
     }
    },
    "byLang": {
     "en": {
-     "papers": 27,
-     "pages": 730,
-     "findings": 295
+     "papers": 48,
+     "pages": 962,
+     "findings": 390
     },
     "und": {
      "papers": 2,
