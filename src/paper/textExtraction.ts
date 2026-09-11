@@ -176,13 +176,17 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
   // needs to know nothing about the script.
   // Only the leading between body lines: a table's rows and a display's parts
   // jump by their own amounts and would drag the median away from the prose.
-  const bodyLine = (item?: PdfTextItem) => !!item && item.str.trim().length > 12
-    && Math.abs(Math.abs(item.height || item.transform[3]) - bodyHeight) < bodyHeight * .15
-  const baselineGaps = items.slice(1).flatMap((item, index) => {
-    if (!bodyLine(items[index]) || !bodyLine(item)) return []
-    const gap = Math.abs(items[index].transform[5] - item.transform[5])
-    return gap > bodyHeight * .4 && gap < bodyHeight * 4 ? [gap] : []
-  }).sort((a, b) => a - b)
+  // Measured between distinct baselines rather than between consecutive items:
+  // a line arrives as one item or as a dozen depending on the PDF, and pairing
+  // items gave an English abstract inside a Korean paper only two samples, too
+  // few to trust, so that page fell back to the fixed threshold and its lines
+  // became headings again.
+  const baselines = [...new Set(items.filter(item => item.str.trim().length > 1)
+    .map(item => Math.round(item.transform[5] * 2) / 2))].sort((a, b) => b - a)
+  const baselineGaps = baselines.slice(1)
+    .map((baseline, index) => baselines[index] - baseline)
+    .filter(gap => gap > bodyHeight * .4 && gap < bodyHeight * 4)
+    .sort((a, b) => a - b)
   const lineGap = baselineGaps[Math.floor(baselineGaps.length / 2)] ?? bodyHeight * 1.2
   // Only a page that really is set wide gets the derived threshold; anything at
   // ordinary Latin leading keeps exactly the behaviour it had.
