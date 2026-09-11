@@ -1,6 +1,6 @@
 import { latexSentenceSource } from './paper/latexProse'
 import { textItemRect, segmentRects, type ItemRect } from './paper/itemGeometry'
-import { reuseTranslations } from '../electron/translationHarness'
+import { reuseTranslations, joinedTranslationIndex } from '../electron/translationHarness'
 import { collectSourceFontWeights, dominantSourceWeight } from './paper/sourceEmphasis'
 import { captureGlyphGeometry } from './paper/glyphGeometry'
 import { mixedProseParagraphs } from './paper/excerptGeometry'
@@ -738,9 +738,13 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
+        // A sentence the extractor now keeps whole was several cached ones, so
+        // it matches neither by id nor by text. Its pieces are still cached.
+        const byJoinedSource = joinedTranslationIndex(cache.segments)
         const candidates = source.segments.map((segment) => {
           const previous = byId.get(segment.id)
-          const translatedBySource = bySource.get(segment.source.replace(/\s+/g, ' ').trim())
+          const key = segment.source.replace(/\s+/g, ' ').trim()
+          const translatedBySource = bySource.get(key) ?? byJoinedSource.get(key)
           return { ...segment, translation: previous?.translation ?? translatedBySource, source: previous?.translation ? previous.source : segment.source }
         })
         const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)

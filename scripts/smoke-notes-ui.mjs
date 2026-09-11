@@ -264,7 +264,7 @@ try {
   assert(shellState.side, 'The connections panel is not visible by default.')
   assert(shellState.status.includes('노드 2'), `The status bar did not count nodes: ${shell}`)
   assert(shellState.modes === 0, 'A retired mode bar or knowledge modal is still rendered.')
-  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-start-papers button')) && document.querySelector('.notes-start').textContent.includes('Obsidian')`), 'The note start screen did not offer a real paper note and vault guidance.')
+  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.notes-start-papers button')) && document.querySelector('.notes-start')?.textContent.includes('Obsidian')`), 'The note start screen did not offer a real paper note and vault guidance.')
 
   await notesConnection.evaluate(`(() => { const trigger = document.querySelector('button[aria-label="노트 설정"]'); trigger.focus(); trigger.click() })()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.note-settings-dialog select'))`), 'Notes settings did not open inside the Notes window.')
@@ -382,9 +382,9 @@ try {
   await notesConnection.send('Input.insertText', { text: '\n\n실행 취소 확인 문장.' })
   await sleep(200)
   await pressKey(notesConnection, 'z', 'KeyZ', undoModifier)
-  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-body .cm-content').textContent.includes('실행 취소 확인 문장')`), `${process.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Z did not undo the edit.`)
+  await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-body .cm-content')?.textContent.includes('실행 취소 확인 문장')`), `${process.platform === 'darwin' ? 'Cmd' : 'Ctrl'}+Z did not undo the edit.`)
   await pressKey(notesConnection, 'z', 'KeyZ', undoModifier | 8)
-  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content').textContent.includes('실행 취소 확인 문장')`), 'Shift+Z did not redo the edit.')
+  await waitFor(() => notesConnection.evaluate(`document.querySelector('.note-body .cm-content')?.textContent.includes('실행 취소 확인 문장')`), 'Shift+Z did not redo the edit.')
   await writeSystemClipboard('붙여넣기 첫 줄\n- 붙여넣기 항목')
   // The OS clipboard is set by another process, so retry the paste until the text actually arrives.
   const pasted = async () => (await fs.readFile(notePath, 'utf8')).replace(/\r\n/g, '\n').includes('붙여넣기 첫 줄\n- 붙여넣기 항목')
@@ -496,13 +496,16 @@ ${claimAfterRelation}`)
   const relationRecords = await Promise.all((await fs.readdir(path.join(libraryPath, '.prism', 'relations'))).map(async (file) => JSON.parse(await fs.readFile(path.join(libraryPath, '.prism', 'relations', file), 'utf8'))))
   assert(relationRecords.some((record) => record.type === 'contradicts' && record.creator === 'user' && record.reviewStatus === 'approved' && record.targetId === secondClaim), 'The relation sidecar did not record the user contradiction.')
 
-  assert(await notesConnection.evaluate(`!document.querySelector('.note-body .cm-content').innerText.includes('scope_domain:')`), 'Updating note properties moved the editor into raw YAML metadata.')
+  assert(await notesConnection.evaluate(`!document.querySelector('.note-body .cm-content')?.innerText.includes('scope_domain:')`), 'Updating note properties moved the editor into raw YAML metadata.')
 
   // ---------- graph and backlinks in the standing panel ----------
   assert(await notesConnection.evaluate(`document.querySelector('.side-graph-toggle')?.getAttribute('aria-expanded') === 'false' && !document.querySelector('.side-graph .graph-canvas')`), 'The graph occupied the connection list area before the user requested it.')
   await notesConnection.evaluate(`document.querySelector('.side-graph-toggle').click()`)
   await waitFor(() => notesConnection.evaluate(`document.querySelectorAll('.side-graph .mini-node').length >= 2`), 'The connections graph did not draw the new edge.')
-  assert(await notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
+  // The graph draws its nodes before its edges, and the wait above only
+  // established the nodes, so asserting the edge in the next tick failed about
+  // one run in five. Wait for the edge itself.
+  await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.side-graph .mini-edge[data-relation="contradicts"]'))`), 'A contradiction was not drawn as a contradiction edge.')
   // The layout has to put the note the panel is about in the middle, whatever else it decides.
   const centreOffset = await notesConnection.evaluate(`(() => {
     const circle = document.querySelector('.side-graph .mini-node.is-center circle')
@@ -521,7 +524,7 @@ ${claimAfterRelation}`)
   await notesConnection.evaluate(`[...document.querySelectorAll('.notes-rail button')].find((button) => button.textContent.includes('그래프')).click()`)
   await waitFor(() => notesConnection.evaluate(`Boolean(document.querySelector('.graph-view .graph-canvas-full')) && !document.querySelector('.graph-view-empty')`), 'The full graph view did not draw.', 8000)
   assert(await notesConnection.evaluate(`document.querySelectorAll('.graph-types .graph-chip').length >= 2`), 'The full graph is missing its type filters.')
-  const graphStatus = await notesConnection.evaluate(`document.querySelector('.graph-status span').textContent`)
+  const graphStatus = await notesConnection.evaluate(`document.querySelector('.graph-status span')?.textContent`)
   assert(/\d+/.test(graphStatus), `The full graph does not report what it is showing: ${graphStatus}`)
   await sleep(500)
   const fullGraphShot = await notesConnection.send('Page.captureScreenshot', { format: 'png' })
@@ -681,7 +684,7 @@ ${claimAfterRelation}`)
   }
   await openHistory()
   assert(await notesConnection.evaluate(`document.querySelectorAll('.note-history-list li button').length`) === historyEntries.length, 'History rows differ from the available persisted versions.')
-  assert(await notesConnection.evaluate(`document.querySelector('.note-history-preview pre').textContent`) === historyEntries[0].content, 'Default history preview differs from readNoteHistory.')
+  assert(await notesConnection.evaluate(`document.querySelector('.note-history-preview pre')?.textContent`) === historyEntries[0].content, 'Default history preview differs from readNoteHistory.')
   assert(await notesConnection.evaluate(`!document.querySelector('.note-history-preview pre').isContentEditable && !document.querySelector('.note-history-dialog .cm-editor')`), 'History preview unexpectedly exposes an editable document.')
   await pressKey(notesConnection, 'Escape', 'Escape')
   await waitFor(() => notesConnection.evaluate(`!document.querySelector('.note-history-dialog')`), 'Escape did not close the history dialog.')

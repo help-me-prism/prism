@@ -19,8 +19,10 @@ const extensions = ['', '.ts', '.tsx', '.mts', '.js', '/index.ts', '/index.tsx']
 
 async function resolveRelative(specifier, fromFile) {
   const base = path.resolve(path.dirname(fromFile), specifier)
-  for (const extension of extensions) {
-    const candidate = base + extension
+  // The electron sources compile under NodeNext and therefore import siblings by
+  // their emitted name, "./scientificSource.js", while the file on disk is .ts.
+  const bases = base.endsWith('.js') ? [base.slice(0, -3), base] : [base]
+  for (const candidate of bases.flatMap(stem => extensions.map(extension => stem + extension))) {
     try {
       if ((await fs.stat(candidate)).isFile()) return candidate
     } catch { /* try the next extension */ }
