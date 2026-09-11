@@ -5,14 +5,14 @@
    "papers": 13,
    "unreadable": 0,
    "pages": 231,
-   "findings": 175,
+   "findings": 74,
    "byType": {
     "running-furniture": 1,
-    "micro-fragment": 133,
-    "dropped-prose": 25,
+    "micro-fragment": 29,
+    "dropped-prose": 26,
     "inline-math-cut": 2,
     "equation-as-prose": 5,
-    "heading-too-long": 2,
+    "heading-too-long": 4,
     "caption-absorbed-table": 3,
     "table-as-prose": 4
    },
@@ -20,19 +20,19 @@
     "arxiv": {
      "papers": 10,
      "pages": 175,
-     "findings": 145
+     "findings": 68
     },
     "journal": {
      "papers": 3,
      "pages": 56,
-     "findings": 30
+     "findings": 6
     }
    },
    "byLang": {
     "en": {
      "papers": 13,
      "pages": 231,
-     "findings": 175
+     "findings": 74
     }
    }
   },
@@ -40,56 +40,55 @@
    "papers": 33,
    "unreadable": 0,
    "pages": 800,
-   "findings": 1314,
+   "findings": 349,
    "byType": {
-    "running-furniture": 4,
-    "dropped-prose": 15,
-    "micro-fragment": 1113,
-    "equation-as-prose": 73,
-    "heading-too-long": 19,
+    "equation-as-prose": 62,
+    "dropped-prose": 14,
+    "micro-fragment": 156,
+    "heading-too-long": 30,
     "inline-math-cut": 18,
-    "table-as-prose": 48,
-    "missed-caption": 7,
+    "table-as-prose": 51,
     "figure-over-reading-page": 16,
-    "split-mid-sentence": 1
+    "split-mid-sentence": 1,
+    "running-furniture": 1
    },
    "byFamily": {
     "arxiv": {
      "papers": 20,
      "pages": 640,
-     "findings": 897
+     "findings": 276
     },
     "journal": {
      "papers": 13,
      "pages": 160,
-     "findings": 417
+     "findings": 73
     }
    },
    "byLang": {
     "en": {
      "papers": 27,
      "pages": 730,
-     "findings": 1101
+     "findings": 332
     },
     "und": {
      "papers": 2,
      "pages": 37,
-     "findings": 84
+     "findings": 3
     },
     "ru": {
      "papers": 1,
      "pages": 26,
-     "findings": 72
+     "findings": 8
     },
     "uk": {
      "papers": 2,
      "pages": 5,
-     "findings": 49
+     "findings": 3
     },
     "es": {
      "papers": 1,
      "pages": 2,
-     "findings": 8
+     "findings": 3
     }
    }
   }

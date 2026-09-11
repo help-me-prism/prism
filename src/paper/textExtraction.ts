@@ -171,7 +171,17 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
         const at = all.slice(0, index).join(' ').length + (index ? 1 : 0)
         return { segment: paragraph.slice(at, at + segment.length), index: at }
       })
-    for (const sentence of sentences) {
+    // The masking above can only spare the abbreviations someone thought to
+    // list, and the list is English. Every other full stop that is not a
+    // sentence ending — an initial, a section number, an equation label, a
+    // journal abbreviation in a language nobody enumerated — still cuts here,
+    // and each cut costs a model call and reads as noise in the translation.
+    //
+    // Rather than extend the list, discard the cuts by their result: a piece too
+    // small to be a sentence in any language is not one, whatever produced it.
+    // It rejoins the sentence it was cut from, forwards where there is one,
+    // since a stray head ("Abstract.", "2.1.", "L.") introduces what follows.
+    for (const sentence of coalesceFragments(sentences)) {
       const text = sentence.segment.trim()
       if (text.length < 2) continue
       const start = paragraphStart + sentence.index + sentence.segment.indexOf(text)
@@ -256,6 +266,62 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
     }
     merged.push(current)
   }
+  return merged
+}
+
+type SentencePiece = { segment: string; index: number }
+
+/** A piece too small to carry a sentence, measured without reference to any
+ * language: too few letters to be words at all, or one or two short tokens.
+ * Scripts that do not space their words are judged on letters alone, since a
+ * two-token test would call every Japanese sentence a fragment. */
+function isSentenceFragment(value: string) {
+  const text = value.trim()
+  if (!text) return true
+  const letters = text.match(/\p{L}/gu)?.length ?? 0
+  if (letters < 3) return true
+  // Han, Hiragana and Katakana run words together, so counting tokens would
+  // call every Japanese sentence a fragment. Korean and Latin both space words.
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text)) return letters < 6
+  const tokens = text.match(/[\p{L}\p{N}]+/gu)?.length ?? 0
+  return tokens <= 2 && text.length <= 14
+}
+
+/** True when the piece stops on an author initial rather than at a sentence end.
+ * No sentence in a cased script ends on a lone capital letter, so this is the
+ * one abbreviation shape that can be recognised without a dictionary and
+ * without guessing — "shown by Koonin, E." continues into "V. and others".
+ *
+ * Truncated words ("Phil.", "Soc.") are deliberately not matched. They are the
+ * same shape as an acronym that really does end a sentence ("... the remaining
+ * FCs."), and merging those swallowed a paragraph of prose into the table
+ * beside it. A citation therefore still breaks at "Phil."; it no longer breaks
+ * at every initial, which is where the fragments came from. */
+function endsOnInitial(value: string) {
+  const text = value.trim().replace(/["')\]]+$/, '')
+  if (!text.endsWith('.')) return false
+  const lastToken = text.slice(0, -1).match(/[\p{L}\p{N}]+$/u)?.[0] ?? ''
+  return lastToken.length === 1 && /^\p{Lu}$/u.test(lastToken)
+}
+
+/** Rejoins sentence fragments with their neighbour, preferring the sentence
+ * that follows. Offsets stay meaningful because the pieces are adjacent slices
+ * of one paragraph, so a merged piece spans from the first index to the last. */
+function coalesceFragments(sentences: SentencePiece[]): SentencePiece[] {
+  const merged: SentencePiece[] = []
+  let pending: SentencePiece | undefined
+  for (const sentence of sentences) {
+    const start = pending ?? sentence
+    const segment = pending ? pending.segment + sentence.segment.slice(Math.max(0, pending.index + pending.segment.length - sentence.index)) : sentence.segment
+    const candidate = { segment, index: start.index }
+    if (isSentenceFragment(candidate.segment) || endsOnInitial(candidate.segment)) { pending = candidate; continue }
+    merged.push(candidate); pending = undefined
+  }
+  // A fragment at the very end has nothing to introduce, and it is usually a
+  // clause continuing into the next column or page ("... a continuation. While").
+  // Appending it to the finished sentence before it would put a dangling word
+  // inside a sentence that is already complete, so it stays as it is.
+  if (pending) merged.push(pending)
   return merged
 }
 
