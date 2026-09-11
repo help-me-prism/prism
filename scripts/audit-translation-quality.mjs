@@ -152,7 +152,9 @@ function looksLikeTableRow(text) {
   if (/[.!?]$/.test(trimmed) && words(trimmed) >= 6 && digitShare(trimmed) < .12) return false
   // "Combining (2.19), (2.20), (2.21) and (2.22) gives" is prose citing equation
   // numbers, not a row of cells. Parenthesised numbers never carry table data.
-  const bare = trimmed.replace(/\((?:\d+(?:\.\d+)*[a-z]?)\)/g, '')
+  // Reference markers carry numbers that belong to no cell: "(2.19)" as an
+  // equation label, "[71, 39, 11]" as a citation list.
+  const bare = trimmed.replace(/\((?:\d+(?:\.\d+)*[a-z]?)\)/g, '').replace(/\[[\d,\s–-]+\]/g, '')
   const numbers = bare.match(/\d+(?:\.\d+)?/g)?.length ?? 0
   return numbers >= 4 && digitShare(bare) > .2 && words(bare) <= 6
 }

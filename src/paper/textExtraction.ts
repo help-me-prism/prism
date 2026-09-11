@@ -40,6 +40,34 @@ function isEquation(text: string) {
   return (symbols >= 2 && symbols / compact.length > .12) || (letters === 0 && symbols > 0)
 }
 
+/** Where the prose after a display equation begins, or -1 when the paragraph is
+ * not a display followed by a sentence. Takes the earliest boundary that still
+ * leaves an equation behind it, so as much of the sentence as possible stays
+ * translatable, and requires a real sentence ahead so a full stop inside the
+ * maths does not split it. */
+function trailingProseOffset(paragraph: string) {
+  // Not gated on the whole paragraph being an equation: once the sentence is
+  // attached the paragraph has too many words to read as one, which is the
+  // reason these segments were classified by their maths font instead and the
+  // sentence went untranslated with them.
+  if (paragraph.length < 24) return -1
+  // Judge the sentence immediately before the boundary, not everything before
+  // it: a display is regularly introduced by a sentence of its own ("... we
+  // obtain (2.4) k = ... ds. Then we rewrite"), and measuring the whole head
+  // counts that introduction's words and reads the maths as prose.
+  let previous = 0
+  for (const match of paragraph.matchAll(/[.!?]\s+(?=\p{Lu})/gu)) {
+    const at = (match.index ?? 0) + match[0].length
+    const display = paragraph.slice(previous, at)
+    previous = at
+    const tail = paragraph.slice(at)
+    if ((tail.match(/[A-Za-z]{3,}/g)?.length ?? 0) < 4) continue
+    if (isEquation(tail) || !isEquation(display)) continue
+    return at
+  }
+  return -1
+}
+
 function isPdfMetadataArtifact(text: string) {
   if (!text) return false
   if (text.includes('\u0000') || /<\/?latexit\b|sha1_base64\s*=|<\?xml\b/i.test(text)) return true
@@ -154,6 +182,20 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
       parts.push({ text: displayWithProse[2], start: paragraphStart + proseOffset, end: paragraphStart + proseOffset + displayWithProse[2].length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: displayWithProse[2] })
       continue
     }
+    // A display equation and the sentence that follows it often arrive as one
+    // paragraph, and the whole thing was then classified as an equation and left
+    // untranslated — the sentence disappeared from the reading view with it. The
+    // rule above catches only a numbered display followed by "where"/"which";
+    // this finds the boundary itself, at the first sentence end that leaves
+    // maths behind it and a real sentence in front.
+    const proseAt = trailingProseOffset(paragraph)
+    if (proseAt > 0) {
+      const head = paragraph.slice(0, proseAt).trimEnd()
+      const tail = paragraph.slice(proseAt)
+      parts.push({ text: head, start: paragraphStart, end: paragraphStart + head.length, blockId, paragraphContext: head })
+      parts.push({ text: tail, start: paragraphStart + proseAt, end: paragraphStart + proseAt + tail.length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: tail })
+      continue
+    }
     if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph) || (numberedTitle.test(paragraph) && paragraph.length < 140 && !/[.!?]\s+[A-Z]/.test(paragraph.replace(/^(?:[IVX]+\.|\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+/, ''))) || namedHeading.test(paragraph)) {
       parts.push({ text: paragraph, start: paragraphStart, end: paragraphStart + paragraph.length, blockId, paragraphContext: paragraph }); continue
     }
@@ -241,7 +283,13 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
         && Math.abs(item.transform[5] - previous.transform[5]) < averageHeight * .4
         && wordCount(item.str) >= 3 && wordCount(previous.str) >= 3
     })
-    const kind: TranslationSegment['kind'] = algorithm ? 'table' : (rotatedLabels || codeListing || panelLabels || part.text.includes('\uFFFD') || /[\u0080-\u009f]|(?:ffi){3,}/.test(part.text) || ((part.text.match(/[ðÞþ¼]/g)?.length ?? 0) >= 3 && /[=χρ∑∫]/.test(part.text))) ? 'artifact' : caption ? 'caption'
+        // Nothing in any script to translate: a standalone equation label "(2.1)",
+    // a list marker "19.", a row of measurements. Sending these to a translator
+    // costs a call and returns the same characters, and they were arriving as
+    // ordinary prose because the equation test needs an operator to fire and a
+    // parenthesised number has none.
+    const nothingToTranslate = !/\p{L}/u.test(part.text)
+    const kind: TranslationSegment['kind'] = algorithm ? 'table' : (nothingToTranslate || rotatedLabels || codeListing || panelLabels || part.text.includes('\uFFFD') || /[\u0080-\u009f]|(?:ffi){3,}/.test(part.text) || ((part.text.match(/[ðÞþ¼]/g)?.length ?? 0) >= 3 && /[=χρ∑∫]/.test(part.text))) ? 'artifact' : caption ? 'caption'
       : sectionHeading && part.text.length < 140 ? 'heading'
       : isEquation(part.text) || fontMarkedEquation ? 'equation'
         : likelyGraphicOrTable ? 'artifact'
@@ -259,6 +307,18 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
   const merged: TranslationSegment[] = []
   for (let index = 0; index < classified.length; index += 1) {
     const current = classified[index]; const next = classified[index + 1]; const after = classified[index + 2]
+    // A display split across lines leaves a scrap between its halves, and
+    // rejoining the three restores one equation. But the piece between two
+    // displays is just as often the sentence that links them ("... ds. Then we
+    // rewrite (2.2) in the form ..."), and absorbing that into an equation drops
+    // it from translation entirely — the sentence simply vanished from the
+    // reading view. A scrap has no sentence in it; this one does.
+    const linkingProse = next && (next.source.match(/[A-Za-z]{3,}/g)?.length ?? 0) >= 4 && /\p{Ll}\s+\p{L}/u.test(next.source)
+    if (current.kind === 'equation' && next?.kind === 'artifact' && after?.kind === 'equation' && linkingProse) {
+      // Sitting between two displays is what made it look like part of one.
+      merged.push(current, { ...next, kind: 'text' })
+      index += 1; continue
+    }
     if (current.kind === 'equation' && next?.kind === 'artifact' && after?.kind === 'equation') {
       const source = `${current.source} ${next.source} ${after.source}`.replace(/\s+/g, ' ').trim()
       merged.push({ ...current, id: `p${page}-eq-${shortHash(source)}`, source, itemIndexes: [...(current.itemIndexes ?? []), ...(next.itemIndexes ?? []), ...(after.itemIndexes ?? [])], itemSlices: [...(current.itemSlices ?? []), ...(next.itemSlices ?? []), ...(after.itemSlices ?? [])] })
