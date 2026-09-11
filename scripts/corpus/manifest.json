@@ -1,0 +1,398 @@
+{
+ "purpose": "Held-out corpus for the reader-composition audit. tune = papers we already read while writing the extraction rules; holdout = papers nobody on this project has opened. A change ships only if findings-per-page on holdout does not get worse.",
+ "rule": "Never inspect individual holdout findings. scripts/corpus-report.mjs prints holdout as aggregates only; to debug a specific failure, move that paper into tune and say so in the commit.",
+ "splits": {
+  "tune": [
+   {
+    "id": "arxiv-1011.4715",
+    "url": "https://arxiv.org/pdf/1011.4715",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-1406.2661",
+    "url": "https://arxiv.org/pdf/1406.2661",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-1602.03837",
+    "url": "https://arxiv.org/pdf/1602.03837",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-1706.03762",
+    "url": "https://arxiv.org/pdf/1706.03762",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2006.11239",
+    "url": "https://arxiv.org/pdf/2006.11239",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2103.02370",
+    "url": "https://arxiv.org/pdf/2103.02370",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2210.02747",
+    "url": "https://arxiv.org/pdf/2210.02747",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2412.14974",
+    "url": "https://arxiv.org/pdf/2412.14974",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2606.02682",
+    "url": "https://arxiv.org/pdf/2606.02682",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "arxiv-2609.00689",
+    "url": "https://arxiv.org/pdf/2609.00689",
+    "publisher": "arXiv",
+    "journal": "arXiv",
+    "lang": "en",
+    "family": "arxiv"
+   },
+   {
+    "id": "plos-one-0287690",
+    "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0287690&type=printable",
+    "publisher": "Public Library of Science",
+    "journal": "PLOS ONE",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "plos-one-0311693",
+    "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0311693&type=printable",
+    "publisher": "Public Library of Science",
+    "journal": "PLOS ONE",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "plos-biology-3001161",
+    "url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3001161&type=printable",
+    "publisher": "Public Library of Science",
+    "journal": "PLOS Biology",
+    "lang": "en",
+    "family": "journal"
+   }
+  ],
+  "holdout": [
+   {
+    "id": "arxiv-2609.11343",
+    "url": "https://arxiv.org/pdf/2609.11343",
+    "publisher": "arXiv",
+    "journal": "arXiv:math.AP",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "math.AP"
+   },
+   {
+    "id": "arxiv-2609.11329",
+    "url": "https://arxiv.org/pdf/2609.11329",
+    "publisher": "arXiv",
+    "journal": "arXiv:math.AP",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "math.AP"
+   },
+   {
+    "id": "arxiv-2609.10526",
+    "url": "https://arxiv.org/pdf/2609.10526",
+    "publisher": "arXiv",
+    "journal": "arXiv:math.NT",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "math.NT"
+   },
+   {
+    "id": "arxiv-2609.10483",
+    "url": "https://arxiv.org/pdf/2609.10483",
+    "publisher": "arXiv",
+    "journal": "arXiv:math.NT",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "math.NT"
+   },
+   {
+    "id": "arxiv-2609.09810",
+    "url": "https://arxiv.org/pdf/2609.09810",
+    "publisher": "arXiv",
+    "journal": "arXiv:physics.optics",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "physics.optics"
+   },
+   {
+    "id": "arxiv-2609.09771",
+    "url": "https://arxiv.org/pdf/2609.09771",
+    "publisher": "arXiv",
+    "journal": "arXiv:physics.optics",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "physics.optics"
+   },
+   {
+    "id": "arxiv-2609.08235",
+    "url": "https://arxiv.org/pdf/2609.08235",
+    "publisher": "arXiv",
+    "journal": "arXiv:cond-mat.soft",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "cond-mat.soft"
+   },
+   {
+    "id": "arxiv-2609.08202",
+    "url": "https://arxiv.org/pdf/2609.08202",
+    "publisher": "arXiv",
+    "journal": "arXiv:cond-mat.soft",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "cond-mat.soft"
+   },
+   {
+    "id": "arxiv-2609.01858",
+    "url": "https://arxiv.org/pdf/2609.01858",
+    "publisher": "arXiv",
+    "journal": "arXiv:q-bio.PE",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "q-bio.PE"
+   },
+   {
+    "id": "arxiv-2609.00614",
+    "url": "https://arxiv.org/pdf/2609.00614",
+    "publisher": "arXiv",
+    "journal": "arXiv:q-bio.PE",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "q-bio.PE"
+   },
+   {
+    "id": "arxiv-2609.10028",
+    "url": "https://arxiv.org/pdf/2609.10028",
+    "publisher": "arXiv",
+    "journal": "arXiv:stat.ME",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "stat.ME"
+   },
+   {
+    "id": "arxiv-2609.10020",
+    "url": "https://arxiv.org/pdf/2609.10020",
+    "publisher": "arXiv",
+    "journal": "arXiv:stat.ME",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "stat.ME"
+   },
+   {
+    "id": "arxiv-2609.10714",
+    "url": "https://arxiv.org/pdf/2609.10714",
+    "publisher": "arXiv",
+    "journal": "arXiv:eess.SP",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "eess.SP"
+   },
+   {
+    "id": "arxiv-2609.10490",
+    "url": "https://arxiv.org/pdf/2609.10490",
+    "publisher": "arXiv",
+    "journal": "arXiv:eess.SP",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "eess.SP"
+   },
+   {
+    "id": "arxiv-2609.04994",
+    "url": "https://arxiv.org/pdf/2609.04994",
+    "publisher": "arXiv",
+    "journal": "arXiv:econ.EM",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "econ.EM"
+   },
+   {
+    "id": "arxiv-2609.04356",
+    "url": "https://arxiv.org/pdf/2609.04356",
+    "publisher": "arXiv",
+    "journal": "arXiv:econ.EM",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "econ.EM"
+   },
+   {
+    "id": "arxiv-2609.11716",
+    "url": "https://arxiv.org/pdf/2609.11716",
+    "publisher": "arXiv",
+    "journal": "arXiv:cs.CL",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "cs.CL"
+   },
+   {
+    "id": "arxiv-2609.11699",
+    "url": "https://arxiv.org/pdf/2609.11699",
+    "publisher": "arXiv",
+    "journal": "arXiv:cs.CL",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "cs.CL"
+   },
+   {
+    "id": "arxiv-2609.10680",
+    "url": "https://arxiv.org/pdf/2609.10680",
+    "publisher": "arXiv",
+    "journal": "arXiv:astro-ph.GA",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "astro-ph.GA"
+   },
+   {
+    "id": "arxiv-2609.10532",
+    "url": "https://arxiv.org/pdf/2609.10532",
+    "publisher": "arXiv",
+    "journal": "arXiv:astro-ph.GA",
+    "lang": "en",
+    "family": "arxiv",
+    "domain": "astro-ph.GA"
+   },
+   {
+    "id": "international-journal-of-research-",
+    "url": "https://rsisinternational.org/journals/ijriss/uploads/vol10-iss7-pg2972-2995-202607_pdf.pdf",
+    "publisher": "International Journal of Research and Innovation in Social Science",
+    "journal": "International Journal of Research and Innovation in Social Science",
+    "lang": "und",
+    "family": "journal"
+   },
+   {
+    "id": "",
+    "url": "https://journals.rcsi.science/0006-3029/article/download/273792/252788",
+    "publisher": "MAIK Nauka/Interperiodica",
+    "journal": "Биофизика",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "riggs-journal-of-artificial-intell",
+    "url": "https://journal.ilmudata.co.id/index.php/RIGGS/article/download/4345/3124",
+    "publisher": "Universitas Pahlawan Tuanku Tambusai",
+    "journal": "RIGGS Journal of Artificial Intelligence and Digital Business",
+    "lang": "und",
+    "family": "journal"
+   },
+   {
+    "id": "plos-global-public-health",
+    "url": "https://journals.plos.org/globalpublichealth/article/file?id=10.1371/journal.pgph.0004946&type=printable",
+    "publisher": "Public Library of Science",
+    "journal": "PLOS Global Public Health",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "edu-e-history-kz",
+    "url": "https://ajspiie.com/index.php/history/article/download/1148/1043/3982",
+    "publisher": "Edu E-History kz",
+    "journal": "Edu E-History kz",
+    "lang": "ru",
+    "family": "journal"
+   },
+   {
+    "id": "haigan",
+    "url": "https://www.jstage.jst.go.jp/article/haigan/65/7/65_1086/_pdf",
+    "publisher": "The Japan Lung Cancer Society",
+    "journal": "Haigan",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "european-journal-of-risk-regulatio",
+    "url": "https://www.cambridge.org/core/services/aop-cambridge-core/content/view/24EA7930229EFC66F786EF1FCD7B902D/S1867299X26100993a.pdf/div-class-title-salus-case-organic-medicinal-herbal-teas-cannot-be-labelled-as-organic-div.pdf",
+    "publisher": "Cambridge University Press",
+    "journal": "European Journal of Risk Regulation",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "frontiers-in-plant-science",
+    "url": "https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2024.1429890/pdf",
+    "publisher": "Frontiers Media",
+    "journal": "Frontiers in Plant Science",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "digital-repository-of-ostroh-acade",
+    "url": "https://eprints.oa.edu.ua/id/eprint/9411/1/Functioning%20of%20ethno-images.pdf",
+    "publisher": "National University Ostroh Academy",
+    "journal": "Digital Repository of Ostroh Academy (Ostroh Academy)",
+    "lang": "uk",
+    "family": "journal"
+   },
+   {
+    "id": "entukhpiir-repository-kharkiv-poly",
+    "url": "https://repository.kpi.kharkov.ua/bitstreams/08655ee6-3914-46aa-8108-3525bcf3ac47/download",
+    "publisher": "National Technical University \"Kharkiv Polytechnic Institute\"",
+    "journal": "eNTUKhPIIR Repository (Kharkiv Polytechnic Institute)",
+    "lang": "uk",
+    "family": "journal"
+   },
+   {
+    "id": "clinical-and-experimental-otorhino",
+    "url": "https://www.e-ceo.org/upload/pdf/ceo-2025-00124.pdf",
+    "publisher": "Korean Society of Otorhinolaryngology-Head and Neck Surgery",
+    "journal": "Clinical and Experimental Otorhinolaryngology",
+    "lang": "en",
+    "family": "journal"
+   },
+   {
+    "id": "medunab",
+    "url": "https://revistas.unab.edu.co/index.php/medunab/article/download/5534/4289",
+    "publisher": "Autonomous University of Bucaramanga",
+    "journal": "Medunab",
+    "lang": "es",
+    "family": "journal"
+   },
+   {
+    "id": "hacettepe-journal-of-mathematics-a",
+    "url": "https://dergipark.org.tr/en/download/article-file/4521223",
+    "publisher": "Hacettepe University",
+    "journal": "Hacettepe Journal of Mathematics and Statistics",
+    "lang": "en",
+    "family": "journal"
+   }
+  ]
+ }
+}

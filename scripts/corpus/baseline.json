@@ -1,0 +1,92 @@
+{
+ "recorded": "2026-09-11",
+ "splits": {
+  "tune": {
+   "papers": 13,
+   "unreadable": 0,
+   "pages": 231,
+   "findings": 168,
+   "byType": {
+    "running-furniture": 2,
+    "micro-fragment": 141,
+    "dropped-prose": 14,
+    "table-as-prose": 6,
+    "heading-too-long": 2,
+    "caption-absorbed-table": 3
+   },
+   "byFamily": {
+    "arxiv": {
+     "papers": 10,
+     "pages": 175,
+     "findings": 138
+    },
+    "journal": {
+     "papers": 3,
+     "pages": 56,
+     "findings": 30
+    }
+   },
+   "byLang": {
+    "en": {
+     "papers": 13,
+     "pages": 231,
+     "findings": 168
+    }
+   }
+  },
+  "holdout": {
+   "papers": 33,
+   "unreadable": 0,
+   "pages": 800,
+   "findings": 1344,
+   "byType": {
+    "running-furniture": 21,
+    "micro-fragment": 1239,
+    "dropped-prose": 5,
+    "heading-too-long": 19,
+    "table-as-prose": 52,
+    "missed-caption": 7,
+    "split-mid-sentence": 1
+   },
+   "byFamily": {
+    "arxiv": {
+     "papers": 20,
+     "pages": 640,
+     "findings": 884
+    },
+    "journal": {
+     "papers": 13,
+     "pages": 160,
+     "findings": 460
+    }
+   },
+   "byLang": {
+    "en": {
+     "papers": 27,
+     "pages": 730,
+     "findings": 1120
+    },
+    "und": {
+     "papers": 2,
+     "pages": 37,
+     "findings": 90
+    },
+    "ru": {
+     "papers": 1,
+     "pages": 26,
+     "findings": 71
+    },
+    "uk": {
+     "papers": 2,
+     "pages": 5,
+     "findings": 55
+    },
+    "es": {
+     "papers": 1,
+     "pages": 2,
+     "findings": 8
+    }
+   }
+  }
+ }
+}
