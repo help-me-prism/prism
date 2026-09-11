@@ -51,9 +51,14 @@ export function tableMemberIndexes(segments: TableSegment[], captionIndex: numbe
       const numericCount = candidate.source.match(/\d+(?:\.\d+)?/g)?.length ?? 0
       // Abbreviated model names in cells often end in a period ("Uncond.",
       // "Self-cond."). A short numeric row is still table evidence, not prose.
-      const proseSentence = /[.!?]$/.test(candidate.source) && wordCount >= 5
+      // The short-numeric-row exception below was swallowing real sentences that
+      // happen to carry a number — "increased the maximum output length to input
+      // length + 300 ." was read as a cell and preserved as table pixels, so a
+      // paragraph after Table 4 stopped being translated. A row of cells is
+      // short; a sentence of eight words or more is prose whatever it counts.
+      const proseSentence = /[.!?]$/.test(candidate.source)
         && !/\b(?:acc|avg|std|dev|uncond|cond)\.$/i.test(candidate.source)
-        && numericCount < 3 && !(candidate.source.length < 90 && numericCount >= 1)
+        && (wordCount >= 8 || (wordCount >= 5 && numericCount < 3 && !(candidate.source.length < 90 && numericCount >= 1)))
       const verticalGap = Math.max(0, Math.max(box.top, previousBox.top) - Math.min(box.top + box.height, previousBox.top + previousBox.height))
       const candidateCenter = box.left + box.width / 2
       const aligned = Math.abs(candidateCenter - captionCenter) <= Math.max(150, captionBox.width * .72)

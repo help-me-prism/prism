@@ -257,6 +257,10 @@ export function auditAnalysis(analysis) {
       const damaged = typeof hasDamagedMathEncoding === 'function' && hasDamagedMathEncoding(text)
       if (['artifact', 'equation'].includes(segment.kind) && looksLikeProse(text) && !repeatedIds.has(segment.id) && !damaged) add('dropped-prose', segment, `${segment.kind}로 분류되어 번역에서 제외됨`)
       if (segment.kind === 'text' && body.has(segment.id) && looksLikeTableRow(text)) add('table-as-prose', segment, '표 셀 행이 번역 대상 산문으로 분류됨')
+      // The mirror of table-as-prose, and the more expensive mistake: a sentence
+      // absorbed into a table is preserved as pixels and never translated at
+      // all, with nothing on screen to say it was skipped.
+      if (segment.kind === 'table' && looksLikeProse(text) && words(text) >= 8) add('prose-as-table', segment, '산문 문장이 표로 분류되어 번역에서 제외됨')
       if (inScope(segment) && looksLikeDisplayedEquation(text)) add('equation-as-prose', segment, '수식이 번역 대상으로 분류됨')
       if (inScope(segment) && segment.kind !== 'caption' && inlineMathCut(text)) add('inline-math-cut', segment, '줄글 내 수식 중간에서 조각이 끊김')
       if (segment.kind === 'heading' && words(text) >= 14) add('heading-too-long', segment, '문단이 제목으로 분류됨')

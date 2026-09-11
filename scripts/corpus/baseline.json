@@ -5,7 +5,7 @@
    "papers": 15,
    "unreadable": 0,
    "pages": 264,
-   "findings": 40,
+   "findings": 44,
    "byType": {
     "running-furniture": 1,
     "micro-fragment": 10,
@@ -13,6 +13,7 @@
     "dropped-prose": 10,
     "heading-too-long": 6,
     "caption-absorbed-table": 3,
+    "prose-as-table": 4,
     "equation-as-prose": 6,
     "table-as-prose": 2
    },
@@ -20,7 +21,7 @@
     "arxiv": {
      "papers": 10,
      "pages": 175,
-     "findings": 31
+     "findings": 35
     },
     "journal": {
      "papers": 5,
@@ -32,7 +33,7 @@
     "en": {
      "papers": 15,
      "pages": 264,
-     "findings": 40
+     "findings": 44
     }
    }
   },
