@@ -14,7 +14,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
-import { segmentsForPdf, auditSegments, scope } from './audit-translation-quality.mjs'
+import { analysePdf, auditAnalysis, scope } from './audit-translation-quality.mjs'
 
 const manifest = JSON.parse(await fs.readFile('scripts/corpus/manifest.json', 'utf8'))
 const baselinePath = 'scripts/corpus/baseline.json'
@@ -32,11 +32,11 @@ async function measure(split) {
   for (const paper of papers) {
     const file = path.join('tmp/corpus', split, `${paper.id}.pdf`)
     try {
-      const { flat, numPages } = await segmentsForPdf(file)
-      const findings = auditSegments(flat, numPages)
+      const analysis = await analysePdf(file)
+      const findings = auditAnalysis(analysis)
       const counts = {}
       for (const finding of findings) counts[finding.type] = (counts[finding.type] ?? 0) + 1
-      results.push({ ...paper, pages: numPages, counts, total: findings.length, scope: scope(flat), findings })
+      results.push({ ...paper, pages: analysis.numPages, counts, total: findings.length, scope: scope(analysis.flat), findings })
     } catch (error) {
       // A PDF the extractor cannot open at all is a finding in its own right,
       // and hiding it would flatter the score.

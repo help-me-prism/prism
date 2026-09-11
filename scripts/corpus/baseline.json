@@ -5,20 +5,22 @@
    "papers": 13,
    "unreadable": 0,
    "pages": 231,
-   "findings": 168,
+   "findings": 175,
    "byType": {
-    "running-furniture": 2,
-    "micro-fragment": 141,
-    "dropped-prose": 14,
-    "table-as-prose": 6,
+    "running-furniture": 1,
+    "micro-fragment": 133,
+    "dropped-prose": 25,
+    "inline-math-cut": 2,
+    "equation-as-prose": 5,
     "heading-too-long": 2,
-    "caption-absorbed-table": 3
+    "caption-absorbed-table": 3,
+    "table-as-prose": 4
    },
    "byFamily": {
     "arxiv": {
      "papers": 10,
      "pages": 175,
-     "findings": 138
+     "findings": 145
     },
     "journal": {
      "papers": 3,
@@ -30,7 +32,7 @@
     "en": {
      "papers": 13,
      "pages": 231,
-     "findings": 168
+     "findings": 175
     }
    }
   },
@@ -38,48 +40,51 @@
    "papers": 33,
    "unreadable": 0,
    "pages": 800,
-   "findings": 1344,
+   "findings": 1314,
    "byType": {
-    "running-furniture": 21,
-    "micro-fragment": 1239,
-    "dropped-prose": 5,
+    "running-furniture": 4,
+    "dropped-prose": 15,
+    "micro-fragment": 1113,
+    "equation-as-prose": 73,
     "heading-too-long": 19,
-    "table-as-prose": 52,
+    "inline-math-cut": 18,
+    "table-as-prose": 48,
     "missed-caption": 7,
+    "figure-over-reading-page": 16,
     "split-mid-sentence": 1
    },
    "byFamily": {
     "arxiv": {
      "papers": 20,
      "pages": 640,
-     "findings": 884
+     "findings": 897
     },
     "journal": {
      "papers": 13,
      "pages": 160,
-     "findings": 460
+     "findings": 417
     }
    },
    "byLang": {
     "en": {
      "papers": 27,
      "pages": 730,
-     "findings": 1120
+     "findings": 1101
     },
     "und": {
      "papers": 2,
      "pages": 37,
-     "findings": 90
+     "findings": 84
     },
     "ru": {
      "papers": 1,
      "pages": 26,
-     "findings": 71
+     "findings": 72
     },
     "uk": {
      "papers": 2,
      "pages": 5,
-     "findings": 55
+     "findings": 49
     },
     "es": {
      "papers": 1,
