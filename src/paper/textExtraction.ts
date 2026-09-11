@@ -56,6 +56,40 @@ function isEquation(text: string) {
     || (defines && symbols / compact.length > .09)
 }
 
+const numericToken = /\b\d+(?:[.,]\d+)?\b/g
+const countMatches = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0
+
+/** Where a table's cells begin inside what was read as one caption, or -1.
+ *
+ * A caption and the grid under it arrive as a single paragraph when nothing
+ * separates them typographically — Table 4 of Attention Is All You Need carried
+ * "Parser Training WSJ 23 F1 Vinyals & Kaiser el al. (2014) [37] ..." inside its
+ * caption, so an entire results table went to the translator as a sentence.
+ *
+ * The cut has to be conservative, because a journal figure legend is long and
+ * numeric too. A row of cells is numeric and ungrammatical: function words or a
+ * second sentence in what follows mean it is still the caption talking. */
+export function captionGridStart(paragraph: string) {
+  if (paragraph.length < 220) return -1
+  // A pseudocode listing opens like a caption and is numeric throughout, but its
+  // body is the listing rather than a grid the caption swallowed; preservePdfTables
+  // keeps it whole and cutting it here broke the listing into pieces.
+  // "Table 4:" is itself one numbered colon, so a run of them is what marks a
+  // listing rather than a single match.
+  if (/\b(?:Require|Ensure)\s*:|←/.test(paragraph) || countMatches(paragraph, /\b\d+\s*:\s*\S/g) >= 3) return -1
+  for (const boundary of paragraph.matchAll(/[.)\]:](?=\s+[A-Z(\d])/g)) {
+    const at = (boundary.index ?? 0) + 1
+    const head = paragraph.slice(0, at); const tail = paragraph.slice(at).trimStart()
+    if (head.length < 40 || countMatches(head, /[A-Za-z]{2,}/g) < 6 || tail.length < 40) continue
+    const opening = tail.slice(0, 100)
+    if (/[.!?](?=\s+[A-Z])/.test(opening) || countMatches(opening, numericToken) < 2) continue
+    if (countMatches(opening, /\b(?:the|of|and|for|with|are|were|was|is|in|on|to|from|by|that|this|show|shows|showing|indicate|indicates|represent|represents|each|all|same|images?|panels?|rows?|columns?|left|right|top|bottom)\b/gi) >= 2) continue
+    const numbers = countMatches(tail, numericToken)
+    if (numbers >= 4 && numbers / Math.max(1, tail.split(/\s+/).length) >= .12) return at
+  }
+  return -1
+}
+
 /** Where the prose after a display equation begins, or -1 when the paragraph is
  * not a display followed by a sentence. Takes the earliest boundary that still
  * leaves an equation behind it, so as much of the sentence as possible stays
@@ -225,6 +259,15 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
     // rule above catches only a numbered display followed by "where"/"which";
     // this finds the boundary itself, at the first sentence end that leaves
     // maths behind it and a real sentence in front.
+    const gridStart = captionStart.test(paragraph) ? captionGridStart(paragraph) : -1
+    if (gridStart > 0) {
+      const head = paragraph.slice(0, gridStart).trimEnd()
+      const tail = paragraph.slice(gridStart).trimStart()
+      const tailStart = paragraphStart + paragraph.indexOf(tail, head.length)
+      parts.push({ text: head, start: paragraphStart, end: paragraphStart + head.length, blockId, paragraphContext: head })
+      parts.push({ text: tail, start: tailStart, end: tailStart + tail.length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: tail })
+      continue
+    }
     const proseAt = trailingProseOffset(paragraph)
     if (proseAt > 0) {
       const head = paragraph.slice(0, proseAt).trimEnd()
