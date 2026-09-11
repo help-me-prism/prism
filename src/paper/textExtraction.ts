@@ -137,6 +137,27 @@ function trailingProseOffset(paragraph: string) {
   // their words, so the one space after a numbered title is the title's end.
   const cjkTitle = paragraph.match(/^\d+(?:\.\d+)+\.?\s+([぀-ヿ一-鿿]{2,12})\s+(?=[぀-ヿ一-鿿])/)
   if (cjkTitle && paragraph.length > 60) return cjkTitle[0].length
+  // A numbered item or an appendix that introduces itself with a colon and then
+  // keeps talking — "4. Semi-supervised learning : features from the
+  // discriminator could improve performance" — is a title and a paragraph, and
+  // was shown as one long title. The colon is the author's own boundary.
+  // Taken before the list boundary below, so an item that introduces itself and
+  // then keeps talking is cut at its own colon first; the list boundary is still
+  // found on the next pass over what remains.
+  if (/^(?:\d+\.?\s|[IVX]+\.\s|Appendix|Appendices|Supplement)/i.test(paragraph) && paragraph.length > 90) {
+    const colon = paragraph.match(/\s*:\s+(?=\S)/)
+    const at = colon?.index === undefined ? -1 : colon.index + colon[0].length
+    if (at > 3 && at < 60 && paragraph.length - at > 40) return at
+  }
+  // A numbered list arrives as one paragraph — "3. One can ... 4. Semi-supervised
+  // learning : ... 5. Efficiency improvements: ..." — and every item after the
+  // first was shown as a long heading. Two item markers are what distinguish a
+  // list from a section title followed by prose.
+  if (countMatches(paragraph, /(?:^|[.!?]\s+)\d+\.\s+[A-Z]/g) >= 2) {
+    const item = paragraph.slice(1).match(/[.!?]\s+(?=\d+\.\s+[A-Z])/)
+    const at = item?.index === undefined ? -1 : item.index + 1 + item[0].length
+    if (at > 0 && paragraph.length - at > 30) return at
+  }
   let previous = 0
   for (const match of paragraph.matchAll(/[.!?]\s+(?=\p{Lu})/gu)) {
     const at = (match.index ?? 0) + match[0].length
@@ -304,12 +325,25 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
       parts.push({ text: tail, start: tailStart, end: tailStart + tail.length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: tail })
       continue
     }
-    const proseAt = trailingProseOffset(paragraph)
-    if (proseAt > 0) {
-      const head = paragraph.slice(0, proseAt).trimEnd()
-      const tail = paragraph.slice(proseAt)
-      parts.push({ text: head, start: paragraphStart, end: paragraphStart + head.length, blockId, paragraphContext: head })
-      parts.push({ text: tail, start: paragraphStart + proseAt, end: paragraphStart + proseAt + tail.length, blockId: `pdf-p${page}-b${paragraphIndex++}`, paragraphContext: tail })
+    // Applied until nothing more comes apart: one paragraph can hold a whole
+    // numbered list, and cutting only its first boundary left every later item
+    // inside the tail. Bounded so a rule that kept finding the same boundary
+    // could not spin.
+    const cuts: number[] = []
+    for (let scanned = 0; cuts.length < 8;) {
+      const at = trailingProseOffset(paragraph.slice(scanned))
+      if (at <= 0) break
+      scanned += at
+      cuts.push(scanned)
+    }
+    if (cuts.length) {
+      const bounds = [0, ...cuts, paragraph.length]
+      for (let index = 0; index + 1 < bounds.length; index += 1) {
+        const piece = paragraph.slice(bounds[index], bounds[index + 1]).trimEnd()
+        if (!piece) continue
+        const start = paragraphStart + bounds[index]
+        parts.push({ text: piece, start, end: start + piece.length, blockId: index ? `pdf-p${page}-b${paragraphIndex++}` : blockId, paragraphContext: piece })
+      }
       continue
     }
     if ((isEquation(paragraph) && paragraph.length < 260) || captionStart.test(paragraph) || (numberedTitle.test(paragraph) && paragraph.length < 140 && !/[.!?]\s+[A-Z]/.test(paragraph.replace(/^(?:[IVX]+\.|\d+(?:\.\d+)*\.?|[A-Z](?:\.\d+)*\.?)\s+/, ''))) || namedHeading.test(paragraph)) {
@@ -358,7 +392,13 @@ export function segmentsFromItems(page: number, items: PdfTextItem[], weights: R
     const averageHeight = heights.reduce((sum, value) => sum + value, 0) / Math.max(1, heights.length)
     const punctuation = (part.text.match(/[.!?;:]/g) ?? []).length
     const digits = (part.text.match(/\d/g) ?? []).length
-    const numberedHeading = /^(?:\d+(?:\.\d+)+|[A-Z]\.\d+)\.?\s+/.test(part.text) || (/^(?:\d+\.?|[IVX]+\.)\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
+    // A physics journal sets its section titles in small capitals at body size,
+    // so "III. DETECTORS" carried no height evidence and was read as a sentence
+    // — then as a two-word fragment, because that is all it is. Capitals across
+    // a short line are the evidence that the size does not give.
+    const capitalisedTitle = /^(?:\d+\.?|[IVX]+\.)\s+[A-Z][A-Z\s.&-]{2,48}$/.test(part.text.trim())
+    const numberedHeading = /^(?:\d+(?:\.\d+)+|[A-Z]\.\d+)\.?\s+/.test(part.text) || capitalisedTitle
+      || (/^(?:\d+\.?|[IVX]+\.)\s+[A-Z]/.test(part.text) && averageHeight > bodyHeight * 1.08)
     const sectionHeading = numberedHeading || namedHeading.test(part.text) || /^appendix\b/i.test(part.text)
     const caption = captionStart.test(part.text)
     const shortFragments = matchedItems.filter((item) => item.str.trim().length < (/[぀-ヿ一-鿿]/.test(item.str) ? 14 : 32)).length
