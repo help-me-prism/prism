@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { transformWithOxc } from 'vite'
+import { loadTs as load } from './load-ts.mjs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { auditPaperQuality } from '../dist-electron/paperQualityAudit.js'
 
@@ -10,9 +10,7 @@ const paperDir = path.resolve(process.argv[2] ?? '')
 if (!process.argv[2]) throw new Error('Usage: node scripts/audit-paper-structure.mjs <paper-directory>')
 const readJson = async name => JSON.parse(await fs.readFile(path.join(paperDir, name), 'utf8'))
 const optionalJson = async name => { try { return await readJson(name) } catch { return undefined } }
-const file = 'src/paper/textExtraction.ts'
-const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file)
-const { segmentsFromItems } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+const { segmentsFromItems } = await load('src/paper/textExtraction.ts')
 
 const anchors = (await optionalJson('anchors.json'))?.anchors ?? []
 const structure = await optionalJson('latex-structure.json') ?? await optionalJson('jats-structure.json')

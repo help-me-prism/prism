@@ -13,13 +13,9 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { transformWithOxc } from 'vite'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { loadTs as load } from './load-ts.mjs'
 
-async function load(file) {
-  const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file)
-  return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
-}
 const { segmentsFromItems, markRunningFurniture, hasDamagedMathEncoding } = await load('src/paper/textExtraction.ts')
 const { withoutBibliography } = await load('electron/translationScope.ts')
 const optional = async (file, names) => {

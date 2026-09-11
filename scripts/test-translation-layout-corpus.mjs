@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { transformWithOxc } from 'vite'
-const load = async file => { const { code } = await transformWithOxc(await fs.readFile(file, 'utf8'), file); return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64')) }
+import { loadTs as load } from './load-ts.mjs'
+
 const { segmentsFromItems, hasDamagedMathEncoding } = await load('src/paper/textExtraction.ts')
 const { preservePdfTables } = await load('src/paper/tableRegions.ts')
 const { preservePublicationFurniture } = await load('src/paper/publicationFurniture.ts')

@@ -1,13 +1,9 @@
-export type PdfTextItem = { str: string; width: number; height: number; transform: number[]; hasEOL?: boolean; fontName?: string }
-
 // A figure reference such as "Fig 2)" can begin a PDF text item in the middle
-// of body prose. Only a caption label delimiter (or a label alone) starts a block.
-// Many captions put the title straight after the label with only a space
-// ("Algorithm 1 Plot Inverse Loewner Map"). What separates those from a running
-// reference is the case of the next letter: a title starts capitalised, while
-// prose continues in lower case ("Figure 3 illustrates ..."). Matching must
-// therefore be case-sensitive, so the label's own spellings are listed out.
-const captionStart = /^(?:[Ff]igure|FIGURE|[Ff]ig\.?|FIG\.?|[Tt]able|TABLE|[Aa]lgorithm|ALGORITHM)\s*(?:\d+|[IVX]+)(?:\s*[.:](?:\s|$)|\s*$|\s+(?=[A-Z]))/
+// of body prose. Only a caption label delimiter (or a label alone) starts a
+// block. The label vocabulary and the case rules live in captionLabels.
+import { captionStart } from './captionLabels'
+
+export type PdfTextItem = { str: string; width: number; height: number; transform: number[]; hasEOL?: boolean; fontName?: string }
 // Stands in for a full stop that must not end a sentence. It is exactly one
 // character so offsets survive masking: segments address PDF glyph ranges by
 // character position, so never drop it or replace it with a longer string.
