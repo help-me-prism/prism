@@ -15,7 +15,7 @@ function fixturePdf() {
   return pdf+`xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(offset=>String(offset).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`
 }
 await fs.writeFile(sample,fixturePdf());await fs.writeFile(path.join(root,'selection.txt'),sample)
-const port=9348, child=spawn(require('electron'),[`--remote-debugging-port=${port}`,'scripts/product-test-host.cjs'],{windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,PRISM_PRODUCT_TEST_ROOT:root,PRISM_PRODUCT_TEST_CHAT:'1',PRISM_TEST_DISABLE_AUTO_TRANSLATE:'1',PRISM_TEST_WINDOW_SIZE:'1500x1000'}})
+const port=9348, child=spawn(require('electron'),[`--remote-debugging-port=${port}`,'scripts/product-test-host.cjs'],{windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,PRISM_PRODUCT_TEST_ROOT:root,PRISM_PRODUCT_TEST_CHAT:'1',PRISM_TEST_DISABLE_AUTO_TRANSLATE:'1',PRISM_TEST_WINDOW_SIZE:process.env.PRISM_TEST_WINDOW_SIZE || '1500x1000'}})
 let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b)
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)), connections=[]
 let readerUi
@@ -104,7 +104,9 @@ try {
     await fs.writeFile(path.join(root,'reader-events.json'),JSON.stringify([{channel:'translation:done',event:{arxivId:second.arxivId,revision:12,running:false,completed:50,total:50}}]));await ui.evaluate('window.prism.getSettings()');await ui.wait('document.body.innerText.includes("4/12 · 중지")')
   }
   // Native right-button drag creates a real saved PNG without entering capture mode.
-  const rect=await ui.evaluate('document.querySelector(".continuous-page.original").getBoundingClientRect().toJSON()')
+  await ui.evaluate('document.querySelector(".document-mode > button:first-child").click()')
+  await ui.wait('document.querySelector("[data-pane=original][data-shown=true] .continuous-page.original.rendered")')
+  const rect=await ui.evaluate('document.querySelector("[data-pane=original][data-shown=true] .continuous-page.original").getBoundingClientRect().toJSON()')
   await rightDrag(ui,{x:rect.x+45,y:rect.y+100,width:190,height:110})
   const figureFiles=await fs.readdir(path.join(path.dirname(first.pdfPath),'figures'));assert(figureFiles.some(file=>file.endsWith('.png')))
   // Both translation layouts must capture visible Korean prose, with source provenance.
@@ -113,7 +115,8 @@ try {
     await ui.evaluate(`(() => {const select=document.querySelector('.translation-format');select.value='${format}';select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
     await ui.wait('document.querySelector(".continuous-page.translated.rendered") && document.querySelector(".continuous-page.translated").innerText.includes("서로 다른 수학 모형")')
     await ui.evaluate('document.querySelector(".continuous-page.translated .reading-block:has([data-anchor])").scrollIntoView({block:"center"})')
-    const selected=await ui.evaluate('(() => {const r=document.querySelector(".continuous-page.translated .reading-block:has([data-anchor])").getBoundingClientRect();return {x:Math.floor(r.x-2),y:Math.floor(r.y-2),width:Math.ceil(r.width+4),height:Math.max(35,Math.ceil(r.height+4))}})()')
+    const selected=await ui.evaluate('(() => {const block=document.querySelector(".continuous-page.translated .reading-block:has([data-anchor])"), r=block.getBoundingClientRect(), pane=block.closest(".document-scroll").getBoundingClientRect(), x=Math.ceil(Math.max(r.x+2,pane.x+2)), y=Math.ceil(Math.max(r.y+2,pane.y+2));return {x,y,width:Math.floor(Math.min(250,r.right-x-2,pane.right-x-2)),height:Math.floor(Math.min(80,r.bottom-y-2,pane.bottom-y-2))}})()')
+    assert(selected.width>=24&&selected.height>=24,'Select a visible part of the translated paragraph')
     await rightDrag(ui,selected)
     const files=await fs.readdir(path.join(path.dirname(first.pdfPath),'figures'))
     const latest=files.filter(file=>file.endsWith('.png')).sort().at(-1)
