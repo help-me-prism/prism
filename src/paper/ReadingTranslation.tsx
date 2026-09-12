@@ -1,7 +1,7 @@
 import { Image, Sigma, Table2 } from 'lucide-react'
 import { paddedExcerptBounds } from './excerptBounds'
 import { useEffect, useRef } from 'react'
-import { joinPreservedRegions } from './preservedRegions'
+import { joinPreservedRegions, preservedRegionKind } from './preservedRegions'
 import { figureOverlapsProse } from './figureGeometry'
 import PaperTranslationLayout from './PaperTranslationLayout'
 import FlowProseExcerpt from './FlowProseExcerpt'
@@ -28,6 +28,7 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
       && Math.abs(rect.height - (parseFloat(source.style.height) || source.height)) < .001) {
       canvas.current.width = source.width; canvas.current.height = source.height
       canvas.current.style.width = `${rect.width}px`
+      canvas.current.dataset.sourceRect = JSON.stringify(rect)
       canvas.current.getContext('2d')?.drawImage(source, 0, 0)
       return
     }
@@ -38,6 +39,7 @@ export function OriginalExcerpt({ source, rect, label, padding = 3, clipRects, a
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
     canvas.current.width = Math.round(width * ratio); canvas.current.height = Math.round(height * ratio)
     canvas.current.style.width = `${width}px`
+    canvas.current.dataset.sourceRect = JSON.stringify({ left, top, width, height })
     const context = canvas.current.getContext('2d')
     if (!context) return
     if (clipRects) {
@@ -79,11 +81,19 @@ export default function ReadingTranslation({ segments, translation, source, read
     // between their separate ink boxes. Never swallow translated neighboring text.
     for (const [id, items] of paragraphs) if (items.every(item => ['text', 'heading'].includes(item.kind)) && !items.some(hasProseTranslation)) { originalParagraphs.add(id); intactProseParagraphs.add(id) }
   }
-  const blocks = joinPreservedRegions(groupReadingSegments(segments, originalParagraphs, segment => translation.get(segment.id) ? 'translated' : 'source').map(({ id, kind, items, original }) => {
+  // PDF text extraction also emits axis labels, panel letters and gel labels.
+  // A detected figure already preserves those pixels. Even a cached translation
+  // of those fragments must not lay a second, scrambled copy over the diagram.
+  const inFigure = (rect: Rect) => figures.some(figure => rect.left >= figure.left - 3 && rect.top >= figure.top - 3 && rect.left + rect.width <= figure.left + figure.width + 3 && rect.top + rect.height <= figure.top + figure.height + 3)
+  const readingSegments = segments.filter(segment => {
+    const rects = rectangles(segment)
+    return segment.kind === 'caption' || !rects.length || !rects.every(inFigure)
+  })
+  const blocks = joinPreservedRegions(groupReadingSegments(readingSegments, originalParagraphs, segment => translation.get(segment.id) ? 'translated' : 'source').map(({ id, kind, items, original }) => {
     const boxes = items.flatMap(rectangles)
     const left = Math.min(...boxes.map(box => box.left)); const top = Math.min(...boxes.map(box => box.top))
     return { id, kind, items, original, rect: boxes.length ? { left, top, width: Math.max(...boxes.map(box => box.left + box.width)) - left, height: Math.max(...boxes.map(box => box.top + box.height)) - top } : undefined }
-  }))
+  })).map(block => ({ ...block, kind: preservedRegionKind(block.items, block.kind) }))
   // Follow the parser's reading order. Embedded bitmap figures join their nearest caption.
   const placed = new Set<number>()
   const clips = (items: TranslationSegment[]) => mayMaskExcerpt(items, mixedParagraphs, originalParagraphs) && (items.every(item => item.preciseRects?.length) || items.every(item => ['text', 'artifact'].includes(item.kind) && item.blockId && mixedParagraphs.has(item.blockId) && !originalParagraphs.has(item.blockId))) ? items.flatMap(rectangles) : undefined
@@ -126,7 +136,7 @@ export default function ReadingTranslation({ segments, translation, source, read
       // A detected figure crop commonly includes its caption so the evidence
       // tag remains one visual region. Do not let that crop suppress a real
       // caption translation; layout will place the translated caption after it.
-      if (containedInFigure(block.rect) && !block.items.some(hasProseTranslation)) return []
+      if (containedInFigure(block.rect) && !block.items.some(segment => segment.kind === 'caption')) return []
       const kind = block.kind
       const missingProse = block.items.some(segment => ['text', 'heading', 'caption'].includes(segment.kind) && !translation.get(segment.id))
       const preserved = block.original || ['equation', 'table', 'artifact'].includes(kind) || missingProse
@@ -169,7 +179,7 @@ export default function ReadingTranslation({ segments, translation, source, read
       associated.forEach(({ index }) => placed.add(index))
       return <section key={block.id} className={`reading-block ${kind}`}>
         {associated.map(({ rect, index }) => <figure key={index}>{figureCrop(rect)}</figure>)}
-        {preserved && block.rect ? <button className="original-excerpt" title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button> : block.items.map(segment => <span key={segment.id} style={{ fontWeight: segment.sourceFontWeight }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} onInlineMath={(source, index) => inlineTag(segment, source, index)} />{' '}</span>)}
+        {preserved && block.rect ? <button className="original-excerpt" data-source-rect={JSON.stringify(block.rect)} title={block.original ? '글자와 수식을 온전히 보존하기 위해 이 문단은 원문으로 표시합니다. 클릭하면 질문에 추가합니다.' : kind === 'artifact' ? '문자와 수식을 정확히 보존하기 위해 원문으로 표시합니다. 클릭하면 원문 이미지를 질문에 추가합니다.' : '원문 근거를 질문에 추가'} onClick={() => onTag(block.items[0])} onContextMenu={event => { event.preventDefault(); onFindNotes(block.items[0]) }}>{crop(block.rect, protectedProse(block.items) ? '글자와 기호를 보존한 원문 문장' : kind === 'equation' ? '원문 수식' : '원문 표 또는 도해', clips(block.items), protectedProse(block.items))}</button> : block.items.map(segment => <span key={segment.id} data-source-rect={JSON.stringify(block.rect)} style={{ fontWeight: segment.sourceFontWeight }} data-anchor={segment.id} tabIndex={0} role="button" className={`${translation.has(segment.id) ? '' : 'untranslated'} ${highlighted === segment.id ? 'highlighted' : ''}`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => onTag(segment)} onKeyDown={event => { if (event.key === 'Enter') onTag(segment); if (event.key === 'ContextMenu') onFindNotes(segment) }} onContextMenu={event => { event.preventDefault(); onFindNotes(segment) }}><ScientificTranslationText sourceText={segment.source} text={translation.get(segment.id) || segment.source} spans={segment.scientificSpans} canvas={ready ? source : null} scale={sourceScale} onInlineMath={(source, index) => inlineTag(segment, source, index)} />{' '}</span>)}
       </section>
     })}
     {figures.map((rect, index) => !placed.has(index) && <figure key={index}>{figureCrop(rect)}</figure>)}

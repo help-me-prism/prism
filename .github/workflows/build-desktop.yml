@@ -45,6 +45,7 @@ jobs:
       - run: npm ci
       - run: npm run test:core
       - run: node scripts/test-product-ui.mjs
+      - run: node scripts/test-reader-regressions-ui.mjs
       - run: node scripts/smoke-electron-ui.mjs
       - run: npm run ${{ matrix.command }}
         env:

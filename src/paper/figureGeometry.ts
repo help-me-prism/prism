@@ -3,6 +3,31 @@ export type FigureComponentMetrics = { relativeWidth?: number; row?: number; pix
 
 export type FigureTextEvidence = { kind: string; source: string; rects: FigureRect[] }
 
+/** Caption columns provide a boundary for disconnected raster/vector panels. */
+export function captionFigureRegions(rects: FigureRect[], captions: FigureRect[][], prose: FigureTextEvidence[], scale = 1): FigureRect[] {
+  const boxes = captions.filter(items => items.length).map(items => {
+    const left = Math.min(...items.map(r => r.left)), top = Math.min(...items.map(r => r.top))
+    return { left, top, width: Math.max(...items.map(r => r.left + r.width)) - left, height: Math.max(...items.map(r => r.top + r.height)) - top }
+  })
+  const groups = new Map<number, FigureRect[]>(), unassigned: FigureRect[] = []
+  for (const rect of rects) {
+    const candidate = boxes.map((caption, index) => {
+      const overlap = Math.min(rect.left + rect.width, caption.left + caption.width) - Math.max(rect.left, caption.left)
+      const gap = caption.top - (rect.top + rect.height)
+      const corridor = { left: rect.left, top: rect.top, width: rect.width, height: caption.top - rect.top }
+      return { index, gap, eligible: overlap > Math.min(rect.width, caption.width) * .55 && gap >= -4 * scale && gap <= 360 * scale && !figureOverlapsProse(corridor, prose) }
+    }).filter(item => item.eligible).sort((a, b) => a.gap - b.gap)[0]
+    if (candidate) groups.set(candidate.index, [...groups.get(candidate.index) ?? [], rect]); else unassigned.push(rect)
+  }
+  for (const members of groups.values()) {
+    const left = Math.min(...members.map(r => r.left)), top = Math.min(...members.map(r => r.top))
+    const union = { left, top, width: Math.max(...members.map(r => r.left + r.width)) - left, height: Math.max(...members.map(r => r.top + r.height)) - top }
+    if (figureOverlapsProse(union, prose)) unassigned.push(...members)
+    else unassigned.push({ left: left - 4 * scale, top: top - 4 * scale, width: union.width + 8 * scale, height: union.height + 8 * scale })
+  }
+  return unassigned
+}
+
 /** PDF paths include frames, watermarks and backgrounds, not just diagrams.
  * A graphic's bounding box is not evidence that the prose inside it is a figure.
  * Use individual text rectangles so empty space between columns cannot veto a
@@ -91,7 +116,7 @@ export function joinBitmapRegions(rects: FigureRect[], scale: number, pageArea: 
 export function joinVectorRegions(rects: FigureRect[], scale: number, pageArea: number) {
   const groups: FigureRect[] = []
   const gap = 6 * scale
-  for (const rect of rects.slice(0, 1500)) {
+  for (const rect of rects) {
     // Page backgrounds/clip paths touch every scientific stroke. Joining them
     // first turns all tables into a page-sized region that the final filter
     // discards. Such bounds are not eligible figures in the first place.

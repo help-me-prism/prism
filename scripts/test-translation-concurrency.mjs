@@ -17,7 +17,7 @@ const sentence = 'The measured response of the cultured cells to the applied sti
 const segments = Array.from({ length: 90 }, (_, index) => ({ id: `s${index}`, page: 1 + Math.floor(index / 12), kind: 'text', source: `${sentence.repeat(3)}Observation ${'x'.repeat(20)} of run ${'y'.repeat(10)}.` }))
 
 async function run({ failAt, cancelAt } = {}) {
-  const file = path.join(root, `translation-${failAt ?? cancelAt ?? 'ok'}.json`)
+  const file = path.join(root, `translation-${failAt !== undefined ? 'fail-' + failAt : cancelAt !== undefined ? 'cancel-' + cancelAt : 'ok'}.json`)
   const runs = new Map()
   const events = []
   let started = 0; let inFlight = 0; let peak = 0
@@ -25,7 +25,7 @@ async function run({ failAt, cancelAt } = {}) {
     fs, createHash, atomicWriteFile, ...harness, ...scope,
     readSettings: async () => ({ translationProvider: 'codex', translationModel: 'fixture' }),
     translationRuns: runs,
-    safeSend: (_sender, channel, event) => events.push({ channel, ...event }),
+    reportTranslation: (_sender, channel, event) => events.push({ channel, ...event }),
     runTranslationCli: async (_provider, _model, prompt, key) => {
       const index = started++
       inFlight += 1; peak = Math.max(peak, inFlight)
@@ -76,7 +76,8 @@ const startedAtCancel = cancelled.started
 await new Promise((resolve) => setTimeout(resolve, 80))
 assert.equal(cancelled.started, startedAtCancel, 'no batch starts after cancellation')
 assert(cancelled.started < ok.started, 'cancellation stops the queue')
-assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done').length, 0)
+assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done' && !event.cancelled).length, 0)
+assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done' && event.cancelled).length, 1, 'Cancellation publishes terminal status')
 assert.equal(cancelled.runs.size, 0)
 
 await fs.rm(root, { recursive: true, force: true })

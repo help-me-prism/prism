@@ -10,5 +10,6 @@ export function composerEvidenceLabel(anchor: { label: string; type: string; pag
   const savedImage = anchor.type === 'figure' && /^(?:Saved figure image:|Matched LaTeX figure \d+\. Caption:)/.test(source)
   const caption = savedImage ? source.match(/^Matched LaTeX figure \d+\. Caption: (.*?)\. Source asset:/)?.[1] : undefined
   const excerpt = savedImage ? caption && caption !== 'unknown' ? caption : '선택한 피겨 영역' : source
-  return { location, excerpt, description: [anchor.label, location, anchor.paperTitle?.trim(), excerpt].filter(Boolean).join('\n') }
+  const label = anchor.label.replace(/^근거(?=\d)/, kind)
+  return { label, location, excerpt, description: [label, location, anchor.paperTitle?.trim(), excerpt].filter(Boolean).join('\n') }
 }

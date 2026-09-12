@@ -21,6 +21,19 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .paper-tree { max-height: 32vh; }
 .paper-tree button { min-height: 47px; }
 .session-copy small { color: var(--muted); }
+.sidebar .sidebar-repository { width: calc(100% - 24px); flex: 0 0 auto; }
+.sidebar-repository > svg { flex: 0 0 16px; }
+.sidebar-repository > span { flex: 1; }
+.paper-tree button { flex-shrink: 0; align-items: flex-start; }
+.paper-tree button > svg { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; }
+.paper-tree button > span { flex: 1; }
+.paper-tree strong, .session-copy strong { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.paper-tree .paper-reading-position, .session-copy .session-running { color: var(--accent); }
+.session-item { flex-shrink: 0; }
+.capturing-view .figure-capture-layer, .capturing-view .figure-capture-status { visibility: hidden; }
+.capturing-view .structure-anchor > svg { visibility: hidden; }
+.capturing-view .reading-block [role=button], .capturing-view .reading-block .highlighted,
+.capturing-view .original-excerpt.structure-anchor { background: transparent !important; border-color: transparent !important; outline: none !important; box-shadow: none !important; }
 .reader-empty { padding: 32px; max-width: 700px; margin: auto; }
 .reader-empty h1 { font-family: "Segoe UI", sans-serif; font-size: 27px; font-weight: 600; line-height: 1.4; }
 .reader-empty p { max-width: 370px; font-size: 14px; line-height: 1.9; color: var(--muted); }

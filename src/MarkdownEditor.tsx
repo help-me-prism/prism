@@ -8,6 +8,8 @@ import { tags } from '@lezer/highlight'
 import { redo, undo } from '@codemirror/commands'
 import { basicSetup } from 'codemirror'
 import katex from 'katex'
+import { noteMathRanges } from './noteMath'
+import { displayMathForPreview } from '../electron/mathRendering'
 import { evidenceInlineMathHtml } from './evidenceInlineMath'
 import { noteBlockPosition } from './noteBlockNavigation'
 import { evidenceFromUri } from './paper/evidenceUri'
@@ -388,8 +390,13 @@ function tableCells(line: string) {
   return cells
 }
 
+const editorFocused = StateEffect.define<boolean>()
+const editorFocusState = StateField.define<boolean>({ create: () => false, update: (value, transaction) => transaction.effects.find(effect => effect.is(editorFocused))?.value ?? value })
+const mathFocus = EditorView.domEventHandlers({ focus: (_event, view) => { view.dispatch({ effects: editorFocused.of(true) }) }, blur: (_event, view) => { view.dispatch({ effects: editorFocused.of(false) }) } })
+
 function renderedBlocks(state: EditorState) {
   const blocks: RenderedBlock[] = []
+  const displayMath = new Map(noteMathRanges(state.doc.toString()).filter(math => math.display).map(math => [math.from, math]))
   const frontmatter = state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
   const frontmatterEnd = frontmatter?.[0].length ?? 0
   for (let number = 1; number <= state.doc.lines; number += 1) {
@@ -406,15 +413,10 @@ function renderedBlocks(state: EditorState) {
         continue
       }
     }
-    if (trimmed === '$$') {
-      let closing = number + 1
-      while (closing <= state.doc.lines && state.doc.line(closing).text.trim() !== '$$') closing += 1
-      if (closing <= state.doc.lines) {
-        const closingLine = state.doc.line(closing)
-        blocks.push({ type: 'math', from: line.from, to: closingLine.to, source: state.doc.sliceString(line.to + 1, closingLine.from).trim() })
-        number = closing
-        continue
-      }
+    const math = displayMath.get(line.from + line.text.indexOf(line.text.trimStart()))
+    if (math?.display && !state.doc.lineAt(math.to).text.slice(math.to - state.doc.lineAt(math.to).from).trim()) {
+      const closingLine = state.doc.lineAt(math.to)
+      blocks.push({ type: 'math', from: line.from, to: closingLine.to, source: math.source }); number = closingLine.number; continue
     }
     // A PDF evidence card is generated, not prose: keep it in one piece so a stray click cannot split it.
     if (/^>\s*\[!evidence\]/.test(trimmed)) {
@@ -500,7 +502,9 @@ class RenderedEvidence extends WidgetType {
     wrapper.setAttribute('aria-label', `${this.heading} PDF 원문 열기`)
     wrapper.title = this.anchor ? 'PDF 원문 위치로 이동' : '연결이 끊어진 근거 카드입니다'
     const label = document.createElement('small'); label.textContent = this.heading; wrapper.append(label)
-    const quote = document.createElement('p'); quote.innerHTML = evidenceInlineMathHtml(this.quote); wrapper.append(quote)
+    const quote = document.createElement('p'); quote.innerHTML = this.anchor?.type === 'equation'
+      ? katex.renderToString(displayMathForPreview(this.quote), { displayMode: true, throwOnError: false, strict: false, trust: false, maxExpand: 1000 })
+      : evidenceInlineMathHtml(this.quote); wrapper.append(quote)
     const open = (event: Event) => {
       event.preventDefault()
       if (!this.anchor) return
@@ -529,12 +533,22 @@ class RenderedTable extends InteractiveRenderedBlock {
   }
 }
 
+class RenderedInlineMath extends InteractiveRenderedBlock {
+  constructor(position: number, readonly source: string, readonly display: boolean) { super(position) }
+  eq(other: RenderedInlineMath) { return this.position === other.position && this.source === other.source && this.display === other.display }
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('span'); wrapper.className = 'cm-rendered-inline-math'
+    wrapper.innerHTML = katex.renderToString(this.display ? displayMathForPreview(this.source) : this.source, { displayMode: this.display, throwOnError: false, strict: false, trust: false, maxExpand: 1000 })
+    this.openSource(view, wrapper, '수식'); return wrapper
+  }
+}
+
 class RenderedMath extends InteractiveRenderedBlock {
   constructor(position: number, readonly source: string) { super(position) }
   eq(other: RenderedMath) { return this.position === other.position && this.source === other.source }
   toDOM(view: EditorView) {
     const wrapper = document.createElement('div'); wrapper.className = 'cm-rendered-block cm-rendered-math'
-    wrapper.innerHTML = katex.renderToString(this.source, { displayMode: true, throwOnError: false, strict: false })
+    wrapper.innerHTML = katex.renderToString(displayMathForPreview(this.source), { displayMode: true, throwOnError: false, strict: false, trust: false, maxExpand: 1000 })
     wrapper.prepend(markdownBlockHandleDOM(this.position, '$$'))
     this.openSource(view, wrapper, '수식'); return wrapper
   }
@@ -606,7 +620,7 @@ const evidenceAtomicState = StateField.define<DecorationSet>({
 function renderedBlockDecorationSet(state: EditorState) {
   const ranges: DecorationRange[] = []
   const activeLine = state.doc.lineAt(state.selection.main.head)
-  const isActive = (from: number, to: number) => from <= activeLine.to && to >= activeLine.from
+  const isActive = (from: number, to: number) => state.field(editorFocusState) && from <= activeLine.to && to >= activeLine.from
   for (const block of renderedBlocks(state)) {
     if (block.type === 'evidence') {
       ranges.push({ from: block.from, to: block.to, decoration: Decoration.replace({ widget: new RenderedEvidence(block.from, block.heading, block.quote, block.anchor), block: true }) })
@@ -631,14 +645,14 @@ function renderedBlockDecorationSet(state: EditorState) {
 
 const renderedBlockState = StateField.define<DecorationSet>({
   create: renderedBlockDecorationSet,
-  update(value, transaction) { return transaction.docChanged || transaction.selection ? renderedBlockDecorationSet(transaction.state) : value },
+  update(value, transaction) { return transaction.docChanged || transaction.selection || transaction.effects.some(effect => effect.is(editorFocused)) ? renderedBlockDecorationSet(transaction.state) : value },
   provide: (field) => EditorView.decorations.from(field),
 })
 
 function liveEditDecorationSet(view: EditorView) {
   const ranges: DecorationRange[] = []
   const activeLine = view.state.doc.lineAt(view.state.selection.main.head)
-  const isActive = (from: number, to: number) => from <= activeLine.to && to >= activeLine.from
+  const isActive = (from: number, to: number) => view.state.field(editorFocusState) && from <= activeLine.to && to >= activeLine.from
   const rendered = renderedBlocks(view.state).filter((block) => !isActive(block.from, block.to))
   const frontmatter = view.state.doc.toString().match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
   const frontmatterEnd = frontmatter?.[0].length ?? 0
@@ -733,7 +747,11 @@ function liveEditDecorationSet(view: EditorView) {
       addInline(line.from, text, /\*\*[^*\n]+\*\*/g, 'cm-md-strong', 2)
       addInline(line.from, text, /(?<!\*)\*[^*\n]+\*(?!\*)/g, 'cm-md-emphasis', 1)
       addInline(line.from, text, /`[^`\n]+`/g, 'cm-md-inline-code', 1)
-      addInline(line.from, text, /\$[^$\n]+\$/g, 'cm-md-inline-math', 1)
+      for (const math of noteMathRanges(text)) {
+        const from = line.from + math.from, to = line.from + math.to
+        const editing = view.state.field(editorFocusState) && view.state.selection.ranges.some(range => range.from <= to && range.to >= from)
+        if (!editing) ranges.push({ from, to, decoration: Decoration.replace({ widget: new RenderedInlineMath(from + math.delimiter, math.source, math.display) }) })
+      }
       if (!isActive(line.from, line.to)) {
         for (const match of text.matchAll(/(?<!!)\[([^\]\n]+)\]\((prism:\/\/paper\/[^\s)]+)\)/g)) {
           const before = text.slice(0, match.index)
@@ -761,7 +779,7 @@ const liveEditDecorations = ViewPlugin.fromClass(class {
   decorations: DecorationSet
   constructor(view: EditorView) { this.decorations = liveEditDecorationSet(view) }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.viewportChanged) this.decorations = liveEditDecorationSet(update.view)
+    if (update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || update.transactions.some(transaction => transaction.effects.some(effect => effect.is(editorFocused)))) this.decorations = liveEditDecorationSet(update.view)
   }
 }, { decorations: (value) => value.decorations })
 
@@ -1048,7 +1066,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
   useEffect(() => {
     if (!hostRef.current) return
-    const liveExtensions = liveEdit ? [proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const liveExtensions = liveEdit ? [editorFocusState, mathFocus, proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     const moveSlashSelection = (delta: number) => {
       if (evidenceRef.current && filteredEvidenceRef.current.length) {
         const next = (activeEvidenceIndexRef.current + delta + filteredEvidenceRef.current.length) % filteredEvidenceRef.current.length
@@ -1182,7 +1200,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value])
   useEffect(() => { viewRef.current?.dispatch({ effects: editable.current.reconfigure(EditorView.editable.of(!disabled)) }) }, [disabled])
   useEffect(() => {
-    const extensions = liveEdit ? [proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
+    const extensions = liveEdit ? [editorFocusState, mathFocus, proseHighlightStyle, liveEditDecorations, renderedBlockState, evidenceAtomicState, blockHandleDecorations, sectionFoldState, calloutFoldState, EditorView.editorAttributes.of({ class: 'cm-live-edit' })] : []
     viewRef.current?.dispatch({ effects: visualMode.current.reconfigure(extensions) })
   }, [liveEdit])
 
