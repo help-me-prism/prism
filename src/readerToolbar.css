@@ -42,3 +42,4 @@
 .reader-figure-capture { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-weight: 600; cursor: pointer; }
 .reader-figure-capture:hover { filter: brightness(1.06); }
 .reader-figure-capture.on { background: var(--accent); color: light-dark(#fff, #17201c); border-color: var(--accent); }
+.ai-reading-bar .reader-recall-entry { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); background: transparent; font-size: 12px; }

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'katex/dist/katex.min.css'
 import './notes.css'
-import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, NotebookPen, PanelRight, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { BookOpen, FilePlus2, FolderOpen, Inbox, LayoutTemplate, Network, MoreHorizontal, NotebookPen, PanelRight, Plus, Search, Settings2, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import NoteDocument from './NoteDocument'
+import NotesHome from './NotesHome'
+import './recall.css'
 import NoteRecoveryNotice from './NoteRecoveryNotice'
 import ThemeControl from './ThemeControl'
 import { useDialogFocus } from './useDialogFocus'
@@ -14,7 +16,7 @@ import { autoSectionLabels, creatableTypes, isStub, treeTypes, typeLabels } from
 import { createContextRequestGate, noteContextSignature } from './contextRequestGate'
 import { linkCreatedNote } from './linkCreatedNote'
 
-type MainView = 'doc' | 'curation' | 'graph'
+type MainView = 'home' | 'doc' | 'curation' | 'graph'
 const emptyRelations: KnowledgeRelationView[] = []
 const emptyBacklinks: KnowledgeBacklink[] = []
 type ContextOwner = { libraryPath: string | undefined; activeId: string | undefined; nodes: KnowledgeNodeRecord[] }
@@ -53,7 +55,8 @@ export default function NotesWindow() {
   const [pendingBlock, setPendingBlock] = useState<{ id: string; blockId?: string; libraryPath?: string; requestId: number }>()
   const [blockFocus, setBlockFocus] = useState<{ nodeId: string; blockId: string; requestId: number }>()
   const blockRequestSequence = useRef(0)
-  const [view, setView] = useState<MainView>('doc')
+  const [view, setView] = useState<MainView>('home')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ResearchSearchResult[]>()
   const [collapsed, setCollapsed] = useState<Set<KnowledgeNodeType>>(() => new Set())
@@ -88,7 +91,7 @@ export default function NotesWindow() {
   const backlinks = ownedContext?.backlinks ?? emptyBacklinks
   const citations = ownedContext?.citations
   const citationsLoading = ownedContext?.citationsLoading ?? false
-  const [sideOpen, setSideOpen] = useState(() => window.localStorage.getItem('prism.notes.sideOpen') !== 'off')
+  const [sideOpen, setSideOpen] = useState(() => window.localStorage.getItem('prism.notes.sideOpen') === 'on')
   // Everything a model writes in a note is off until a CLI is chosen, and the choice used to live in the
   // Reader's translation toolbar — another window, next to an unrelated setting. It belongs where the writing
   // it turns on happens.
@@ -103,17 +106,16 @@ export default function NotesWindow() {
 
   const active = nodes.find((node) => node.id === activeId)
   const openNodes = openIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is KnowledgeNodeRecord => Boolean(node))
-  // The four primary folders always show, even when empty: the vault should tell you what kinds of notes exist.
+  // Empty classifications do not compete with the first reading note.
   const grouped = useMemo(() => treeTypes
     .map((type) => ({ type, items: nodes.filter((node) => node.nodeType === type).sort((left, right) => left.title.localeCompare(right.title)) }))
-    .filter((group) => group.items.length || creatableTypes.includes(group.type)), [nodes])
+    .filter((group) => group.items.length || group.type === 'paper'), [nodes])
   const filtered = useMemo(() => {
     const text = query.trim().toLocaleLowerCase()
     if (!text) return undefined
     return nodes.filter((node) => `${node.title} ${node.relativePath} ${node.preview}`.toLocaleLowerCase().includes(text)).slice(0, 60)
   }, [nodes, query])
   const relationCount = useMemo(() => relations.filter((item) => item.reviewStatus === 'approved').length, [relations])
-  const understoodCount = useMemo(() => nodes.filter((node) => node.status === 'understood' || node.status === 'established').length, [nodes])
 
   function notify(text: string, tone: 'info' | 'error' = 'info', undo?: { label: string; run: () => void | Promise<void> }) { setNotice({ text, tone, undo }) }
   async function refreshVault() {
@@ -315,6 +317,11 @@ export default function NotesWindow() {
     searchRun.current++; setQuery(text); setSearchResults(undefined); setSearchInvalidated(searchInFlight.current)
   }
   function toggleSide() { setSideOpen((value) => { window.localStorage.setItem('prism.notes.sideOpen', value ? 'off' : 'on'); return !value }) }
+  function focusSearch() {
+    if (searchRef.current?.offsetParent) { searchRef.current.focus(); return }
+    setView('home')
+    window.setTimeout(() => document.querySelector<HTMLInputElement>('.recall-search input')?.focus(), 0)
+  }
   function toggleGroup(type: KnowledgeNodeType) {
     setCollapsed((current) => { const next = new Set(current); if (next.has(type)) next.delete(type); else next.add(type); return next })
   }
@@ -336,19 +343,24 @@ export default function NotesWindow() {
     ><Trash2 size={11} /></button>
   </div>
 
-  return <main className={`notes-window${sideOpen && view === 'doc' ? ' has-side' : ''}`}>
+  return <main className={`notes-window${sideOpen && view === 'doc' && Boolean(active) ? ' has-side' : ''}`}>
     {/* Six unlabelled glyphs are six guesses. The words are short enough to fit next to them. */}
     <nav className="notes-rail" aria-label="작업 영역">
       <button aria-label="논문 리더" title="논문 리더 창으로" onClick={() => void window.prism.openPaperInReader()}><BookOpen size={17} /><b>리더</b></button>
-      <button aria-label="노트" title="노트" aria-pressed={view === 'doc'} onClick={() => setView('doc')}><NotebookPen size={17} /><b>노트</b></button>
+      <button aria-label="노트" title="노트" aria-pressed={view === 'doc' || view === 'home'} onClick={() => setView('home')}><NotebookPen size={17} /><b>내 기록</b></button>
+      <button aria-label="노트 도구" title="정리·그래프·연결 도구" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(value => !value)}><MoreHorizontal size={17} /><b>도구</b></button>
+      {advancedOpen && <>
       <button aria-label="정리 대기열" title="정리 대기열" aria-pressed={view === 'curation'} onClick={() => { setView('curation'); void reloadCuration() }}>
         <Inbox size={17} />{curation?.total ? <em>{curation.total}</em> : null}<b>정리</b>
       </button>
       <button aria-label="지식 그래프" title="볼트 전체 지식 그래프 — 노트 사이의 관계. 논문 한 편의 구조는 리더의 구조 맵에 있습니다." aria-pressed={view === 'graph'} onClick={() => setView('graph')}><Network size={17} /><b>지식 그래프</b></button>
-      <button aria-label="검색" title="볼트 검색" onClick={() => searchRef.current?.focus()}><Search size={17} /><b>검색</b></button>
+      </>}
+      <button aria-label="검색" title="볼트 검색" onClick={focusSearch}><Search size={17} /><b>검색</b></button>
       <span className="rail-spacer" />
+      {advancedOpen && <>
       <button aria-label="연결 패널" title="연결 패널 접기/펼치기" aria-pressed={sideOpen} onClick={toggleSide}><PanelRight size={17} /><b>연결</b></button>
       <button aria-label="노트 양식" title="노트 양식" onClick={() => setTemplatesOpen(true)}><LayoutTemplate size={17} /><b>양식</b></button>
+      </>}
       <button aria-label="노트 설정" title="노트 설정" onClick={() => setSettingsOpen(true)}><Settings2 size={17} /><b>설정</b></button>
     </nav>
 
@@ -373,17 +385,18 @@ export default function NotesWindow() {
       </div>
       {query && !searchBusy && !searchResults && <p className="tree-search-status">Enter를 누르면 본문까지 검색합니다.</p>}
       {searchBusy && <p className="tree-search-status" role="status">{searchInvalidated ? '이전 검색을 마무리하는 중… 완료 후 다시 검색해 주세요.' : '노트에서 찾는 중…'}</p>}
-      <button className="tree-new" disabled={!libraryPath || createBusy} onClick={() => beginCreate('concept', query.trim())}><FilePlus2 size={12} /> 새 노트</button>
+      <button className="tree-home" aria-pressed={view === 'home'} onClick={() => setView('home')}><NotebookPen size={14} /> 내 기록 모아보기</button>
+      <button className="tree-new" disabled={!libraryPath || createBusy} onClick={() => beginCreate('question', query.trim())}><FilePlus2 size={12} /> 새 생각 노트</button>
 
       {creating && <div className="tree-create">
-        <div className="create-types">{creatableTypes.map((type) => <button key={type} className={creating.nodeType === type ? 'active' : ''} aria-pressed={creating.nodeType === type} onClick={() => setCreating({ ...creating, nodeType: type, templateId: '' })}>{typeLabels[type]}</button>)}</div>
+        <details className="create-options"><summary>노트 종류 선택</summary><div className="create-types">{creatableTypes.map((type) => <button key={type} className={creating.nodeType === type ? 'active' : ''} aria-pressed={creating.nodeType === type} onClick={() => setCreating({ ...creating, nodeType: type, templateId: '' })}>{typeLabels[type]}</button>)}</div></details>
         <p className="create-guide" id="create-note-guide">{noteGuides[creating.nodeType].hint}</p>
         {creating.paper && ['concept', 'claim', 'question'].includes(creating.nodeType) && <label className="create-paper-link"><input type="checkbox" checked={Boolean(creating.linkPaper)} disabled={createBusy || creationOwner !== creating.paper.owner} onChange={event => setCreating({ ...creating, linkPaper: event.target.checked })} /><span>이 논문과 연결 · {creating.paper.title}<small>{creationOwner === creating.paper.owner ? '새 노트에서 논문으로 ‘관련’ 관계를 만듭니다.' : '열린 논문이 바뀌어 연결하지 않습니다.'}</small></span></label>}
-        <input autoFocus disabled={createBusy} aria-describedby="create-note-guide" aria-label="새 노트 제목" value={creating.title} placeholder={noteGuides[creating.nodeType].example} onChange={(event) => setCreating({ ...creating, title: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') void createNode(); if (event.key === 'Escape') setCreating(undefined) }} />
-        <select aria-label="새 노트 양식" value={creating.templateId} onChange={(event) => setCreating({ ...creating, templateId: event.target.value })}>
+        <input autoFocus disabled={createBusy} aria-describedby="create-note-guide" aria-label="새 노트 제목" value={creating.title} placeholder={noteGuides[creating.nodeType].example} onChange={(event) => setCreating({ ...creating, title: event.target.value })} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return; if (event.key === 'Enter') void createNode(); if (event.key === 'Escape') setCreating(undefined) }} />
+        <details className="create-options"><summary>양식 선택</summary><select aria-label="새 노트 양식" value={creating.templateId} onChange={(event) => setCreating({ ...creating, templateId: event.target.value })}>
           <option value="">기본 양식</option>
           {templates.filter((template) => template.nodeType === creating.nodeType).map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-        </select>
+        </select></details>
         <div className="create-actions"><button onClick={() => setCreating(undefined)}>취소</button><button className="primary" disabled={createBusy || !creating.title.trim()} onClick={() => void createNode()}>{createBusy ? '만드는 중…' : '만들기'}</button></div>
       </div>}
 
@@ -413,7 +426,7 @@ export default function NotesWindow() {
               : <p className="tree-empty">먼저 라이브러리 폴더를 선택하세요.</p>}
       </div>
 
-      {curation && curation.total > 0 && <button className="tree-queue" onClick={() => { setView('curation'); void reloadCuration() }}>
+      {advancedOpen && curation && curation.total > 0 && <button className="tree-queue" onClick={() => { setView('curation'); void reloadCuration() }}>
         <strong>정리 대기 {curation.total}건</strong>
         <small>{[curation.memos.length ? `승격 후보 ${curation.memos.length}` : '', curation.stubs.filter((stub) => stub.ready).length ? `정리할 개념 ${curation.stubs.filter((stub) => stub.ready).length}` : '', curation.pendingRelations.length ? `검토 관계 ${curation.pendingRelations.length}` : ''].filter(Boolean).join(' · ') || '항목 확인'}</small>
       </button>}
@@ -422,6 +435,7 @@ export default function NotesWindow() {
     <section className="notes-main">
       {libraryPath && <NoteRecoveryNotice key={libraryPath} onRestored={reloadNodes} />}
       <div className="notes-tabs" role="tablist" aria-label="열린 노트">
+        <div className={`notes-tab${view === 'home' ? ' on' : ''}`}><button role="tab" aria-selected={view === 'home'} onClick={() => setView('home')}>내 기록</button></div>
         {openNodes.map((node) => <div key={node.id} className={`notes-tab${node.id === activeId && view === 'doc' ? ' on' : ''}`}>
           <button role="tab" aria-selected={node.id === activeId && view === 'doc'} onClick={() => { setView('doc'); setActiveId(node.id) }}>
             <i className={`kind-dot kind-${node.nodeType}`} />{node.title}
@@ -438,7 +452,9 @@ export default function NotesWindow() {
         <button aria-label="알림 닫기" onClick={() => setNotice(undefined)}><X size={12} /></button>
       </div>}
 
-      {view === 'graph'
+      {view === 'home'
+        ? <NotesHome nodes={nodes} libraryPath={libraryPath} onOpenNode={openNode} onChooseLibrary={() => void chooseLibrary()} />
+        : view === 'graph'
         ? <GraphView activeId={activeId} onOpenNode={openNode} onNotify={notify} />
         : view === 'curation'
         ? <CurationQueue onOpenNode={openNode} onChanged={async () => { await reloadNodes(); await reloadContext() }} onCount={() => void reloadCuration()} />
@@ -451,28 +467,10 @@ export default function NotesWindow() {
             contextKey={`${relations.length}:${backlinks.length}`}
             focusBlockRequest={blockFocus?.nodeId === active.id ? blockFocus : undefined}
           />
-          : <div className="notes-blank">
-            <div className="notes-start">
-              <span className="notes-start-eyebrow">나의 연구 노트</span>
-              <h1>한 편에서 얻은 지식을, 다음 논문으로.</h1>
-              <p>논문에서 남긴 메모를 열고, 반복해서 등장하는 개념이나 질문을 연결해 보세요.</p>
-              <div className="blank-actions">
-                {!libraryPath ? <button onClick={() => void chooseLibrary()}><FolderOpen size={15} /> 노트 폴더 선택</button>
-                  : <button onClick={() => void window.prism.openPaperInReader()}><BookOpen size={15} /> 논문 읽으며 메모하기</button>}
-                <button disabled={!libraryPath} onClick={() => beginCreate('concept', '')}><FilePlus2 size={15} /> 개념 노트 만들기</button>
-              </div>
-              <ol className="notes-start-steps">
-                <li><strong>읽고 남기기</strong><span>리더에서 문장이나 그림을 선택해 메모와 함께 저장합니다.</span></li>
-                <li><strong>내 말로 정리하기</strong><span>용어는 개념, 검토할 문장은 주장, 궁금한 점은 질문으로 모읍니다.</span></li>
-                <li><strong>노트 연결하기</strong><span>본문에 <kbd>[[</kbd>를 입력해 다른 노트를 연결합니다. 근거가 있다면 관계 유형도 지정하세요.</span></li>
-              </ol>
-              {nodes.filter(node => node.nodeType === 'paper').length > 0 && <div className="notes-start-papers"><h2>논문 노트에서 이어가기</h2>{nodes.filter(node => node.nodeType === 'paper').slice(0, 3).map(node => <button key={node.id} onClick={() => openNode(node.id)}><BookOpen size={14} /><span>{node.title}</span></button>)}</div>}
-              <p className="notes-start-storage">노트는 선택한 폴더에 Markdown으로 저장됩니다. 같은 폴더를 Obsidian 볼트로 열 수 있습니다.</p>
-            </div>
-          </div>}
+          : <NotesHome nodes={nodes} libraryPath={libraryPath} onOpenNode={openNode} onChooseLibrary={() => void chooseLibrary()} />}
     </section>
 
-    {sideOpen && view === 'doc' && <ConnectionsPanel
+    {sideOpen && view === 'doc' && Boolean(active) && <ConnectionsPanel
       node={view === 'doc' ? active : undefined} relations={relations} backlinks={backlinks} citations={citations}
       citationsLoading={citationsLoading} onOpenNode={openNode} onOpenFullGraph={() => setView('graph')}
       onRefreshCitations={() => void reloadContext(true)}
@@ -481,8 +479,18 @@ export default function NotesWindow() {
     <footer className="notes-status">
       <span>{libraryPath ? libraryPath.split(/[\\/]/).filter(Boolean).at(-1) : '라이브러리 없음'}</span>
       {/* What the library holds, and how much of it the researcher has actually written into. */}
-      <span title="사용자가 직접 쓴 문장이 있는 노트">노드 {nodes.length} · 이해함 {understoodCount}</span>
-      {active && <span>이 노트 · 관계 {relationCount} · 백링크 {backlinks.length}</span>}
+      <span>노트 {nodes.length}개</span>
+      {active && view === 'doc' && advancedOpen && <span>이 노트 · 관계 {relationCount} · 백링크 {backlinks.length}</span>}
+      <span className="status-push">자동 저장 · Markdown</span>
+    </footer>
+
+    {settingsOpen && <div className="note-history-backdrop" onClick={event => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+      <section className="note-history-dialog note-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="note-settings-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setSettingsOpen(false) } }}>
+        <header><h2 id="note-settings-title">노트 설정</h2><button aria-label="노트 설정 닫기" onClick={() => setSettingsOpen(false)}><X size={18} /></button></header>
+        <div className="note-settings-body"><ThemeControl /><p>리더와 노트에 함께 적용합니다. 원문 PDF는 인쇄 색상을 유지합니다.</p>
+          <button onClick={() => { setSettingsOpen(false); void chooseLibrary() }}><FolderOpen size={14} /> 노트 폴더 선택</button>
+          <p>같은 폴더를 Obsidian 볼트로 열 수 있습니다.</p>
+          <h3>AI 정리</h3>
       <label className="status-model status-push" title="AI 정리 버튼을 직접 누를 때만 이 CLI와 모델을 사용합니다. 노트를 열거나 읽음으로 표시해도 AI를 호출하지 않습니다.">
         <Sparkles size={11} />
         <select
@@ -496,15 +504,8 @@ export default function NotesWindow() {
           {providers.find((provider) => provider.id === settings.knowledgeProvider)?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
         </select>}
       </label>
-      <span>markdown</span>
-    </footer>
-
-    {settingsOpen && <div className="note-history-backdrop" onClick={event => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
-      <section className="note-history-dialog note-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="note-settings-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setSettingsOpen(false) } }}>
-        <header><h2 id="note-settings-title">노트 설정</h2><button aria-label="노트 설정 닫기" onClick={() => setSettingsOpen(false)}><X size={18} /></button></header>
-        <div className="note-settings-body"><ThemeControl /><p>리더와 노트에 함께 적용합니다. 원문 PDF는 인쇄 색상을 유지합니다.</p>
-          <button onClick={() => { setSettingsOpen(false); void chooseLibrary() }}><FolderOpen size={14} /> 노트 폴더 선택</button>
-          <p>같은 폴더를 Obsidian 볼트로 열 수 있습니다.</p>
+          <p>전체 노트 메뉴에서 AI 정리를 실행할 때 사용합니다.</p>
+          <h3>보관함 관리</h3>
           <button disabled={!libraryPath || vaultDigesting} onClick={() => void refreshVault()}>{vaultDigesting ? '보관함 정리 중…' : '보관함 전체 정리 · AI 사용 없음'}</button>
           <p>저장된 대화와 근거를 바탕으로 자동 관리 영역을 갱신합니다. 직접 쓴 내용은 보존합니다.</p>
         </div>

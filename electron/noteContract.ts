@@ -24,9 +24,9 @@ export const autoHeadings: Record<AutoSection, string> = {
 }
 
 /**
- * Two prompts per note at most. Four headings under one paper is a form again, and the reason for naming
- * these separately rather than keeping one "내 생각" bucket is that an empty box asking a specific question
- * is answerable, while an empty box labelled "thoughts" is not.
+ * Personal prompts are specific enough to answer without learning a note taxonomy.
+ * Papers begin with one restatement; the question and application are optional.
+ * Empty prompts are UI guidance and are never prefilled into the document.
  */
 export const mineHeadings: Record<MineSection, string> = {
   unresolved: '아직 모르겠는 것', apply: '내 연구에 쓸 곳', restate: '내 말로', belief: '믿는 정도와 이유', matters: '왜 중요한가',
@@ -82,7 +82,7 @@ export const noteAutomation: Partial<Record<string, NoteSectionRule[]>> = {
 }
 
 export const noteMine: Partial<Record<string, MineSection[]>> = {
-  paper: ['unresolved', 'apply'],
+  paper: ['restate', 'unresolved', 'apply'],
   concept: ['restate'],
   claim: ['belief'],
   question: ['matters'],

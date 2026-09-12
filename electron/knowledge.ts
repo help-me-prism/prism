@@ -6,6 +6,7 @@ import { atomicWriteFile } from './atomicFile.js'
 import { listNoteHistory, readNoteHistory, recoverNoteReplacements, listPendingNoteRecoveries, recoverPendingNote } from './noteReplacement.js'
 import { listTemplates, markTemplateUsed, type KnowledgeNodeType } from './templates.js'
 import { wikiTargetResolver } from './wikiTargets.js'
+import { paperRecall, recallPreview, type PaperRecall } from './paperRecall.js'
 
 /**
  * `understood` is the one status nobody has to set. A note earns it the moment it holds a sentence only the
@@ -28,6 +29,7 @@ export type KnowledgeNodeRecord = {
   confidence: KnowledgeLevel
   templateId?: string
   preview: string
+  recall?: PaperRecall
   evidenceCount: number
   relativePath: string
   revision: string
@@ -326,7 +328,9 @@ async function findNode(libraryPath: string, id: string): Promise<NodeEntry | un
 
 function toRecord(libraryPath: string, entry: NodeEntry): KnowledgeNodeRecord {
   const { filePath, snapshot, parsed } = entry
-  return { ...parsed, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt }
+  const fields = parsed.nodeType === 'paper' ? paperRecall(snapshot.content) : undefined
+  const recall = fields && { restate: recallPreview(fields.restate), unresolved: recallPreview(fields.unresolved), apply: recallPreview(fields.apply) }
+  return { ...parsed, recall, preview: knowledgePlainText(snapshot.content).slice(0, 240), evidenceCount: [...snapshot.content.matchAll(/<!--\s*prism-evidence:[^\s]+\s*-->/g)].length, relativePath: path.relative(libraryPath, filePath).split(path.sep).join('/'), revision: snapshot.revision, modifiedAt: snapshot.modifiedAt }
 }
 
 export async function listKnowledgeNodes(libraryPath: string): Promise<KnowledgeNodeRecord[]> {

@@ -24,7 +24,7 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, Columns2, Download, ExternalLink, FileText,
   FolderOpen, Image, Link2, LoaderCircle, PanelLeftClose, Plus, Rows2, Search,
-  Settings2, Sigma, Sparkles, Square, Table2, X, ZoomIn, ZoomOut,
+  Settings2, Sigma, Sparkles, Square, Table2, X, ZoomIn, ZoomOut, NotebookPen,
 } from 'lucide-react'
 import PaperPanes from './paper/PaperPanes'
 import {
@@ -1077,7 +1077,7 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
         <button onClick={() => onOpenNote(activePaper.arxivId)}>읽기 노트 열기</button>
         <button disabled={!allSegments.length || !settings.libraryPath || guideState.status.includes('정리하고')} onClick={() => settings.libraryPath && void loadGuide(activePaper.arxivId, settings.libraryPath, true, true)}>핵심 안내 다시 만들기 · AI 사용</button>
         <small>핵심 안내는 논문 노트에도 저장됩니다. 하이라이트 표시를 꺼도 기록은 남습니다.</small>
-      </div></details></div>}
+      </div></details><button className="reader-recall-entry" onClick={() => onOpenNote(activePaper.arxivId)} title="핵심 한 줄과 내 연구에 쓸 아이디어를 남깁니다"><NotebookPen size={14} /> 읽기 노트</button></div>}
     {recoveryNotice && <div className="paper-error" role="status">{recoveryNotice}<button aria-label="알림 닫기" onClick={() => setRecoveryNotice('')}><X size={13} /></button></div>}
     <div className="editor-tabs"><button className="icon-button" aria-label={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} title={sidebarOpen ? '라이브러리 접기' : '라이브러리 펼치기'} onClick={onToggleSidebar}><PanelLeftClose size={18} /></button><div className="tab-strip">{tabs.map((id) => { const paper = library.find((item) => item.arxivId === id); return paper ? <div key={id} className={`paper-tab ${id === activeId ? 'active' : ''}`}>
       <button className="paper-tab-title" onClick={() => setActiveId(id)}><FileText size={13} /><span>{paper.title}</span></button>

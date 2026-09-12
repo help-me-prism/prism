@@ -5,6 +5,8 @@ import { scientificPreviewText } from '../electron/scientificSource'
 import { AlertTriangle, BookOpen, ChevronDown, Check, ExternalLink, Link2, MoreHorizontal, PenLine, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import MarkdownEditor, { type MarkdownEditorHandle, type MarkdownSlashAction, type WikiLinkOption } from './MarkdownEditor'
 import NoteHistoryDialog from './NoteHistoryDialog'
+import PaperRecall from './PaperRecall'
+import { writeRecallField } from '../electron/paperRecall'
 import { embeddedEvidence, evidenceMarkdown, evidenceTypeLabel, removeEvidence, replaceEvidence, type EmbeddedEvidence } from './evidence'
 import {
   autoSectionLabels, claimOriginLabels, fileName, nodePath, primaryRelationTypes, readingStatusLabels,
@@ -40,6 +42,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   onOpenCuration: () => void; contextKey: string }) {
   const [snapshot, setSnapshot] = useState<NoteSnapshot>()
   const [content, setContent] = useState('')
+  const [documentMode, setDocumentMode] = useState<'recall' | 'full'>(() => node.nodeType === 'paper' && !focusBlockRequest ? 'recall' : 'full')
+  const [readingCompleting, setReadingCompleting] = useState(false)
   const [saved, setSaved] = useState(true)
   const [conflict, setConflict] = useState<NoteSnapshot>()
   const [picker, setPicker] = useState<Picker>()
@@ -65,10 +69,12 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   const vaultIdRef = useRef<string | undefined>(undefined)
   const contentRef = useRef(''); const dirtyRef = useRef(false); const revisionRef = useRef<string | undefined>(undefined); const nodeIdRef = useRef(node.id); const stubScanRef = useRef('')
   const editorRef = useRef<MarkdownEditorHandle>(null)
+  const saveInFlight = useRef<Promise<boolean> | undefined>(undefined)
   const focusedBlockRequest = useRef<number | undefined>(undefined)
   const refreshedBlockRequest = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (!snapshot || !focusBlockRequest || focusedBlockRequest.current === focusBlockRequest.requestId) return
+    if (documentMode !== 'full') { setDocumentMode('full'); return }
     const request = focusBlockRequest
     let disposed = false
     const timer = window.setTimeout(async () => {
@@ -93,7 +99,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       }
     }, 0)
     return () => { disposed = true; window.clearTimeout(timer) }
-  }, [snapshot, focusBlockRequest])
+  }, [snapshot, focusBlockRequest, documentMode])
 
   const linkedEvidence = useMemo(() => embeddedEvidence(content), [content])
   const approved = relations.filter((item) => item.reviewStatus === 'approved' && item.origin !== 'link')
@@ -155,6 +161,16 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
   useEffect(() => { setLoadAttempt((value) => value === 0 ? value : 0) }, [node.id])
 
   async function save(force = false) {
+    // Blur, autosave and navigation can arrive together. The next save must use
+    // the revision returned by the preceding one, including edits typed during it.
+    while (saveInFlight.current) if (!(await saveInFlight.current)) return false
+    const operation = performSave(force)
+    saveInFlight.current = operation
+    try { return await operation }
+    finally { if (saveInFlight.current === operation) saveInFlight.current = undefined }
+  }
+
+  async function performSave(force = false) {
     const id = nodeIdRef.current
     if (!dirtyRef.current || !revisionRef.current) return true
     if (conflict && !force) return false
@@ -228,11 +244,11 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
     if (!snapshot) return
     let disposed = false; let checking = false
     const check = async () => {
-      if (checking || disposed) return
+      if (checking || disposed || saveInFlight.current) return
       checking = true
       try {
         const next = await window.prism.readKnowledgeNode(node.id, vaultIdRef.current)
-        if (disposed || next.revision === revisionRef.current) return
+        if (disposed || saveInFlight.current || next.revision === revisionRef.current) return
         if (dirtyRef.current) setConflict(next)
         else {
           vaultIdRef.current = next.vaultId; revisionRef.current = next.revision; contentRef.current = next.content
@@ -523,6 +539,7 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
    * between two hidden HTML comments is not something to ask of anyone.
    */
   async function openMineSection(section: MineSection) {
+    setDocumentMode('full')
     if (editorRef.current?.focusMineSection(section)) return
     const next = insertMineSection(contentRef.current, section)
     if (next === contentRef.current) { editorRef.current?.moveToEnd(); return }
@@ -606,12 +623,14 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
         <span className={`note-save ${ready && saved ? 'is-saved' : ''}`} role="status">{!ready ? '불러오는 중…' : saved ? '저장됨' : '저장 중…'}</span>
         {digesting && <span className="note-digesting" role="status">정리 중…</span>}
         {node.nodeType === 'paper' && node.arxivId && <button className="ghost" title="이 논문을 리더 창에서 엽니다" onClick={() => void window.prism.openPaperInReader(node.arxivId!)}><BookOpen size={13} /> 리더에서 열기</button>}
+        {documentMode === 'full' && <>
         {/^## (?:메모|Notes)\s*$/m.test(content) && <button className="ghost" title="저장한 메모와 AI 답변이 있는 구간으로 이동합니다" onClick={() => editorRef.current?.focusSection(content.match(/^## (메모|Notes)\s*$/m)?.[1] ?? '메모')}><PenLine size={13} /> 메모 보기</button>}
         <button className="ghost" title="본문에 다른 노트 링크를 넣습니다" onClick={() => setPicker({ kind: 'link', query: '' })}><Link2 size={13} /> 링크</button>
         {node.nodeType === 'question'
           ? <button className="ghost" title="이 질문에 답하는 논문이나 주장을 연결합니다" onClick={() => setPicker({ kind: 'answer', query: '' })}><Link2 size={13} /> 답 연결</button>
           : availableRelationTypes.length > 0 && <button className="ghost" title="정의·지지·반박처럼 연결의 의미를 지정합니다" onClick={() => openRelationPicker()}><Link2 size={13} /> 관계</button>}
         <button className="ghost" title="PDF 문장·수식·표·피겨를 근거 카드로 넣습니다" onClick={() => setPicker({ kind: 'evidence', query: '' })}><Plus size={13} /> 근거</button>
+        </>}
         <div className="note-doc-menu">
           <button className="ghost icon" aria-label="노트 메뉴" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}><MoreHorizontal size={14} /></button>
           {menuOpen && <div className="note-menu" role="menu">
@@ -627,10 +646,15 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
       </div>
     </header>
 
+    {node.nodeType === 'paper' && <nav className="note-reading-modes" aria-label="논문 노트 보기"><button aria-pressed={documentMode === 'recall'} onClick={() => { setDocumentMode('recall'); setPicker(undefined) }}>핵심과 내 생각</button><button aria-pressed={documentMode === 'full'} onClick={() => setDocumentMode('full')}>전체 노트 · 메모</button></nav>}
+
     <div className="note-doc-scroll">
       <div className="note-doc-inner">
-        {node.nodeType === 'paper' && <p>내 이해 상태: <button disabled={!ready || node.status === 'understood'} onClick={() => void updateProperty({ status: 'understood' })}>이해함</button> <button disabled={!ready} onClick={async () => { await updateProperty({ status: 'developing' }); await openMineSection('unresolved') }}>아직 모르겠음 · 메모</button></p>}
-        {node.nodeType === 'paper' && node.readingStatus === 'read' && <p>읽은 논문을 기존 지식과 연결해 보세요. <button disabled={!ready || suggesting || digesting} onClick={() => void runModelSuggestions()}>{suggesting ? '연결 후보 생성 중…' : '연결 후보 만들기 · AI 사용'}</button> 후보는 검토 후 승인할 수 있습니다.</p>}
+        {documentMode === 'recall' && snapshot && <PaperRecall content={content} evidence={linkedEvidence} disabled={Boolean(conflict) || readingCompleting} readingStatus={node.readingStatus}
+          onRead={() => { setReadingCompleting(true); void updateProperty({ readingStatus: 'read' }).finally(() => setReadingCompleting(false)) }} onBlur={() => void settle()} onFullNote={() => setDocumentMode('full')}
+          onOpenEvidence={item => void window.prism.openEvidenceAnchor(item).catch(reason => onNotify(String(reason), 'error'))}
+          onChange={(section, value) => { try { edit(writeRecallField(contentRef.current, section, value)) } catch (reason) { onNotify(String(reason), 'error') } }} />}
+        {documentMode === 'full' && <>
         <details className="note-props" open={propsOpen} onToggle={(event) => { const open = (event.currentTarget as HTMLDetailsElement).open; setPropsOpen(open); window.localStorage.setItem('prism.notes.propsOpen', open ? 'on' : 'off') }}>
           <summary><ChevronDown size={12} /> 속성 {properties.length + relationGroups.length}개</summary>
           <table>
@@ -690,6 +714,8 @@ export default function NoteDocument({ node, nodes, anchors, relations, template
           <span>자동으로 <b>{autoUnread.sections.map((section) => autoSectionLabels[section] ?? section).join(' · ')}</b>{autoUnread.sections.length > 1 ? '를' : '을'} 새로 썼습니다.</span>
           <button onClick={() => { void window.prism.clearAutoUnread(node.id).then(() => onAutoUnreadChange()).catch((reason) => onNotify(String(reason), 'error')) }}><Check size={12} /> 읽었어요</button>
         </div>}
+        </>}
+        {documentMode === 'recall' && !snapshot && <div className="note-loading" role={loadAttempt >= 3 ? 'alert' : 'status'}>{loadAttempt >= 3 ? <><p>노트를 불러오지 못했습니다.</p><p>{loadError}</p><button onClick={() => setLoadAttempt(0)}>다시 시도</button></> : '노트를 불러오는 중…'}</div>}
       </div>
     </div>
 
