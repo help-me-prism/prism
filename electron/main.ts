@@ -4,8 +4,10 @@ import { containsLatexSource, samePaperTitle } from './latexAvailability.js'
 import { LoadedThreads } from './loadedThreads.js'
 import { readPaperAnalysis, writePaperAnalysis } from './paperAnalysisCache.js'
 import { cliTaskArgs, taskInstructions } from './cliTaskOptions.js'
+import { readCliTaskResult } from './cliTaskResult.js'
 import { createSessionStore } from './sessionStore.js'
 import { withTaskLock } from './taskLock.js'
+import { createAiScheduler } from './aiScheduler.js'
 import { prepareReadingGuide, readReadingState, updateReadingMemory, type GuideAnchor } from './readingGuide.js'
 import crossSpawn from 'cross-spawn'
 import { assertChatScope } from './chatScope.js'
@@ -57,7 +59,7 @@ type ProviderRateLimitWindow = { label?: string; usedPercent: number; windowDura
 type ChatRequest = { inputComposition?: import('./aiUsageTypes.js').InputComposition; libraryPath: string | null; figures?: Array<{ paperId: string; anchorId: string; label: string }>; prompt: string; sessionId: string; messageId: string; provider: ProviderId; model: string; providerThreadId?: string }
 type ActiveChat = { provider: ProviderId; process?: ChildProcessWithoutNullStreams; threadId?: string; turnId?: string }
 type RpcResponse = { id?: number; result?: Record<string, unknown>; error?: { message?: string }; method?: string; params?: Record<string, unknown> }
-type AppSettings = { autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
+type AppSettings = { translationConcurrency?: number; autoReadingGuide?: boolean; showAiHighlights?: boolean; autoMemory?: boolean; guideProvider?: ProviderId; guideModel?: string; memoryProvider?: ProviderId; memoryModel?: string; libraryPath?: string; paperStoragePath?: string; translationProvider: ProviderId; translationModel: string; autoTranslate: boolean; knowledgeProvider?: ProviderId; knowledgeModel?: string }
 type ArxivPaper = { arxivId: string; title: string; authors: string[]; summary: string; published: string; updated: string; categories: string[]; pdfUrl: string; absUrl: string; citationCount?: number; source?: 'semantic-scholar' | 'crossref' | 'europe-pmc'; doi?: string; pmcid?: string; structuredSourceUrl?: string; structuredSourceFormat?: 'jats'; structuredSourceProvider?: 'europe-pmc'; license?: string }
 type PaperRecord = ArxivPaper & { pdfPath: string; notePath: string; translationPath: string; sourcePath?: string; structuredSourcePath?: string; downloadedAt: number; externalAssets?: boolean; pdfSha256?: string }
 type TranslationSegment = { scientificSpans?: import('./scientificSource.js').ScientificSpan[]; sourceFontWeight?: 400 | 700; preciseRects?: Array<{ left: number; top: number; width: number; height: number; fontSize: number }>; id: string; page: number; source: string; kind: 'text' | 'heading' | 'caption' | 'equation' | 'table' | 'artifact'; itemIndexes?: number[]; itemSlices?: Array<{ itemIndex: number; start: number; end: number }>; translation?: string; sourceMode?: 'latex' | 'jats' | 'pdf'; blockId?: string; sectionTitle?: string; paragraphContext?: string }
@@ -70,7 +72,9 @@ const activeChats = new Map<string, ActiveChat>()
 const settledAnswers = new Set<string>()
 const memoryAttempts = new Set<string>()
 const sessionOwners = new Map<string, { task?: 'context'; sender: WebContents; sessionId: string; messageId: string; model: string; startedAt: number; inputCharacters: number; inputComposition?: import('./aiUsageTypes.js').InputComposition; usage?: AiUsage }>()
-const translationRuns = new Map<string, { cancelled: boolean }>()
+const translationRuns = new Map<string, { cancelled: boolean; controller: AbortController }>()
+const scheduleAiTask = createAiScheduler(3)
+let backgroundTasks = new AbortController()
 // One paper can have several batches in flight, so every child of a job is
 // tracked; cancelling or quitting must reach all of them, not just the last.
 const translationJobs = new Map<string, Set<ChildProcessWithoutNullStreams>>()
@@ -597,6 +601,10 @@ async function routeChatIntoNotes() {
       const question = session.messages[index - 1]
       const exchangeId = `${session.id}:${answer?.id}`
       if (answer?.role !== 'assistant' || !answer.text || !settledAnswers.has(exchangeId) || memoryAttempts.has(exchangeId) || question?.role !== 'user') continue
+      const paperIds = new Set([...(question.paperIds ?? []), ...(question.anchors ?? []).map((anchor: { paperId: string }) => anchor.paperId)])
+      // primaryPaperId is UI ordering, not proof that a comparative statement
+      // describes the first paper. Ambiguous multi-paper turns stay in chat.
+      if (paperIds.size > 1) { settledAnswers.delete(exchangeId); continue }
       const paperId = answer.primaryPaperId ?? question.primaryPaperId ?? question.paperIds?.[0]
       const node = context.vault.records.find(item => item.nodeType === 'paper' && item.arxivId === paperId)
       if (!node) continue
@@ -662,6 +670,7 @@ async function readSettings(): Promise<AppSettings> {
       libraryPath: testLibraryPath || (typeof value.libraryPath === 'string' ? value.libraryPath : undefined),
       paperStoragePath: typeof value.paperStoragePath === 'string' ? value.paperStoragePath : undefined,
       translationProvider: value.translationProvider === 'claude' ? 'claude' : 'codex',
+      translationConcurrency: [1, 2, 3].includes(value.translationConcurrency!) ? value.translationConcurrency : 3,
       translationModel: typeof value.translationModel === 'string' ? value.translationModel : value.translationProvider === 'claude' ? 'haiku' : 'gpt-5.6-luna',
       autoTranslate: process.env.PRISM_TEST_DISABLE_AUTO_TRANSLATE === '1' ? false : value.autoTranslate === true,
       knowledgeProvider: value.knowledgeProvider === 'claude' || value.knowledgeProvider === 'codex' ? value.knowledgeProvider : undefined,
@@ -1064,7 +1073,13 @@ async function paperFigures(record: PaperRecord) {
   return result
 }
 
-async function runTranslationCli(provider: ProviderId, model: string, prompt: string, jobKey: string) {
+async function runTranslationCli(provider: ProviderId, model: string, prompt: string, jobKey: string, signal?: AbortSignal) {
+  const cancellation = signal ? AbortSignal.any([signal, backgroundTasks.signal]) : backgroundTasks.signal
+  return scheduleAiTask(provider, () => executeTextCli(provider, model, prompt, jobKey, cancellation), cancellation)
+}
+
+async function executeTextCli(provider: ProviderId, model: string, prompt: string, jobKey: string, signal?: AbortSignal) {
+  signal?.throwIfAborted()
   const startedAt = Date.now()
   const executable = findCli(provider)
   if (!executable) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude'} CLI를 찾지 못했습니다.`)
@@ -1076,33 +1091,43 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   const runIndex = translationRunCounter += 1
   const instructionsFile = path.join(cwd, `instructions-${process.pid}-${runIndex}.txt`)
   await fs.writeFile(instructionsFile, taskInstructions, 'utf8')
+  if (signal?.aborted) { await fs.rm(instructionsFile, { force: true }); signal.throwIfAborted() }
   const args = cliTaskArgs(provider, model, instructionsFile)
   const child = spawnCli(executable, args, { cwd, env: { NO_COLOR: '1' }, windowsHide: true })
   const untrack = trackTranslationJob(jobKey, child)
-  let stdout = ''; let stderr = ''
-  child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { stdout += chunk })
-  child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr += chunk })
+  const cancel = () => { child.kill() }
+  signal?.addEventListener('abort', cancel, { once: true })
+  let stdout = ''; let stderr = ''; let tooLarge = false; let timedOut = false; let executionError: unknown
+  child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => {
+    if (tooLarge) return
+    if (stdout.length + chunk.length > 2_000_000) { tooLarge = true; child.kill(); return }
+    stdout += chunk
+  })
+  child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-16_000) })
+  child.stdin.on('error', error => { executionError = error })
   child.stdin.end(prompt)
-  const timeout = setTimeout(() => child.kill(), 180_000)
-  let code: number | null
+  const timeout = setTimeout(() => { timedOut = true; child.kill() }, 180_000)
+  let code: number | null = null
   try { code = await new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject) }) }
-  finally { clearTimeout(timeout); untrack(); await fs.rm(instructionsFile, { force: true }).catch(() => { /* the next run writes its own */ }) }
+  catch (error) { executionError = error }
+  finally { clearTimeout(timeout); signal?.removeEventListener('abort', cancel); untrack(); await fs.rm(instructionsFile, { force: true }).catch(() => { /* the next run writes its own */ }) }
   let measuredUsage: AiUsage = {}
   for (const line of stdout.split(/\r?\n/)) {
     try { const event = JSON.parse(line); if (event.usage) measuredUsage = parseAiUsage(provider, event.usage) } catch { /* non-JSON diagnostic */ }
   }
   // Concurrent batches of one paper can start inside the same millisecond, and
   // the usage log keys on this id: without the counter they overwrite each other.
-  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}-${runIndex}`, task: jobKey.startsWith('guide-') ? 'guide' : jobKey.startsWith('memory-') ? 'memory' : jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
-  if (code !== 0) throw new Error(stderr.trim() || '번역 CLI 실행에 실패했습니다.')
-  if (provider === 'claude') {
-    const result = JSON.parse(stdout) as { result?: string }
-    return result.result ?? ''
-  }
   let final = ''
-  for (const line of stdout.split(/\r?\n/)) {
-    try { const event = JSON.parse(line) as Record<string, unknown>; const item = event.item as Record<string, unknown> | undefined; if (event.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') final = item.text } catch { /* skip */ }
-  }
+  try {
+    signal?.throwIfAborted()
+    if (executionError) throw executionError
+    if (tooLarge) throw new Error('AI 응답이 허용 크기를 초과했습니다.')
+    if (timedOut) throw new Error('AI 작업이 3분 안에 완료되지 않았습니다. 저장된 결과는 유지됩니다.')
+    if (code !== 0) throw new Error(stderr.trim() || 'AI CLI 실행에 실패했습니다.')
+    final = readCliTaskResult(provider, stdout)
+  } catch (error) { executionError = error }
+  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}-${runIndex}`, task: jobKey.startsWith('guide-') ? 'guide' : jobKey.startsWith('memory-') ? 'memory' : jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: executionError ? 'failed' : 'completed', ...measuredUsage })
+  if (executionError) throw executionError
   return final
 }
 
@@ -1111,14 +1136,14 @@ function cachedSegments(value: unknown): TranslationSegment[] {
 }
 
 // How many translation batches may be in flight for one paper. Enough to hide
-// each CLI's cold start, low enough to stay inside a provider's rate limit.
+// each CLI's cold start. Actual account limits vary; this is not a quota guarantee.
 const translationConcurrency = 3
 
 async function translatePaper(sender: WebContents, record: PaperRecord, segments: TranslationSegment[], force = false, pages?: number[]) {
   if (new Set(segments.map(segment => segment.id)).size !== segments.length) throw new Error('번역할 논문에 중복된 문장 ID가 있습니다.')
   const jobKey = record.arxivId
   if (translationRuns.has(jobKey)) throw new Error('이 논문은 이미 번역 중입니다.')
-  const run = { cancelled: false }; translationRuns.set(jobKey, run)
+  const run = { cancelled: false, controller: new AbortController() }; translationRuns.set(jobKey, run)
   try {
   const settings = await readSettings()
   let cache: { version: number; provider: ProviderId; model: string; sourceHash: string; segments: TranslationSegment[] } = {
@@ -1154,7 +1179,7 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     if (run.cancelled) return
     const input = batches[index]
     const request = prepareTranslationRequest(input, contextFor(input))
-    const output = await runTranslationCli(settings.translationProvider, settings.translationModel, request.prompt, jobKey)
+    const output = await runTranslationCli(settings.translationProvider, settings.translationModel, request.prompt, jobKey, run.controller.signal)
     if (run.cancelled) return
     let checked: ReturnType<typeof inspectTranslationRequest>
     try { checked = inspectTranslationRequest(output, request) } catch (error) {
@@ -1174,7 +1199,7 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
       const ids = new Set(checked.rejected.slice(retryIndex, retryIndex + 6).map(item => item.id))
       const retryInput = input.filter(item => ids.has(item.id))
       const retryRequest = prepareTranslationRequest(retryInput, contextFor(retryInput))
-      const retryOutput = await runTranslationCli(settings.translationProvider, settings.translationModel, retryRequest.prompt, jobKey)
+      const retryOutput = await runTranslationCli(settings.translationProvider, settings.translationModel, retryRequest.prompt, jobKey, run.controller.signal)
       if (run.cancelled) return
       let retry: ReturnType<typeof inspectTranslationRequest>
       try { retry = inspectTranslationRequest(retryOutput, retryRequest) } catch { continue }
@@ -1190,12 +1215,13 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   let failure: unknown
   const worker = async () => {
     while (!run.cancelled && failure === undefined && cursor.next < batches.length) {
-      try { await translateBatch(cursor.next++) } catch (reason) { failure ??= reason; throw reason }
+      try { await translateBatch(cursor.next++) } catch (reason) { failure ??= reason; run.controller.abort(reason); throw reason }
     }
   }
   // Wait for the batches already in flight before reporting a failure, so no CLI
   // process outlives the run and no save lands after the error is shown.
-  const outcomes = await Promise.allSettled(Array.from({ length: Math.min(translationConcurrency, batches.length) }, worker))
+  const concurrency = [1, 2, 3].includes(settings.translationConcurrency!) ? settings.translationConcurrency! : translationConcurrency
+  const outcomes = await Promise.allSettled(Array.from({ length: Math.min(concurrency, batches.length) }, worker))
   const rejection = outcomes.find((outcome) => outcome.status === 'rejected')
   if (rejection?.status === 'rejected') throw rejection.reason
   if (run.cancelled) return
@@ -1323,6 +1349,7 @@ ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   if (patch.translationProvider === 'codex' || patch.translationProvider === 'claude') safePatch.translationProvider = patch.translationProvider
   if (typeof patch.translationModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.translationModel)) safePatch.translationModel = patch.translationModel
   if (typeof patch.autoTranslate === 'boolean') safePatch.autoTranslate = patch.autoTranslate
+  if ([1, 2, 3].includes(patch.translationConcurrency!)) safePatch.translationConcurrency = patch.translationConcurrency
   if (patch.knowledgeProvider === 'codex' || patch.knowledgeProvider === 'claude') safePatch.knowledgeProvider = patch.knowledgeProvider
   else if (patch.knowledgeProvider === null || patch.knowledgeProvider === undefined && 'knowledgeProvider' in patch) safePatch.knowledgeProvider = undefined
   if (typeof patch.knowledgeModel === 'string' && /^[a-zA-Z0-9._:-]{1,100}$/.test(patch.knowledgeModel)) safePatch.knowledgeModel = patch.knowledgeModel
@@ -1945,7 +1972,7 @@ ipcMain.handle('translation:start', async (event, arxivId: string, segments: Tra
 })
 ipcMain.handle('translation:cancel', (_event, arxivId: string) => {
   const run = translationRuns.get(arxivId)
-  if (run) run.cancelled = true
+  if (run) { run.cancelled = true; run.controller.abort(new Error('번역을 취소했습니다.')) }
   const children = translationJobs.get(arxivId)
   for (const child of children ?? []) child.kill()
   return Boolean(run || children?.size)
@@ -2000,8 +2027,11 @@ app.whenReady().then(() => {
   void checkMcpAnchorRequest().catch((reason) => console.error('MCP anchor request:', reason))
   app.on('activate', () => { if (!mainWindow) createWindow() })
 })
-app.on('before-quit', () => { if (mcpAnchorTimer) { clearInterval(mcpAnchorTimer); mcpAnchorTimer = undefined } })
+app.on('before-quit', () => { backgroundTasks.abort(new Error('앱이 종료되었습니다.')); if (mcpAnchorTimer) { clearInterval(mcpAnchorTimer); mcpAnchorTimer = undefined } })
 app.on('window-all-closed', () => {
+  for (const run of translationRuns.values()) { run.cancelled = true; run.controller.abort() }
+  backgroundTasks.abort(new Error('앱 창이 닫혔습니다.'))
+  backgroundTasks = new AbortController() // macOS can reopen the same app process.
   for (const active of activeChats.values()) active.process?.kill()
   for (const children of translationJobs.values()) for (const child of children) child.kill()
   codexServer.stop()

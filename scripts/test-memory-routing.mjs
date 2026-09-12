@@ -22,5 +22,9 @@ await route();assert.equal(calls.length,0);assert.equal(retries,2,'Initial guide
 busy=false
 await route();assert.deepEqual(calls,['s:a1','s:a2'],'Every completed pair must survive a quick follow-up; partial and foreign replies must not write memory')
 await route();assert.equal(calls.length,2,'Routing again must not repeat model calls')
+messages.push({id:'q4',role:'user',text:'내 연구에 적용할 거야',paperIds:['paper','another']},{id:'a4',role:'assistant',text:'비교 답변'})
+settledAnswers.add('s:a4');await route()
+assert.equal(calls.length,2,'A comparative turn must not be filed under the first paper')
+assert(!settledAnswers.has('s:a4'))
 enabled=false;settledAnswers.add('s:a3');await route();assert.equal(calls.length,2,'Disabled memory must not start a model')
 console.log('Memory routing passed: rapid consecutive turns, incomplete/foreign replies, no replay and off switch.')

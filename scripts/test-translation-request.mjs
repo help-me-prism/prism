@@ -11,6 +11,8 @@ const budgeted = translationBatches(largeItems, () => 'adjacent '.repeat(300))
 assert.deepEqual(budgeted.flat().map(x => x.id), largeItems.map(x => x.id))
 assert(budgeted.every(batch => prepareTranslationRequest(batch, 'adjacent '.repeat(300)).prompt.length <= translationPromptCharacterLimit))
 assert.throws(() => translationBatches([{id: 'oversized', source: 'x'.repeat(30_000)}], () => ''), /너무 큽니다/)
+const paragraphs = [{id:'lead',blockId:'lead',source:'a'.repeat(7000)}, ...Array.from({length:3},(_,i)=>({id:'paragraph-'+i,blockId:'paragraph',source:'b'.repeat(1000)}))]
+assert.deepEqual(translationBatches(paragraphs,()=> '').map(batch=>batch.map(item=>item.id)),[['lead'],['paragraph-0','paragraph-1','paragraph-2']], 'Fit a paragraph into one request before splitting its sentences across workers')
 const fixture=JSON.parse(await fs.readFile('scripts/fixtures/engineering-p11-malformed-translation.json','utf8'))
 assert.throws(()=>inspectTranslationBatch(fixture.output,fixture.input),/ID/,'Actual corrupted s15 hash must never be guessed or remapped')
 const request=prepareTranslationRequest(fixture.input)

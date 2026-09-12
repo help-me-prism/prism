@@ -170,7 +170,11 @@ export async function mcpReadNoteMemory(libraryPath: string, nodeId: string) {
     heading: autoHeadings[section],
     lines: (autoSectionBody(content, section) ?? '').split('\n').map((line) => line.replace(/^-\s*/, '').trim()).filter(Boolean),
   }))
-  return { nodeId, title: node.title, nodeType: node.nodeType, sections }
+  // Read the actual note, so manual corrections and deletions take precedence
+  // over the automatic extractor's derived cache. This context is read-only.
+  const researchMemory = [...content.replace(/\r\n/g, '\n').matchAll(/<!-- prism:reading (memory-[a-z0-9-]+) -->\n([\s\S]*?)\n<!-- \/prism:reading \1 -->/g)]
+    .filter(match => match[1] !== 'memory-status').slice(0, 6).map(match => ({ id: match[1], text: match[2].trim().slice(0, 500) }))
+  return { nodeId, title: node.title, nodeType: node.nodeType, sections, researchMemory }
 }
 
 function autoSectionBody(content: string, section: AutoSection) {
