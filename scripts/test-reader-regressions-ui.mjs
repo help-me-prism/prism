@@ -36,6 +36,11 @@ async function rightDrag(ui, rect) {
   await ui.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,x:rect.x+rect.width,y:rect.y+rect.height})
   await ui.wait(`document.querySelectorAll('.composer-anchor-label').length > ${before}`)
 }
+async function renderedPane(ui, mode, fitted) {
+  // Hidden panes retain their canvases. Wait for the shown pane's fitted width,
+  // not a completed render at its old hidden width before ResizeObserver runs.
+  await ui.wait(`(() => {const page=document.querySelector('[data-pane=${mode}][data-shown=true] .continuous-page.${mode}.rendered');if(!page)return false;if(${mode==='translated'}&&page.classList.contains('paper-layout-page')!==${Boolean(fitted)})return false;if(!${Boolean(fitted)})return true;const pane=page.closest('.document-scroll'),style=getComputedStyle(pane),available=pane.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),width=parseFloat(page.style.width),natural=width/Number(page.dataset.renderScale);return Math.abs(width-Math.min(2,Math.max(.15,available/natural))*natural)<1})()`)
+}
 try {
   const ui=await connect('Prism');await ui.wait('Boolean(window.prism && document.querySelector(".new-paper"))')
   readerUi=ui
@@ -105,7 +110,7 @@ try {
   }
   // Native right-button drag creates a real saved PNG without entering capture mode.
   await ui.evaluate('document.querySelector(".document-mode > button:first-child").click()')
-  await ui.wait('document.querySelector("[data-pane=original][data-shown=true] .continuous-page.original.rendered")')
+  await renderedPane(ui,'original',true)
   const rect=await ui.evaluate('document.querySelector("[data-pane=original][data-shown=true] .continuous-page.original").getBoundingClientRect().toJSON()')
   await rightDrag(ui,{x:rect.x+45,y:rect.y+100,width:190,height:110})
   const figureFiles=await fs.readdir(path.join(path.dirname(first.pdfPath),'figures'));assert(figureFiles.some(file=>file.endsWith('.png')))
@@ -114,6 +119,7 @@ try {
   for(const format of ['paper','flow']) {
     await ui.evaluate(`(() => {const select=document.querySelector('.translation-format');select.value='${format}';select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
     await ui.wait('document.querySelector(".continuous-page.translated.rendered") && document.querySelector(".continuous-page.translated").innerText.includes("서로 다른 수학 모형")')
+    await renderedPane(ui,'translated',format==='paper')
     await ui.evaluate('document.querySelector(".continuous-page.translated .reading-block:has([data-anchor])").scrollIntoView({block:"center"})')
     const selected=await ui.evaluate('(() => {const block=document.querySelector(".continuous-page.translated .reading-block:has([data-anchor])"), r=block.getBoundingClientRect(), pane=block.closest(".document-scroll").getBoundingClientRect(), x=Math.ceil(Math.max(r.x+2,pane.x+2)), y=Math.ceil(Math.max(r.y+2,pane.y+2));return {x,y,width:Math.floor(Math.min(250,r.right-x-2,pane.right-x-2)),height:Math.floor(Math.min(80,r.bottom-y-2,pane.bottom-y-2))}})()')
     assert(selected.width>=24&&selected.height>=24,'Select a visible part of the translated paragraph')
