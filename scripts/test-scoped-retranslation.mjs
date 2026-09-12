@@ -14,7 +14,7 @@ const root=await fs.mkdtemp(path.join(os.tmpdir(),'prism-scoped-translation-'))
 try {
  const file=path.join(root,'translation.json'),events=[],runs=new Map(),calls=[]
  let fail=false,cancel=false, omitOnce=false, malformedOnce=false
- const deps={fs,createHash,atomicWriteFile,...harness,...scope,readSettings:async()=>({translationProvider:'codex',translationModel:'fixture'}),translationRuns:runs,safeSend:(_sender,channel,event)=>events.push({channel,...event}),runTranslationCli:async(_provider,_model,prompt,key)=>{
+ const deps={fs,createHash,atomicWriteFile,...harness,...scope,readSettings:async()=>({translationProvider:'codex',translationModel:'fixture'}),translationRuns:runs,reportTranslation:(_sender,channel,event)=>events.push({channel,...event}),runTranslationCli:async(_provider,_model,prompt,key)=>{
   calls.push(prompt);if(fail)throw new Error('fixture failure');if(cancel)runs.get(key).cancelled=true
   const data=JSON.parse(prompt.split('INPUT:\n')[1].split('\nCopy each short')[0])
   if(omitOnce){omitOnce=false;return '[]'}

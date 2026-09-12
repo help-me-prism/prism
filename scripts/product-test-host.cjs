@@ -14,6 +14,12 @@ if (process.env.PRISM_PRODUCT_TEST_CHAT === '1') {
   const register = ipcMain.handle.bind(ipcMain)
   ipcMain.handle = (channel, listener) => register(channel, async (...args) => {
     if (channel === 'providers:list') return [{ id: 'codex', name: 'Codex', installed: true, available: true, status: 'Offline UI test', models: [{ id: 'gpt-5.6-luna', name: 'Luna', description: 'Offline UI test' }] }]
+    if (channel === 'paper:local-latex') return fs.existsSync(path.join(root, 'latex-offer.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'latex-offer.json'), 'utf8')) : null
+    if (channel === 'settings:get' && fs.existsSync(path.join(root, 'reader-events.json'))) {
+      const events = JSON.parse(fs.readFileSync(path.join(root, 'reader-events.json'), 'utf8'))
+      fs.unlinkSync(path.join(root, 'reader-events.json'))
+      for (const item of events) args[0].sender.send(item.channel, item.event)
+    }
     if (channel === 'evidence:list') await new Promise(resolve => setTimeout(resolve, 800))
     if (channel === 'paper:note:capture' && args[1]?.kind === 'chat' && fs.existsSync(path.join(root, 'answer-capture-gate.txt'))) {
       fs.writeFileSync(path.join(root, 'answer-capture-started.txt'), 'started')

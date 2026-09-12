@@ -7,6 +7,7 @@ import { transformWithOxc } from 'vite'
 import { atomicWriteFile } from '../dist-electron/atomicFile.js'
 import * as harness from '../dist-electron/translationHarness.js'
 import * as scope from '../dist-electron/translationScope.js'
+import { createAiScheduler } from '../dist-electron/aiScheduler.js'
 
 const source = await fs.readFile('electron/main.ts', 'utf8')
 const body = source.slice(source.indexOf('function cachedSegments('), source.indexOf('let mainWindow:'))
@@ -16,17 +17,17 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-translation-concurre
 const sentence = 'The measured response of the cultured cells to the applied stimulus was recorded and compared against the untreated control group under identical conditions. '
 const segments = Array.from({ length: 90 }, (_, index) => ({ id: `s${index}`, page: 1 + Math.floor(index / 12), kind: 'text', source: `${sentence.repeat(3)}Observation ${'x'.repeat(20)} of run ${'y'.repeat(10)}.` }))
 
-async function run({ failAt, cancelAt } = {}) {
-  const file = path.join(root, `translation-${failAt ?? cancelAt ?? 'ok'}.json`)
+async function run({ failAt, cancelAt, concurrency = 3, name = 'fixture', schedule = (_provider, work) => work() } = {}) {
+  const file = path.join(root, `translation-${name}-${failAt !== undefined ? 'fail-' + failAt : cancelAt !== undefined ? 'cancel-' + cancelAt : 'concurrency-' + concurrency}.json`)
   const runs = new Map()
   const events = []
   let started = 0; let inFlight = 0; let peak = 0
   const deps = {
     fs, createHash, atomicWriteFile, ...harness, ...scope,
-    readSettings: async () => ({ translationProvider: 'codex', translationModel: 'fixture' }),
+    readSettings: async () => ({ translationProvider: 'codex', translationModel: 'fixture', translationConcurrency: concurrency }),
     translationRuns: runs,
-    safeSend: (_sender, channel, event) => events.push({ channel, ...event }),
-    runTranslationCli: async (_provider, _model, prompt, key) => {
+    reportTranslation: (_sender, channel, event) => events.push({ channel, ...event }),
+    runTranslationCli: (_provider, _model, prompt, key, signal) => schedule(_provider, async () => {
       const index = started++
       inFlight += 1; peak = Math.max(peak, inFlight)
       try {
@@ -36,10 +37,10 @@ async function run({ failAt, cancelAt } = {}) {
         const data = JSON.parse(prompt.split('INPUT:\n')[1].split('\nCopy each short')[0])
         return JSON.stringify(data.items.map((item) => ({ id: item.id, translation: '배양된 세포의 측정 반응을 대조군과 비교해 기록했습니다.' })))
       } finally { inFlight -= 1 }
-    },
+    }, signal),
   }
   const translatePaper = Function(...Object.keys(deps), code + ';return translatePaper')(...Object.values(deps))
-  const record = { arxivId: 'fixture', translationPath: file }
+  const record = { arxivId: name, translationPath: file }
   const result = await translatePaper({}, record, segments, false).then(() => undefined, (reason) => reason)
   return { file, events, started, peak, runs, error: result }
 }
@@ -59,6 +60,19 @@ const progress = ok.events.filter((event) => event.channel === 'translation:prog
 assert.deepEqual(progress.map((event) => event.completed), progress.map((_, index) => index + 1), 'progress counts completed batches, not their start order')
 assert.equal(progress.at(-1).completed, ok.started)
 assert.equal(ok.runs.size, 0, 'the paper lock is released')
+assert.equal((await run({concurrency:1})).peak,1,'The sequential setting must be honored')
+const shared = createAiScheduler(3)
+let globalActive=0,globalPeak=0
+const schedule = (provider,work,signal)=>shared(provider,async()=>{
+  globalPeak=Math.max(globalPeak,++globalActive)
+  try { return await work() } finally { globalActive-- }
+},signal)
+const parallelPapers=await Promise.all(['paper-a','paper-b','paper-c'].map(name=>run({name,schedule})))
+assert.equal(globalPeak,3,'Multiple papers share the same provider budget')
+for(const paper of parallelPapers){
+  assert.equal(paper.error,undefined)
+  assert(JSON.parse(await fs.readFile(paper.file,'utf8')).segments.every(item=>item.translation),'Parallel papers keep their complete independent caches')
+}
 
 // A failing batch must surface, and must not leave later batches running behind it.
 const failed = await run({ failAt: 1 })
@@ -76,7 +90,8 @@ const startedAtCancel = cancelled.started
 await new Promise((resolve) => setTimeout(resolve, 80))
 assert.equal(cancelled.started, startedAtCancel, 'no batch starts after cancellation')
 assert(cancelled.started < ok.started, 'cancellation stops the queue')
-assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done').length, 0)
+assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done' && !event.cancelled).length, 0)
+assert.equal(cancelled.events.filter((event) => event.channel === 'translation:done' && event.cancelled).length, 1, 'Cancellation publishes a terminal status so other views stop showing a running task')
 assert.equal(cancelled.runs.size, 0)
 
 await fs.rm(root, { recursive: true, force: true })

@@ -5,15 +5,23 @@ export const translationPromptCharacterLimit = 24_000
 export function translationBatches<T extends InputSegment>(segments: T[], context: (items: T[]) => string) {
   const batches: T[][] = []
   let batch: T[] = []
+  const fits = (items: T[]) => items.reduce((sum, item) => sum + item.source.length, 0) <= 9000
+    && prepareTranslationRequest(items, context(items)).prompt.length <= translationPromptCharacterLimit
+  const groups: T[][] = []
   for (const segment of segments) {
-    let candidate = [...batch, segment]
-    if (batch.length && (candidate.reduce((sum, item) => sum + item.source.length, 0) > 9000
-      || prepareTranslationRequest(candidate, context(candidate)).prompt.length > translationPromptCharacterLimit)) {
-      batches.push(batch); candidate = [segment]
+    const previous = groups.at(-1)
+    if (segment.blockId && previous?.at(-1)?.blockId === segment.blockId) previous.push(segment)
+    else groups.push([segment])
+  }
+  for (const group of groups) {
+    // Prefer whole paragraphs so workers share the same local terminology and
+    // referents. Oversized paragraphs still split with paragraphContext intact.
+    for (const unit of fits(group) ? [group] : group.map(segment => [segment])) {
+      if (batch.length && !fits([...batch, ...unit])) { batches.push(batch); batch = [] }
+      if (prepareTranslationRequest(unit, context(unit)).prompt.length > translationPromptCharacterLimit)
+        throw new Error('한 문장의 번역 입력이 너무 큽니다. 해당 페이지의 원문을 확인해 주세요. 번역은 실행하지 않았습니다.')
+      batch.push(...unit)
     }
-    if (prepareTranslationRequest(candidate, context(candidate)).prompt.length > translationPromptCharacterLimit)
-      throw new Error('한 문장의 번역 입력이 너무 큽니다. 해당 페이지의 원문을 확인해 주세요. 번역은 실행하지 않았습니다.')
-    batch = candidate
   }
   if (batch.length) batches.push(batch)
   return batches
@@ -146,7 +154,8 @@ export function validateTranslation(output: string, input: InputSegment[]) {
       if (source.split(text).length !== item.translation.split(text).length) throw new Error('번역에서 검증된 과학 표기의 횟수가 변경되어 저장하지 않았습니다.')
     }
     // Inline math and numeric citations must survive byte for byte.
-    if (!containsOccurrences(source.match(mathOrCitation) ?? [], item.translation.match(mathOrCitation) ?? [])) throw new Error('번역에서 수식 또는 인용 표기가 변경되어 저장하지 않았습니다.')
+    const sourceNotation = source.match(mathOrCitation) ?? [], translatedNotation = item.translation.match(mathOrCitation) ?? []
+    if (!containsOccurrences(sourceNotation, translatedNotation) || !containsOccurrences(translatedNotation, sourceNotation)) throw new Error('번역에서 수식 또는 인용 표기가 변경되거나 추가되어 저장하지 않았습니다.')
     if (!containsOccurrences(scientificTokens(source).map(normalizedToken), scientificTokens(item.translation).map(normalizedToken))) throw new Error('번역에서 수치, 단위 또는 과학 기호가 변경되어 저장하지 않았습니다. 원문을 확인한 뒤 다시 시도해 주세요.')
     const sourceNumbers = outsideMath(source).match(new RegExp(numberPattern, 'g')) ?? []
     const translatedNumbers = outsideMath(item.translation).match(new RegExp(numberPattern, 'g')) ?? []

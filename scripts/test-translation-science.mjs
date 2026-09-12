@@ -29,6 +29,9 @@ const upgradedMath = reuseTranslations(
 )[0].translation
 assert.equal(upgradedMath, '$x\\in\\mathbb R^d$에서는 $\\mathcal{L}_{\\text{FM}}$을 사용한다.', 'Cached prose survives a source-macro upgrade while its protected math is refreshed.')
 assert.throws(() => check('$x$ and $x$ are repeated [1] and [1].', '$x$는 반복된다 [1].'), /수식/)
+for (const extra of [' $y=99$', ' [999]', ' $E=mc^2$', ' [12–14]']) {
+  assert.throws(() => check(engineering, engineeringKo + extra), /수식|인용/, 'Invented or duplicated notation must never enter saved translations')
+}
 const protectedMath = prepareTranslationRequest([{ id: 'math-heavy', source: String.raw`Let $p_t(x)=\int q(x|z)r(z)dz$ and $u_t\in\Real^d$ be fixed.` }])
 assert(!protectedMath.modelItems[0].source.includes('$p_t'), 'The translation model must not be asked to reproduce fragile LaTeX.')
 const protectedReply = JSON.stringify([{ id: 't0', translation: `${protectedMath.modelItems[0].source}로 둔다.` }])

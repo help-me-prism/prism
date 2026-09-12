@@ -154,6 +154,11 @@ try {
   // provider/model keys: a shared table makes it easy to wire every row to one setting.
   await evaluate("document.querySelector('[data-settings-tab=ai]').click()")
   await wait('document.querySelectorAll(".ai-task-table tbody tr").length === 4')
+  await evaluate(`(() => { const select = document.querySelector('select[aria-label="논문 하나의 동시 번역 수"]'); select.value = '1'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)
+  await wait('window.prism.getSettings().then(value => value.translationConcurrency === 1)')
+  await evaluate('window.prism.updateSettings({translationConcurrency:99})')
+  assert.equal((await evaluate('window.prism.getSettings()')).translationConcurrency,1,'Invalid IPC concurrency must not bypass the bound')
+  await evaluate('window.prism.updateSettings({translationConcurrency:3})')
   for (const task of ['guide','translation','memory','knowledge']) {
     const before = await evaluate('window.prism.getSettings()')
     await evaluate(`(() => { const select = document.querySelector('.ai-task-table tr[data-task=${task}] select'); select.value = 'claude'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`)

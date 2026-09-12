@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron') as typeof import('electron')
 
 function subscribe(channel: string, callback: (payload: unknown) => void) {
   const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload)
@@ -49,11 +49,12 @@ contextBridge.exposeInMainWorld('prism', {
   searchArxiv: (input: string) => ipcRenderer.invoke('arxiv:search', input),
   autocompletePapers: (input: string) => ipcRenderer.invoke('paper:autocomplete', input),
   openArxiv: (arxivId: string) => ipcRenderer.invoke('arxiv:open', arxivId),
-  importLocalPaper: (metadata?: unknown) => ipcRenderer.invoke('paper:import-local', metadata),
+  importLocalPaper: (metadata?: unknown, file?: File) => ipcRenderer.invoke('paper:import-local', metadata, file ? webUtils.getPathForFile(file) : undefined),
   downloadPaper: (paper: unknown) => ipcRenderer.invoke('paper:download', paper),
   readPaperPdf: (arxivId: string) => ipcRenderer.invoke('paper:pdf', arxivId),
   readLatexStructure: (arxivId: string) => ipcRenderer.invoke('paper:latex-structure', arxivId),
   readPaperFigures: (arxivId: string) => ipcRenderer.invoke('paper:figures', arxivId),
+  capturePaperView: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('paper:capture-view', rect),
   openNotes: () => ipcRenderer.invoke('notes:open'),
   openPaperInReader: (arxivId?: string) => ipcRenderer.invoke('reader:open', arxivId),
   onOpenPaperInReader: (callback: (arxivId: unknown) => void) => subscribe('reader:open-paper', callback),
@@ -109,6 +110,10 @@ contextBridge.exposeInMainWorld('prism', {
   onOpenKnowledgeNode: (callback: (id: unknown) => void) => subscribeKnowledgeOpen(callback),
   readSavedFigure: (paperId: string, anchorId: string) => ipcRenderer.invoke('paper:figure:read', paperId, anchorId),
   savePaperFigure: (arxivId: string, figureId: string, dataUrl: string, metadata: unknown) => ipcRenderer.invoke('paper:figure:save', arxivId, figureId, dataUrl, metadata),
+  findLocalPaperLatex: (identity: { arxivId?: string; title: string }) => ipcRenderer.invoke('paper:local-latex', identity),
+  readPaperAnalysis: (arxivId: string, signature: string) => ipcRenderer.invoke('paper:analysis:read', arxivId, signature),
+  savePaperAnalysis: (arxivId: string, signature: string, source: unknown) => ipcRenderer.invoke('paper:analysis:save', arxivId, signature, source),
+  readTranslationStatus: (arxivId: string) => ipcRenderer.invoke('translation:status', arxivId),
   readTranslation: (arxivId: string) => ipcRenderer.invoke('translation:read', arxivId),
   savePaperAnchors: (arxivId: string, anchors: unknown) => ipcRenderer.invoke('paper:anchors:save', arxivId, anchors),
   startTranslation: (arxivId: string, segments: unknown, options?: unknown) => ipcRenderer.invoke('translation:start', arxivId, segments, options),

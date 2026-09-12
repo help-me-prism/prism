@@ -6,6 +6,7 @@ import { guideRequest, inspectGuide, mergeReadingNote, prepareReadingGuide, upda
 import { migratePaperNotes, listKnowledgeNodes } from '../dist-electron/knowledge.js'
 import { writeAutoSection, removeAutoSection, refreshPaperDigest } from '../dist-electron/paperDigest.js'
 import { protectEditedAutoSections, protectedAutoSection } from '../dist-electron/noteContract.js'
+import { mcpReadNoteMemory } from '../dist-electron/knowledgeMcp.js'
 const entries=[{id:'guide-summary',text:'Original generated sentence.'},{id:'guide-source',text:'Original point.'}]
 let state=mergeReadingNote('# Paper\n\nMy own sentence.',{},entries)
 const edited=state.content.replace('Original generated sentence.','A meaningful correction by the user.')
@@ -52,7 +53,7 @@ try {
  assert((await fs.readFile(file,'utf8')).includes('직접 수정한 요약입니다.'))
  const exchange={id:'turn1',question:'내 연구에 적용할 때 표본 수가 걱정돼',answer:'답변 자체는 이해의 증거가 아닙니다.'}
  let memoryCalls=0
- const memory=async()=>{memoryCalls++;return JSON.stringify({items:[{id:'sample-size',text:'작은 표본에 적용하려 하며 표본 수의 한계를 더 확인해야 한다.'}]})}
+ const memory=async prompt=>{memoryCalls++;assert(!prompt.includes(exchange.answer));assert(!prompt.includes('My handwritten sentence.'));return JSON.stringify({changes:[{op:'upsert',id:'sample-size',kind:'confusion',text:'내 연구에 적용할 때 표본 수의 한계를 더 확인해야 한다.',quote:exchange.question}]})}
  assert((await updateReadingMemory(root,paper,node.id,exchange,memory)).updated)
  const seeded=writeAutoSection(await fs.readFile(file,'utf8'),'confusion','- Old frequency-based doubt.')
  await fs.writeFile(file,seeded)
@@ -62,18 +63,22 @@ try {
  await updateReadingMemory(root,paper,node.id,{...exchange,id:'turn2',question:'고마워'},memory)
  assert.equal(memoryCalls,1,'Same turn and acknowledgements must not cause model calls')
  const before=await fs.readFile(file,'utf8')
- await updateReadingMemory(root,paper,node.id,{...exchange,id:'turn3',question:'이제 이해했어'},async()=>'{"items":[]}')
+ await updateReadingMemory(root,paper,node.id,{...exchange,id:'ambiguous',question:'이제 이해했어'},async()=>'{"changes":[]}')
+ assert((await fs.readFile(file,'utf8')).includes('표본 수의 한계를 더 확인해야 한다.'))
+ await updateReadingMemory(root,paper,node.id,{...exchange,id:'turn3',question:'이제 표본 수 한계는 이해했어'},async()=>JSON.stringify({changes:[{op:'remove',id:'sample-size',quote:'이제 표본 수 한계는 이해했어',subject:'표본 수'}]}))
  const after=await fs.readFile(file,'utf8')
- assert(!after.includes('작은 표본에 적용하려'))
+ assert(!after.includes('표본 수의 한계를 더 확인해야 한다.'))
  assert(after.includes('직접 수정한 요약입니다.')&&after.includes('My handwritten sentence.'))
  await updateReadingMemory(root,paper,node.id,{...exchange,id:'turn4'},memory)
  // A manual edit made while the model is running must also survive removal by the model.
  await updateReadingMemory(root,paper,node.id,{...exchange,id:'turn5',question:'이제 표본 수 한계는 이해했어'},async()=>{
    const latest=await fs.readFile(file,'utf8')
-   await fs.writeFile(file,latest.replace('작은 표본에 적용하려 하며 표본 수의 한계를 더 확인해야 한다.','직접 수정: 내 실험에서는 독립 표본 20개를 확보한다.'))
-   return '{"items":[]}'
+   await fs.writeFile(file,latest.replace('내 연구에 적용할 때 표본 수의 한계를 더 확인해야 한다.','직접 수정: 내 실험에서는 독립 표본 20개를 확보한다.'))
+   return JSON.stringify({changes:[{op:'remove',id:'sample-size',quote:'이제 표본 수 한계는 이해했어',subject:'표본 수'}]})
  })
  assert((await fs.readFile(file,'utf8')).includes('직접 수정: 내 실험에서는 독립 표본 20개를 확보한다.'))
+ const recalled=await mcpReadNoteMemory(root,node.id)
+ assert(recalled.researchMemory.some(item=>item.text.includes('독립 표본 20개')), 'Chat recall must read manual corrections from the note, not a stale model cache')
  const stable=await fs.readFile(file,'utf8')
  await assert.rejects(updateReadingMemory(root,paper,node.id,{...exchange,id:'turn6'},async()=>'{invalid'))
  assert.equal(await fs.readFile(file,'utf8'),stable)

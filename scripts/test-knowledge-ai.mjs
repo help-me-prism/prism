@@ -41,6 +41,9 @@ try {
   assert(rendered.includes('EVIDENCE[evidence-test-0001-sentence-p1-1] 문장1 p.1: Noise prediction can be interpreted as denoising score matching.'), `Evidence was not rendered:\n${rendered}`)
   assert(rendered.includes('MEMO: 노이즈 예측은 가중 score matching과 같다.') && rendered.includes('MEMO: Diffusion as weighted score matching.'), `Memos were not rendered:\n${rendered}`)
   assert(!rendered.includes('AI says'), 'AI answers leaked into the model prompt.')
+  const derived = renderNoteForModel(paperNode, '# Note\n\n<!-- prism:reading-region guide -->\nAI_GUIDE\n<!-- /prism:reading-region guide -->\n<!-- prism:reading memory-one -->\nAI_MEMORY\n<!-- /prism:reading memory-one -->\n<!-- prism:auto overview -->\nAI_DIGEST\n<!-- /prism:auto overview -->\nMy own research sentence.')
+  assert(!/AI_GUIDE|AI_MEMORY|AI_DIGEST/.test(derived), 'Generated notes must not be relabelled as original researcher MEMO')
+  assert(derived.includes('MEMO: My own research sentence.'))
   const prompt = buildSuggestionPrompt(paperNode, rendered, [], [], ['x'])
   assert(prompt.includes('never write claims') && prompt.includes('Return ONLY a JSON object'), 'The prompt lost its guard rails.')
 

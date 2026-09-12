@@ -11,7 +11,7 @@ const tasks: Array<{ id: ModelTask; name: string; when: string; detail: string }
   { id: 'guide', name: '처음 읽기 요약', when: '논문을 처음 열 때',
     detail: '논문을 처음 열 때 핵심 원문을 골라 짧은 읽기 노트를 만듭니다. 같은 논문을 다시 열면 앞서 만든 결과를 그대로 씁니다.' },
   { id: 'memory', name: '대화 기억 정리', when: '대화가 끝났을 때',
-    detail: '대화가 끝나면 연구 목적·남은 의문·판단이 바뀐 지점을 골라 노트에 남깁니다. 인사나 일반적인 요약 요청은 저장하지 않습니다.' },
+    detail: '사용자가 직접 말한 연구 목적·남은 의문·판단을 근거와 함께 선별합니다. 기존 기억은 명시적인 변경 근거가 있을 때만 갱신합니다. 주제가 불명확한 이해 확인이나 일반적인 요약 요청은 저장하지 않습니다.' },
   { id: 'knowledge', name: '노트 정리·연결 제안', when: '직접 실행할 때만',
     detail: '노트를 정리하거나 논문 사이의 연결 후보를 찾습니다. 자동으로 돌지 않고, 버튼을 눌렀을 때만 실행합니다.' },
 ]
@@ -75,6 +75,12 @@ export default function AiTaskSettings({ providers }: { providers: ProviderInfo[
         </tr>
       })}</tbody>
     </table>
+
+    <label className="ai-task-concurrency">논문 하나의 동시 번역 수 <select aria-label="논문 하나의 동시 번역 수" value={settings.translationConcurrency ?? 3}
+      onChange={event => void update({ translationConcurrency: Number(event.target.value) })}>
+      <option value={1}>1 · 순차 처리</option><option value={2}>2</option><option value={3}>3 · 기본</option>
+    </select></label>
+    <p>여러 논문을 번역해도 같은 CLI의 번역·요약·정리 작업은 전체 3개까지 동시에 실행합니다. 사용 한도 오류가 잦으면 동시 번역 수를 줄여 주세요.</p>
 
     <div className="ai-task-toggles">
       <strong>자동 실행</strong>
