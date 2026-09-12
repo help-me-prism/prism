@@ -18,6 +18,7 @@ await fs.writeFile(sample,fixturePdf());await fs.writeFile(path.join(root,'selec
 const port=9348, child=spawn(require('electron'),[`--remote-debugging-port=${port}`,'scripts/product-test-host.cjs'],{windowsHide:true,stdio:['ignore','pipe','pipe'],env:{...process.env,PRISM_PRODUCT_TEST_ROOT:root,PRISM_PRODUCT_TEST_CHAT:'1',PRISM_TEST_DISABLE_AUTO_TRANSLATE:'1',PRISM_TEST_WINDOW_SIZE:'1500x1000'}})
 let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b)
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)), connections=[]
+let readerUi
 async function connect(title) {
   let target;for(let i=0;i<180&&!target;i++){try{target=(await fetch(`http://127.0.0.1:${port}/json/list`).then(r=>r.json())).find(p=>p.type==='page'&&p.title===title)}catch{}if(!target)await sleep(100)}assert(target,logs)
   const socket=new WebSocket(target.webSocketDebuggerUrl),pending=new Map();let seq=0
@@ -37,12 +38,20 @@ async function rightDrag(ui, rect) {
 }
 try {
   const ui=await connect('Prism');await ui.wait('Boolean(window.prism && document.querySelector(".new-paper"))')
+  readerUi=ui
   const first=await ui.evaluate(`window.prism.importLocalPaper(${JSON.stringify({arxivId:'',title:'A test of consecutive equations and the relationship between mathematical assumptions and experimental results',authors:['Test Author'],published:'2026',updated:'',summary:'',categories:[],pdfUrl:'',absUrl:''})})`);await ui.send('Page.reload');await ui.wait('document.querySelector(".paper-tree button")');await ui.evaluate('document.querySelector(".paper-tree button").click()')
   await ui.wait('document.querySelector(".continuous-page.original.rendered") && !document.querySelector(".paper-analysis-status")')
   assert(await ui.wait('document.querySelectorAll(".structure-anchor-layer .equation").length > 0'))
   const firstCache=path.join(path.dirname(first.pdfPath),'reader-analysis.json'); await fs.access(firstCache)
   const firstCacheTime=(await fs.stat(firstCache)).mtimeMs
+  // macOS CI may constrain the native window to a small virtual display. The
+  // sidebar is intentionally hidden below 1180px; test its wide layout explicitly,
+  // then restore the real viewport before testing native screenshot coordinates.
+  const narrow=await ui.evaluate('window.innerWidth <= 1180')
+  if(narrow) await ui.send('Emulation.setDeviceMetricsOverride',{width:1500,height:1000,deviceScaleFactor:1,mobile:false})
+  await ui.wait('document.querySelector(".sidebar").getBoundingClientRect().width > 0')
   assert(await ui.evaluate('(() => { const card=document.querySelector(".sidebar-repository").getBoundingClientRect(), sidebar=document.querySelector(".sidebar").getBoundingClientRect(); return card.left >= sidebar.left+10 && card.right <= sidebar.right-10 })()'),'Library folder card fits inside sidebar including margins')
+  if(narrow) { await ui.send('Emulation.clearDeviceMetricsOverride');await ui.wait('document.querySelector(".continuous-page.original.rendered")') }
   const sourceSegments=JSON.parse(await fs.readFile(firstCache,'utf8')).source.segments
   await fs.writeFile(first.translationPath,JSON.stringify({version:1,provider:'codex',model:'offline',sourceHash:'',segments:sourceSegments.map(segment=>({...segment,translation:['text','heading','caption'].includes(segment.kind)?'서로 다른 수학 모형의 차이와 실험 결과를 비교합니다. 선택한 번역 문장이 캡처 이미지에도 보여야 합니다. '.repeat(segment.kind==='text'?32:1):segment.source}))}))
   const session={id:'sidebar-topic',libraryPath:vault,title:'@근거1 설명해줘',provider:'codex',model:'offline',createdAt:Date.now(),updatedAt:Date.now(),messages:[{id:'q1',role:'user',text:'[@수식1] 두 수식의 가정과 실험 결과는 어떻게 연결되나요?',createdAt:Date.now(),primaryPaperId:first.arxivId},{id:'q2',role:'user',text:'고마워',createdAt:Date.now()}]}
@@ -140,5 +149,11 @@ try {
   const after=await notes.evaluate(`window.prism.readKnowledgeNode(${JSON.stringify(created.id)})`);assert.equal(after.content,before.content,'Rendering and click-to-edit preserve stored Markdown')
   await fs.writeFile('tmp/ui/reader-note-math.png',Buffer.from((await notes.send('Page.captureScreenshot',{format:'png'})).data,'base64'))
   console.log('Reader UI passed: sidebar topics and unclipped library card, equal paper icons, native source/translated right drag (both layouts, long reflow and Korean pixels), PDF drop/source offer, typed figure tags and note math; optional corpus checks cover progress switching, cache reuse and compound figures.')
-} catch(error) { console.error('Fixture retained at',root);throw error }
+} catch(error) {
+  if(readerUi) try {
+    await fs.mkdir('tmp/ui',{recursive:true});await fs.writeFile('tmp/ui/reader-failure.png',Buffer.from((await readerUi.send('Page.captureScreenshot',{format:'png'})).data,'base64'))
+    console.error('Reader viewport',await readerUi.evaluate('({width:innerWidth,height:innerHeight,sidebar:document.querySelector(".sidebar")?.getBoundingClientRect().toJSON()})'))
+  } catch { /* Keep the original failure if the renderer has already exited. */ }
+  console.error('Fixture retained at',root);throw error
+}
 finally { for(const socket of connections)socket.close();child.kill() }
