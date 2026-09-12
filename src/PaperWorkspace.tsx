@@ -445,7 +445,13 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const figure = sourceFigures.find(source => source.captionAnchorId === caption?.segment.id)
     return { key: `pdf-${index}`, figure, rect: caption?.caption ?? rect }
   })
+  // A region can reach the reading view twice — once as a detected figure and
+  // once as a compound source figure covering the same box — and the translated
+  // page then showed the same picture twice in a row. The source pane already
+  // deduplicates its own list; this one did not.
   const readingFigureRects = [...detectedFigures.map(item => item.rect), ...compoundFigureRects.map(({ rect }) => rect)]
+    .filter((rect, index, all) => all.findIndex(other => Math.abs(other.left - rect.left) < 3 && Math.abs(other.top - rect.top) < 3
+      && Math.abs(other.width - rect.width) < 3 && Math.abs(other.height - rect.height) < 3) === index)
   const matchedSourceFigures = new Set(detectedFigures.map(({ figure }) => figure?.id).filter(Boolean))
   const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = [...detectedFigures, ...sourceFigureRects.filter(({ figure }) => figure.compound || !matchedSourceFigures.has(figure.id)).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
   if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, minHeight: translationFormat === 'paper' ? pageSize.height : undefined, fontSize: 15 * scale }}>
