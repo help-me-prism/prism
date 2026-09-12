@@ -32,16 +32,21 @@ export function readerExcerpts(anchors: ContextAnchor[], question: string, budge
 /** Labels belong to the conversation, rather than a page or retrieval batch. */
 export function stableReferences(anchors: ContextAnchor[], history: ContextAnchor[] = []) {
   const identity = (anchor: ContextAnchor) => `${anchor.paperId}\u0000${anchor.anchorId}`
-  const known = new Map<string, string>(); const used = new Set<string>(); let next = 1
+  const known = new Map<string, string>(); const used = new Set<string>(); const reservedDisplayLabels = new Set<string>()
+  const labels: Record<string, string> = { sentence: '문장', section: '섹션', equation: '수식', table: '표', figure: '피겨', page: '페이지' }
   for (const anchor of history) {
-    if (!/^근거\d+$/.test(anchor.label)) continue
+    if (!/^(?:근거|문장|섹션|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?$/.test(anchor.label)) continue
     const key = identity(anchor)
     if (!known.has(key) && !used.has(anchor.label)) { known.set(key, anchor.label); used.add(anchor.label) }
-    next = Math.max(next, Number(anchor.label.slice(2)) + 1)
+    reservedDisplayLabels.add(anchor.label.replace(/^근거(?=\d)/, labels[anchor.type] ?? '근거'))
   }
   return anchors.map(anchor => {
     const key = identity(anchor)
-    if (!known.has(key)) { const label = `근거${next++}`; known.set(key, label); used.add(label) }
+    if (!known.has(key)) {
+      const kind = labels[anchor.type] ?? '근거'; let next = 1
+      while (used.has(`${kind}${next}`) || reservedDisplayLabels.has(`${kind}${next}`)) next++
+      const label = `${kind}${next}`; known.set(key, label); used.add(label)
+    }
     return { ...anchor, label: known.get(key)! }
   })
 }

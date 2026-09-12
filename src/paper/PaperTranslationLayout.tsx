@@ -28,7 +28,7 @@ export default function PaperTranslationLayout({ items, sourceWidth, sourceHeigh
     return () => observer.disconnect()
   }, [items, sourceWidth, sourceHeight, fontScale])
   return <div ref={root} className="paper-translation-layout" style={{ height: layout.height, fontSize: 10 * layout.ratio * fontScale }}>
-    {items.map((item, index) => <section key={item.id} className={`paper-layout-block reading-block ${item.kind}`} style={{
+    {items.map((item, index) => <section key={item.id} data-source-rect={JSON.stringify(item.rect)} className={`paper-layout-block reading-block ${item.kind}`} style={{
       fontSize: (item.fontSize ?? 10) * layout.ratio * fontScale, lineHeight: item.lineHeight, textIndent: (item.firstLineIndent ?? 0) * layout.ratio, left: `${item.rect.left / sourceWidth * 100}%`, width: `${item.rect.width / sourceWidth * 100}%`, top: layout.tops[index] ?? item.rect.top,
     }}>{item.content}</section>)}
   </div>

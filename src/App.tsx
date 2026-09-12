@@ -55,6 +55,9 @@ function makeSession(provider: ProviderId = 'codex', model = provider === 'codex
   return { id: uniqueId('session'), title: '새 대화', provider, model, messages: [], createdAt: now, updatedAt: now }
 }
 
+import { paperSummary, conversationSummary, conversationTitle } from './sidebarSummary'
+import { readReadingPosition } from './paper/readingPosition'
+
 const referencePattern = /\[?@((?:문장|섹션|근거|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?)\]?/g
 
 function referencedAnchors(text: string, anchors: ContextAnchor[]) {
@@ -129,7 +132,7 @@ function AnchorChip({ anchor, onRemove, onNavigate }: { anchor: ContextAnchor; o
     const token = tokenRef.current; const popover = token?.querySelector<HTMLElement>('.anchor-popover')
     if (token && popover) positionAnchorPopover(token, popover)
   }
-  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{anchor.label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`}>{equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : imagePreview ? <img src={imagePreview} alt={`${anchor.label} 원문 미리보기`} onLoad={showPreview} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
+  const content = <><span className={`anchor-symbol type-${anchor.type}`}><Icon size={10} /></span><span>{composerEvidenceLabel(anchor).label}</span><small>p.{anchor.page}</small>{onRemove && <X size={11} />}<span className={`anchor-popover ${equationHtml ? 'equation' : imagePreview ? `image ${anchor.type}` : ''}`}>{equationHtml ? <span dangerouslySetInnerHTML={{ __html: equationHtml }} /> : imagePreview ? <img src={imagePreview} alt={`${anchor.label} 원문 미리보기`} onLoad={showPreview} /> : <><strong>{anchor.paperTitle}</strong>{anchor.source.slice(0, 500)}</>}</span></>
   return onRemove
     ? <button ref={tokenRef} type="button" className="anchor-token" title={anchor.source} onMouseEnter={showPreview} onFocus={showPreview} onClick={onRemove}>{content}</button>
     : <button ref={tokenRef} type="button" className="anchor-token" title={anchor.type === 'figure' ? '큰 이미지로 보기' : '논문의 해당 위치로 이동'} onMouseEnter={showPreview} onFocus={showPreview} onClick={() => anchor.type === 'figure' ? openFigurePreview(anchor) : onNavigate?.(anchor)}>{content}</button>
@@ -255,7 +258,7 @@ function InlineComposer({ text, anchors, disabled, focusPlacementId, onChange, o
         const presentation = composerEvidenceLabel(anchor)
         const chip = document.createElement('span'); chip.className = 'anchor-token composer-anchor-label'; chip.title = presentation.description; chip.tabIndex = 0; chip.setAttribute('aria-label', presentation.description)
         const symbol = document.createElement('span'); symbol.className = `anchor-symbol type-${anchor.type}`; symbol.textContent = anchor.type === 'equation' ? '∑' : anchor.type === 'table' ? '▦' : anchor.type === 'figure' ? '▧' : anchor.type === 'page' ? '▤' : '¶'
-        const label = document.createElement('span'); label.textContent = anchor.label
+        const label = document.createElement('span'); label.textContent = presentation.label
         const paper = document.createElement('small'); paper.className = 'composer-anchor-location'; paper.textContent = presentation.location
         const excerpt = document.createElement('span'); excerpt.className = 'composer-anchor-excerpt'; excerpt.textContent = presentation.excerpt
         const close = document.createElement('button'); close.type = 'button'; close.className = 'composer-anchor-remove'; close.textContent = '×'; close.title = `${anchor.label} 태그 삭제`; close.setAttribute('aria-label', `${anchor.label} 태그 삭제`)
@@ -359,8 +362,8 @@ function App() {
   const compactionOffer = activeSession?.provider === 'codex' && Boolean(activeSession.providerThreadId)
     && Boolean(activeSession.usage?.context) && activeSession.usage!.context!.usedTokens / activeSession.usage!.context!.contextWindow >= .8
   const selectedPapers = workspaceState.library.filter((paper) => contextPaperIds.includes(paper.arxivId) || (autoIncludePaper && paper.arxivId === workspaceState.activePaperId))
-  const historicalReferences = activeSession?.messages.flatMap(message => message.anchors ?? []).filter(anchor => /^근거\d+$/.test(anchor.label)) ?? []
-  const composerReferences = [...anchorCatalog, ...historicalReferences.filter((anchor, index, all) => all.findIndex(item => item.label === anchor.label) === index)]
+  const historicalReferences = activeSession?.messages.flatMap(message => message.anchors ?? []).filter(anchor => /^(?:근거|문장|섹션|수식|표|피겨|페이지)\d+(?:-[A-Za-z0-9]+)?$/.test(anchor.label)) ?? []
+  const composerReferences = stableReferences([...anchorCatalog, ...historicalReferences].filter((anchor, index, all) => all.findIndex(item => item.paperId === anchor.paperId && item.anchorId === anchor.anchorId) === index), historicalReferences)
   const tagMatch = input.slice(0, composerCaret).match(/(?:^|\s)@([^\s@]*)$/)
   const tagQuery = tagMatch?.[1]
   const tagSuggestions = tagQuery !== undefined ? composerReferences.filter((anchor) => anchor.label.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8) : []
@@ -782,16 +785,19 @@ function App() {
               <div className="nav-item active" aria-current="page"><BookOpen size={17} /> 논문 읽기 <span>{workspaceState.openPaperIds.length}</span></div>
               <button className="nav-item" aria-label="Notes 열기" onClick={() => void openReadingNote()}><StickyNote size={17} /> 노트 <span>{workspaceState.library.length}</span></button>
               <div className="paper-tree-heading"><p className="nav-label">논문</p><button onClick={() => runWorkspaceCommand('search')} title="논문 추가"><Plus size={13} /></button></div>
-              <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => <button key={paper.arxivId} className={paper.arxivId === workspaceState.activePaperId ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={13} /><span><strong>{paper.title}</strong><small>{paper.arxivId.startsWith("local-") ? "내 PDF" : paper.arxivId}</small></span></button>) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
+              <div className="paper-tree">{workspaceState.library.length ? workspaceState.library.map((paper) => {
+                const active = paper.arxivId === workspaceState.activePaperId
+                const page = active ? workspaceState.activePage : readReadingPosition(paper.pdfPath)?.page
+                return <button key={paper.arxivId} className={active ? 'selected' : ''} onClick={() => runWorkspaceCommand('open-paper', paper.arxivId)}><FileText size={15} aria-hidden="true" /><span><strong title={paper.title}>{paper.title}</strong><small title={paperSummary(paper)}>{paperSummary(paper)}</small><small className="paper-reading-position">{active ? `읽는 중${page ? ` · ${page}쪽` : ''}` : page ? `이어서 읽기 · ${page}쪽` : '아직 읽지 않음'}</small></span></button>
+              }) : <small>선택한 폴더에 저장된 논문이 없습니다.</small>}</div>
               <div className="session-heading"><p className="nav-label">대화</p><button onClick={() => newChat()} aria-label="새 대화"><Plus size={14} /></button></div>
               <div className="session-list">
                 {orderedSessions.map((session) => (
                   <div key={session.id} className={`session-item ${session.id === activeSession.id ? 'selected' : ''}`}>
                     <button className="session-select" onClick={() => setActiveSessionId(session.id)} aria-current={session.id === activeSession.id ? 'page' : undefined}>
-                      <span className={`session-provider provider-${session.provider}`}>{session.provider === 'codex' ? 'C' : 'A'}</span>
-                      <span className="session-copy"><strong>{session.title}</strong><small>{session.model}{runningIds.includes(session.id) ? ' · 응답 중…' : ''}</small></span>
+                      <span className="session-copy"><strong title={conversationTitle(session)}>{conversationTitle(session)}</strong><small title={conversationSummary(session, workspaceState.library)}>{conversationSummary(session, workspaceState.library)}</small>{runningIds.includes(session.id) && <small className="session-running" role="status">응답 중…</small>}</span>
                     </button>
-                    <button className="delete-session" onClick={() => deleteSession(session.id)} disabled={sessions.length <= 1 || runningIds.includes(session.id)} aria-label={`${session.title} 대화 삭제`} title={sessions.length <= 1 ? '마지막 대화는 삭제할 수 없습니다' : '대화 삭제'}><Trash2 size={12} /></button>
+                    <button className="delete-session" onClick={() => deleteSession(session.id)} disabled={sessions.length <= 1 || runningIds.includes(session.id)} aria-label={`${conversationTitle(session)} 대화 삭제`} title={sessions.length <= 1 ? '마지막 대화는 삭제할 수 없습니다' : '대화 삭제'}><Trash2 size={12} /></button>
                   </div>
                 ))}
               </div>
