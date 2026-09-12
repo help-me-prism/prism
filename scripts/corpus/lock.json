@@ -1,0 +1,476 @@
+{
+ "holdout/": {
+  "sha256": "c93bcdf0a67ac9daf6e98e3b0382f5945db9f026c8e9cd32c38cd0085a120e8f",
+  "bytes": 136697,
+  "url": "https://journals.rcsi.science/0006-3029/article/download/273792/252788",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.00614": {
+  "sha256": "53c038044932b035734146edda3cde55b21f7e968d87f31dc79b969ee206c541",
+  "bytes": 527494,
+  "url": "https://arxiv.org/pdf/2609.00614",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.01858": {
+  "sha256": "aa8391e2b2893a5e2873c865db8380c09819d1f34ccc5729407d06308dc441e9",
+  "bytes": 11748605,
+  "url": "https://arxiv.org/pdf/2609.01858",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.04356": {
+  "sha256": "94c0dea6b6606bed79be53fdb2991e67651d7cde6850c4d2ef38bf4caef2d394",
+  "bytes": 4126673,
+  "url": "https://arxiv.org/pdf/2609.04356",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.04994": {
+  "sha256": "0d50d65261a56b4246b296c2bedde5f209be4b80c27139993ad733fdfeb9e6cf",
+  "bytes": 460678,
+  "url": "https://arxiv.org/pdf/2609.04994",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.08202": {
+  "sha256": "fbd2bdc7596bd4a449c47ab76fcf53673dfeeff070ad7db84c0f92c734078b87",
+  "bytes": 2874063,
+  "url": "https://arxiv.org/pdf/2609.08202",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.08235": {
+  "sha256": "336c59091328a46dd1f70700554ccd23ef568d5d220d200486d5a9c2a5a83ae6",
+  "bytes": 2831714,
+  "url": "https://arxiv.org/pdf/2609.08235",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.09771": {
+  "sha256": "78a680ac1b92d37eadce09e6b7abc724c086e8e37f7a4d181d239a0889e5f36a",
+  "bytes": 2802349,
+  "url": "https://arxiv.org/pdf/2609.09771",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.09810": {
+  "sha256": "52e4b05ae848c093461e53950dcea9853c240bebecc26f93ad46286d8ef88e0c",
+  "bytes": 3177623,
+  "url": "https://arxiv.org/pdf/2609.09810",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10020": {
+  "sha256": "b8add639c279caf5b477fed186d604e3e699f66cf8f4f929b4542040f68bd74b",
+  "bytes": 1032986,
+  "url": "https://arxiv.org/pdf/2609.10020",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10028": {
+  "sha256": "146af8e0511e44bc68f82ff43ed407a3244751a75d28b4debffdb8ae79876981",
+  "bytes": 2681129,
+  "url": "https://arxiv.org/pdf/2609.10028",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10483": {
+  "sha256": "1e94652985b5aa3526d578aae87d88ab867b9f5805d7832f6253cdc6ab64bc2c",
+  "bytes": 318094,
+  "url": "https://arxiv.org/pdf/2609.10483",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10490": {
+  "sha256": "dc964b992918a35676952cb095640e01f9ac9635fa1442133acbb66af7fb0cca",
+  "bytes": 3763564,
+  "url": "https://arxiv.org/pdf/2609.10490",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10526": {
+  "sha256": "e781beac60b3d055e79ddafbeecd8a3fc9b3d9e58f0d723326124a5f237d5fa9",
+  "bytes": 294068,
+  "url": "https://arxiv.org/pdf/2609.10526",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10532": {
+  "sha256": "1839698652c0feac1c4f1fbf1e96a2647f378904d377129ca485106026115ecd",
+  "bytes": 6882977,
+  "url": "https://arxiv.org/pdf/2609.10532",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10680": {
+  "sha256": "cd64656be89fb453964dfd53a57d05ea0bb5d7788fced8456231873ef7c74de6",
+  "bytes": 3775875,
+  "url": "https://arxiv.org/pdf/2609.10680",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.10714": {
+  "sha256": "134adc82b281df35a115604fb360598fa8f695daefb51ccbd099a73aa48dea38",
+  "bytes": 3270061,
+  "url": "https://arxiv.org/pdf/2609.10714",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.11329": {
+  "sha256": "c64d0baec956af08c6e36f0e741cc2e53f2bd51c56eee41b271a3ec07dcdb225",
+  "bytes": 904742,
+  "url": "https://arxiv.org/pdf/2609.11329",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.11343": {
+  "sha256": "2146bb0331e7e7de1c3654c50f37ac8db12f4228119234855b77a0c629bca5d4",
+  "bytes": 424942,
+  "url": "https://arxiv.org/pdf/2609.11343",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.11699": {
+  "sha256": "56dfb2f60efa90bac95a0d4a0d0f7409b06593d6159932e0bf8bf876a8da73c1",
+  "bytes": 3547774,
+  "url": "https://arxiv.org/pdf/2609.11699",
+  "fetched": "2026-09-11"
+ },
+ "holdout/arxiv-2609.11716": {
+  "sha256": "b3eb656b5d8b445fca0cf52d1bb4f3387cfb0cee4cc0d7bdcbf91c3169e3434b",
+  "bytes": 1729183,
+  "url": "https://arxiv.org/pdf/2609.11716",
+  "fetched": "2026-09-11"
+ },
+ "holdout/baku-state-university-journal-of-l": {
+  "sha256": "4f37b4b76a139bf999c32687b2760c8e0c2cb67873b4a18c309c70c5f85367bb",
+  "bytes": 416868,
+  "url": "https://doi.org/10.30546/300045.2026.03.1.505",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ja-10": {
+  "sha256": "f487953102de6a29c35c36f0243bbf960b163fc71160708901eb36f5b6c069ef",
+  "bytes": 643287,
+  "url": "https://kguopac.kanto-gakuin.ac.jp/webopac/bdyview.do?bodyid=NI30004362&elmid=Body&fname=007.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2023-16-20-1": {
+  "sha256": "e2c2c62d078b5acedb3fe54b338d322b38fff3d7cf397e9cc996926a0c2e350f",
+  "bytes": 3367472,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.20.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2023-16-44-2": {
+  "sha256": "241ac52a546ec109523fe189c74aa61d41423ea71083cdc374f5c23722880d4a",
+  "bytes": 903359,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2023.16.44.2",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2024-17-1-1": {
+  "sha256": "be4bf17c351e73c5894d0665a5162da4af7f9ae529238229114562f847c278f7",
+  "bytes": 1027054,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.1.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-ko-2024-17-5-1": {
+  "sha256": "d184d57bcc6a06b91da10a085d0e933fbf88a3f6e2e5ca9837424252771a99cc",
+  "bytes": 1007062,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.5.1",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-2": {
+  "sha256": "5958db023f9ec12a7c7a9c3c4bf6ffa6150e07c8e97e5126e8239828f4ae9a99",
+  "bytes": 245776,
+  "url": "http://ojs.omniscient.sg/index.php/grep/article/download/20204/19194/",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-3": {
+  "sha256": "a611600da6f6ca73283bc07020ab26da085d114f4b793421f84a08c197794ca0",
+  "bytes": 240273,
+  "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/26893/25880/",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-4": {
+  "sha256": "9d5d61910bee186fbbade16547aa93d370ab3dbbf6d0adddc1c19939f5c73c5a",
+  "bytes": 233877,
+  "url": "http://ojs.omniscient.sg/index.php/esra/article/download/53798/52662",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-5": {
+  "sha256": "0be5434fa805451bfab3e255a16aa2d6b0f339b93bed8684746c1ea57bfaa44e",
+  "bytes": 232135,
+  "url": "http://ojs.omniscient.sg/index.php/mepm/article/download/28188/27168",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cjk-zh-6": {
+  "sha256": "f6039aaa3f3e27b6e8601640735e1fdf1b400d722fb5d2ba5fb7e11e2e586dfd",
+  "bytes": 1136582,
+  "url": "https://doi.org/10.67606/lixq.yj6",
+  "fetched": "2026-09-11"
+ },
+ "holdout/clinical-and-experimental-otorhino": {
+  "sha256": "14cfadcf76be9147d885e7e58bc328e3e41a80cbd4f4637dea36aa4f10779bbe",
+  "bytes": 919734,
+  "url": "https://www.e-ceo.org/upload/pdf/ceo-2025-00124.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cukurova-anestezi-ve-cerrahi-bilim": {
+  "sha256": "6396fccfd29655700a9b1cc55d9464b7c08c720d2b3c9bb2384899cb6a04ca18",
+  "bytes": 1179231,
+  "url": "https://dergipark.org.tr/en/download/article-file/4823950",
+  "fetched": "2026-09-11"
+ },
+ "holdout/cureus": {
+  "sha256": "71a08152f361ba6beef869fbe8c7a8d911b0b4d3908eff98dc4bb962965bd997",
+  "bytes": 697239,
+  "url": "https://www.cureus.com/articles/439668-expanding-the-clinical-spectrum-of-piezo2-duplications-a-case-of-global-motor-delay-congenital-sensory-neuropathy-and-musculoskeletal-abnormalities.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/digital-repository-of-ostroh-acade": {
+  "sha256": "3c4318a102378279a403ba004b1c0f46306edfe852f051fd19cbc16508483952",
+  "bytes": 461280,
+  "url": "https://eprints.oa.edu.ua/id/eprint/9411/1/Functioning%20of%20ethno-images.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/edu-e-history-kz": {
+  "sha256": "f4e00577bce0348c33d2140f55382cdeb0949d35d71d906e585c71455607eb6b",
+  "bytes": 3452387,
+  "url": "https://ajspiie.com/index.php/history/article/download/1148/1043/3982",
+  "fetched": "2026-09-11"
+ },
+ "holdout/endocrine-journal": {
+  "sha256": "ef197192a9973e33cfbc8e6a0d5bf220da3d4d2a0035d1be33636d79221dc3d3",
+  "bytes": 2300527,
+  "url": "https://www.jstage.jst.go.jp/article/endocrj/advpub/0/advpub_EJ25-0117/_pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/entukhpiir-repository-kharkiv-poly": {
+  "sha256": "721143bb183471d9cfb59989b510a5a1d33cf55b8685da2f9811b01151b4f09c",
+  "bytes": 390597,
+  "url": "https://repository.kpi.kharkov.ua/bitstreams/08655ee6-3914-46aa-8108-3525bcf3ac47/download",
+  "fetched": "2026-09-11"
+ },
+ "holdout/european-journal-of-risk-regulatio": {
+  "sha256": "8cd82135de758948920d1c015063a686765836ff6b668f0e79e626c52704f07a",
+  "bytes": 172099,
+  "url": "https://www.cambridge.org/core/services/aop-cambridge-core/content/view/24EA7930229EFC66F786EF1FCD7B902D/S1867299X26100993a.pdf/div-class-title-salus-case-organic-medicinal-herbal-teas-cannot-be-labelled-as-organic-div.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/financial-and-credit-activity-prob": {
+  "sha256": "e7036ac4ad32a3203c5d9e5baefb54d77610d1b2dd7722d1e233464832b6b872",
+  "bytes": 295581,
+  "url": "https://fkd.net.ua/index.php/fkd/article/download/4885/4457",
+  "fetched": "2026-09-11"
+ },
+ "holdout/frontiers-in-plant-science": {
+  "sha256": "f820814ca880c73696c3652d367321f1d3990c456f54aba4181da521c7c713a3",
+  "bytes": 7710659,
+  "url": "https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2024.1429890/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/frontiers-in-sustainable-food-syst": {
+  "sha256": "9db676cd2f2108ca23c0928450b88ff1d7ad786486c17daa3579179ccb5e1098",
+  "bytes": 525207,
+  "url": "https://www.frontiersin.org/journals/sustainable-food-systems/articles/10.3389/fsufs.2025.1653775/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/g-m-hane-niversitesi-sa-l-k-biliml": {
+  "sha256": "0655de98c1a60bca61e1bacda2251741220fa7a197303e46c929dffa067ac598",
+  "bytes": 470320,
+  "url": "https://dergipark.org.tr/en/download/article-file/2868552",
+  "fetched": "2026-09-11"
+ },
+ "holdout/galen-medical-journal": {
+  "sha256": "23486e1473e3f8cc97de610c591946cfc57d19b0067726bcd6397cbb8e2e2906",
+  "bytes": 1976367,
+  "url": "https://journals.salviapub.com/index.php/gmj/article/download/3810/3188",
+  "fetched": "2026-09-11"
+ },
+ "holdout/hacettepe-journal-of-mathematics-a": {
+  "sha256": "b5a381ef1757ab22ad7ffbfb4275887031ccdf3334ed0513f60feac25379146e",
+  "bytes": 1060493,
+  "url": "https://dergipark.org.tr/en/download/article-file/4521223",
+  "fetched": "2026-09-11"
+ },
+ "holdout/haigan": {
+  "sha256": "ab969519cc5b803bf8e9bfdbc3cd37e41285361933cae8e84b03bf716b65ac9c",
+  "bytes": 462475,
+  "url": "https://www.jstage.jst.go.jp/article/haigan/65/7/65_1086/_pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-journal-of-applied-r": {
+  "sha256": "bdfc55de1815adbe2f6b1d34291f59ffa98b989479d5732c4d3c221d347da1e0",
+  "bytes": 760153,
+  "url": "https://journal.multitechpublisher.com/index.php/ijarss/article/download/2192/2352",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-journal-of-general-m": {
+  "sha256": "447d9aea1d0a336b55a931917f3edb752c841e312b24788f6ac4b4798e4e1915",
+  "bytes": 304567,
+  "url": "https://www.dovepress.com/article/download/102893",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-journal-of-research-": {
+  "sha256": "bc35c7343bdc69d3b30ea7e1c5d012dfd3cd5341b677ea8a63d8ec60fe8920c7",
+  "bytes": 1008965,
+  "url": "https://rsisinternational.org/journals/ijriss/uploads/vol10-iss7-pg2972-2995-202607_pdf.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/international-research-journal-on-": {
+  "sha256": "7b7f4a4c467d9ac120dc29cd897c356abb8a8a7dee2f02097b52628f57f0a3a6",
+  "bytes": 546448,
+  "url": "https://goldncloudpublications.com/index.php/irjaem/article/download/972/960",
+  "fetched": "2026-09-11"
+ },
+ "holdout/jci-insight": {
+  "sha256": "e4fae8fde8885d346f3dde6ca46348d17b988517868b4b5f59b430daa3ab341e",
+  "bytes": 2798651,
+  "url": "http://insight.jci.org/articles/view/200002/files/pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-apicultural-research": {
+  "sha256": "d1b37e407ed02dc9507a6c1ae0047da8b403029376cbfc4c33ab083078df0fad",
+  "bytes": 1723875,
+  "url": "http://www.alice.cnptia.embrapa.br/bitstream/doc/1164765/1/EffectPasteurizationDehumidificationRefrigerationMaturationHoneyJAR2024.pdf",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-computing-and-electroni": {
+  "sha256": "ccd6793f6410dafdba036752a76202540a58dfebccdd5231124ba0c959feb5a9",
+  "bytes": 206837,
+  "url": "https://drpress.org/ojs/index.php/jceim/article/download/28765/28238",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-environmental-analysis-": {
+  "sha256": "314b9fb6ea42690bb863c094b5cf8919a5f2313fabf6067e56c5279e3ac06999",
+  "bytes": 246764,
+  "url": "https://www.journals.ufrpe.br/index.php/JEAP/article/download/5645/482485152",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-global-nutrition": {
+  "sha256": "0d8e2c2b7e39fa610cce945bbf8fc900e9e31d84bfd0d29b026ab816c6f5aa23",
+  "bytes": 352900,
+  "url": "https://jurnal.isagi.or.id/index.php/jgn/article/download/167/124",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-health-sciences-and-med": {
+  "sha256": "e9d02c8358350432bd3649f300b63ade3204465c0f2a5a8c83bd8dd80b395eae",
+  "bytes": 559884,
+  "url": "https://dergipark.org.tr/en/download/article-file/4979653",
+  "fetched": "2026-09-11"
+ },
+ "holdout/journal-of-medical-and-dental-scie": {
+  "sha256": "6fa957fe76b8e1c20ea577e559b954e26c879e7c8dfc5fdb37dfa2f8b723e7c1",
+  "bytes": 420708,
+  "url": "https://doi.org/10.35629/076x-11087375",
+  "fetched": "2026-09-11"
+ },
+ "holdout/medunab": {
+  "sha256": "8a32021faff6696e1f1b60b03a573adab6f87b76d916244bbd7c387d630696fa",
+  "bytes": 487370,
+  "url": "https://revistas.unab.edu.co/index.php/medunab/article/download/5534/4289",
+  "fetched": "2026-09-11"
+ },
+ "holdout/plos-global-public-health": {
+  "sha256": "bd86158b45627da252c41f21c1cbbefc2206a7aa11bfd8cc4f115cb7ea7c7a8c",
+  "bytes": 719865,
+  "url": "https://journals.plos.org/globalpublichealth/article/file?id=10.1371/journal.pgph.0004946&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "holdout/plos-one": {
+  "sha256": "0c984c763455cc92b636f0de14b7a8ccce3f1d6ad02219186d397f1dbd5b0508",
+  "bytes": 680626,
+  "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0324080&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "holdout/riggs-journal-of-artificial-intell": {
+  "sha256": "7d97967cf3c687b1fd58bcc982e0d83ba791dc1bc2077197c699f55fb9971acb",
+  "bytes": 184326,
+  "url": "https://journal.ilmudata.co.id/index.php/RIGGS/article/download/4345/3124",
+  "fetched": "2026-09-11"
+ },
+ "holdout/turkish-bulletin-of-hygiene-and-ex": {
+  "sha256": "deb58dadb99bb41790f0dd570532ff249b93cf11f78b7ee9c7698e02a5938298",
+  "bytes": 935288,
+  "url": "https://doi.org/10.5505/turkhijyen.2023.65481",
+  "fetched": "2026-09-11"
+ },
+ "holdout/university-journal-of-dental-scien": {
+  "sha256": "d57e87a384614c21e720efd02412fdd28672b46949f88db0a99c996080460e91",
+  "bytes": 258882,
+  "url": "https://www.ujds.in/index.php/ujds/article/download/876/469",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-1011.4715": {
+  "sha256": "a58b921056a7c4dd13dc33ed0145b63273c4c83fea3eae1d52e6604b03b8b433",
+  "bytes": 636813,
+  "url": "https://arxiv.org/pdf/1011.4715",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-1406.2661": {
+  "sha256": "ff5819e3a7b713c3bd3107b7de3d51fe0a347aa5d8444f0efdcf2345ef0a8b63",
+  "bytes": 530482,
+  "url": "https://arxiv.org/pdf/1406.2661",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-1602.03837": {
+  "sha256": "e5e864c23d015b69be17e5b5d51b5b462d2829353a867513414b6728f54589c4",
+  "bytes": 935476,
+  "url": "https://arxiv.org/pdf/1602.03837",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-1706.03762": {
+  "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+  "bytes": 2215244,
+  "url": "https://arxiv.org/pdf/1706.03762",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2006.11239": {
+  "sha256": "aee5e07a802e8dfd2a386374c94fd61d1d056cb7e1e0fec4f28e8120ff5d8505",
+  "bytes": 10267274,
+  "url": "https://arxiv.org/pdf/2006.11239",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2103.02370": {
+  "sha256": "f4aac1454dc133098afba1f3869c6b8457f3b66a093ef905054d8e5bf7089ff9",
+  "bytes": 4236864,
+  "url": "https://arxiv.org/pdf/2103.02370",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2210.02747": {
+  "sha256": "5eeb39ba516396924aba4787452f9d0abdee88467a4d0c264d9f66cad0c5ee14",
+  "bytes": 25147129,
+  "url": "https://arxiv.org/pdf/2210.02747",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2412.14974": {
+  "sha256": "89182b8c6db23db0606c513680b1cb5aeaf99ceed2d70765c2b82a5e7394c289",
+  "bytes": 1425922,
+  "url": "https://arxiv.org/pdf/2412.14974",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2606.02682": {
+  "sha256": "ea239490828355924aaf0e68f08ba6dc0db69ee8b618c831b9f7d49659c22b10",
+  "bytes": 629040,
+  "url": "https://arxiv.org/pdf/2606.02682",
+  "fetched": "2026-09-11"
+ },
+ "tune/arxiv-2609.00689": {
+  "sha256": "8bfefcc1dcc384809c8e832ab4817e3701a2c08fa0941fca97a16029cc843521",
+  "bytes": 363763,
+  "url": "https://arxiv.org/pdf/2609.00689",
+  "fetched": "2026-09-11"
+ },
+ "tune/cjk-ko-2024-17-30-1": {
+  "sha256": "fe7b80e2451af033951d4d791a66e1ce975ca9930af560aebf41a1e44243c24a",
+  "bytes": 1463988,
+  "url": "https://www.phwr.org/journal/download_pdf.php?doi=10.56786/PHWR.2024.17.30.1",
+  "fetched": "2026-09-11"
+ },
+ "tune/plos-biology-3001161": {
+  "sha256": "b38401e28cb75cb546b3d27b48f7655f6635d240b5476b868d741bdbf3e9571a",
+  "bytes": 4274684,
+  "url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.3001161&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "tune/plos-one-0287690": {
+  "sha256": "6f1c8cd4d2e4ef2b696770a8b36089551b13535f53e5a2c8a50dca207d69378f",
+  "bytes": 4292793,
+  "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0287690&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "tune/plos-one-0311693": {
+  "sha256": "ed0cca5dadb432aa2eaa337746431b8a06ec657cef3f1448ee6276f6c5201de9",
+  "bytes": 842453,
+  "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0311693&type=printable",
+  "fetched": "2026-09-11"
+ },
+ "tune/cjk-zh-0": {
+  "sha256": "d534cf1ff3a523e25e1131b6fece98df7a7238ede4732a76ee4abf1d82e61488",
+  "bytes": 257065,
+  "url": "http://ojs.omniscient.sg/index.php/mece/article/download/24596/23567/",
+  "fetched": "2026-09-11"
+ }
+}

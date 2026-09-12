@@ -109,3 +109,26 @@ export function joinVectorRegions(rects: FigureRect[], scale: number, pageArea: 
   }
   return groups.filter(rect => rect.width > 30 * scale && rect.height > 20 * scale && rect.width * rect.height > 1500 * scale * scale && rect.width * rect.height < pageArea * .78)
 }
+
+/** Horizontal rules, which are what a ruled table is drawn with.
+ *
+ * joinVectorRegions discards them on purpose — a stroke half a point tall is
+ * not a figure — but a table's bounds are exactly those strokes, so without
+ * them a table crop stops at its text and cuts the rules off the picture.
+ * Collinear pieces of one rule are joined so a rule broken into cells counts
+ * once. */
+export function horizontalRules(rects: FigureRect[], scale = 1): FigureRect[] {
+  const strokes = rects.filter(rect => rect.height <= 3 * scale && rect.width >= 60 * scale)
+  const joined: FigureRect[] = []
+  for (const stroke of strokes) {
+    const existing = joined.find(other => Math.abs(other.top - stroke.top) <= 2 * scale
+      && stroke.left <= other.left + other.width + 12 * scale && stroke.left + stroke.width + 12 * scale >= other.left)
+    if (!existing) { joined.push({ ...stroke }); continue }
+    const left = Math.min(existing.left, stroke.left)
+    existing.width = Math.max(existing.left + existing.width, stroke.left + stroke.width) - left
+    existing.left = left
+    existing.top = Math.min(existing.top, stroke.top)
+    existing.height = Math.max(existing.height, stroke.height)
+  }
+  return joined
+}

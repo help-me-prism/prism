@@ -215,6 +215,7 @@ try {
     ['This experiment compares two populations [1].', '이 실험은 두 집단을 비교한다 [1].'],
     ['The control group received no treatment.', '대조군에는 처치를 시행하지 않았다.'],
     ['Results should not imply causation.', '결과를 인과 관계로 해석해서는 안 된다.'],
+    ['Stress concentrates at the fillet radius.', '응력은 필렛 반경에 집중된다.'],
   ])
   // A cache on one page must not label an untouched neighboring page as saved Korean.
   await fs.writeFile(paper.translationPath, JSON.stringify({ version: 1, provider: 'fixture', model: 'offline-render-test', segments: anchorData.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: anchor.page === 1 ? translations.get(anchor.source) : undefined })) }))
@@ -379,9 +380,16 @@ try {
   await evaluate('document.querySelector(".document-mode button:nth-child(2)").click()')
   await wait('Boolean(document.querySelector(".reading-translation .reading-block"))')
   assert.equal(await evaluate('Boolean(document.querySelector(".translated-text-layer"))'), false)
-  assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
-  await wait('document.querySelectorAll(".reading-translation figure canvas").length >= 2')
+  await wait('Boolean(document.querySelector(".reading-translation")?.textContent.includes("세포는"))')
+  // How many figure regions this page yields depends on how the platform's
+  // glyph geometry judges figure/prose overlap, and the fixture sits right on
+  // the line: two on this machine, one on Windows and Apple Silicon, which is
+  // why main has been red on this check. What the step is really for is that
+  // the translated reading view draws the page's figures as real images, and
+  // draws each one once — the count is fixture geometry, not a property.
+  await wait('document.querySelectorAll(".reading-translation figure canvas").length >= 1')
   assert(await evaluate('[...document.querySelectorAll(".reading-translation figure canvas")].every(canvas => canvas.width > 10 && canvas.height > 10)'))
+  assert(await evaluate('(() => { const boxes = [...document.querySelectorAll(".reading-translation figure")].map(node => { const box = node.getBoundingClientRect(); return `${Math.round(box.top)}x${Math.round(box.left)}` }); return new Set(boxes).size === boxes.length })()'), 'The same figure must not be drawn twice in the reading view')
   assert.equal(await evaluate('Boolean(document.querySelector(".paper-layout-page > .flow-page-heading, .paper-layout-page > .flow-original"))'), false)
   assert(await evaluate('[...document.querySelectorAll(".paper-layout-page.rendered > canvas")].every(canvas => canvas.width >= 1000)'))
   await wait('document.querySelectorAll(".paper-layout-block.publication-link canvas").length >= 1')
@@ -416,8 +424,8 @@ try {
   const questionPrefix = '첫 문단.\n\n\n둘째 문단: 여기 '
   await send('Input.insertText', { text: questionPrefix + '뒤에 근거를 넣습니다.\n셋째 문단.' })
   await evaluate('(() => { const editor=document.querySelector(".composer-editor"), walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT); let node; while(node=walker.nextNode()) { const at=node.textContent.replaceAll(String.fromCharCode(160)," ").indexOf("둘째 문단: 여기 "); if(at<0) continue; const range=document.createRange(); range.setStart(node,at+"둘째 문단: 여기 ".length); range.collapse(true); const selection=getSelection(); selection.removeAllRanges(); selection.addRange(range); editor.dispatchEvent(new KeyboardEvent("keyup",{bubbles:true,key:"ArrowRight"})); return; } throw new Error("Middle paragraph was lost: " + editor.innerHTML); })()')
-  await wait(`Boolean(document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]'))`)
-  await evaluate(`document.querySelector('.reading-translation figure button[title="피겨를 질문에 추가"]').click()`)
+  await wait(`Boolean(document.querySelector('.reading-translation figure button.structure-anchor.figure'))`)
+  await evaluate(`document.querySelector('.reading-translation figure button.structure-anchor.figure').click()`)
   await wait('Boolean(document.querySelector(".composer-anchor .type-figure"))')
   assert.equal(await evaluate('document.querySelector(".composer-editor").firstChild.textContent'), questionPrefix, 'A new figure anchor must stay at the middle-paragraph caret, including every blank line')
   const composerEvidence = await evaluate('(() => { const chip=document.querySelector(".composer-anchor-label"), editor=document.querySelector(".composer-editor"); return {location:chip.querySelector(".composer-anchor-location")?.textContent,excerpt:chip.querySelector(".composer-anchor-excerpt")?.textContent,text:chip.textContent,width:chip.getBoundingClientRect().width,available:editor.clientWidth}; })()')
@@ -482,7 +490,7 @@ try {
   const dispatched = JSON.parse((await fs.readFile(path.join(root, 'unexpected-chat-call.txt'), 'utf8')).trim())
   assert.deepEqual(dispatched.figures.map(item => [item.paperId, item.anchorId]), [[paper.arxivId, savedFigure.replace(/\.png$/, '')]])
   assert.equal(await evaluate('document.querySelectorAll(".message.user").length'), userMessagesBeforeFailure, 'Rejected dispatch must restore the draft without adding a duplicate conversation turn')
-  assert(await evaluate('document.querySelector(".composer-editor").textContent.includes("첨부 이미지 입력 전달 검사")'))
+  await wait('Boolean(document.querySelector(".composer-editor")?.textContent.includes("첨부 이미지 입력 전달 검사"))')
   assert(await evaluate('Boolean(document.querySelector(".composer-anchor .type-figure"))'), 'Rejected dispatch must restore the attached figure tag')
   await evaluate('document.querySelector(".composer-anchor-remove").click()')
   await evaluate('document.querySelector(".reading-focus").click()')
@@ -537,7 +545,7 @@ try {
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".continuous-page")).colorScheme'), 'light')
   assert.notEqual(await evaluate('getComputedStyle(document.querySelector(".titlebar")).backgroundColor'), 'rgba(0, 0, 0, 0)')
   await sleep(200)
-  assert(await evaluate('document.querySelector(".reading-translation").textContent.includes("세포는")'))
+  await wait('Boolean(document.querySelector(".reading-translation")?.textContent.includes("세포는"))')
   await shot('product-pdf-dark')
   await evaluate('document.querySelector(".document-mode > button:nth-child(2)").click()')
   await wait('document.querySelectorAll(".pane-body[data-shown=true]").length === 1')
@@ -548,7 +556,11 @@ try {
   await wait(`Boolean(document.querySelector('[data-pane=original][data-shown=true] [data-page=original-1].rendered [data-anchor="${citedSource.id}"].highlighted'))`)
   assert(await evaluate('document.querySelector("[data-page=original-1]").closest(".document-scroll").clientWidth > 500'), 'A source link from Korean-only mode must open a readable original pane even with chat open')
   await evaluate('window.prism.choosePaperStorage()')
-  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, fixturePdf(content.replace('Cell biology: a reading fixture', 'Engineering: a reading fixture'))); await fs.writeFile(path.join(root, 'selection.txt'), second)
+  // Both papers keep the cited sentence so their anchor IDs still collide, which
+  // is what this step exists to exercise. They also need one sentence each that
+  // the other does not have: the titles used to serve, but a title is now
+  // preserved as publication metadata and renders no anchor to look for.
+  const second = path.join(root, 'Engineering.pdf'); await fs.writeFile(second, fixturePdf(content.replace('Cell biology: a reading fixture', 'Engineering: a reading fixture').replace('Results should not imply causation.', 'Stress concentrates at the fillet radius.'))); await fs.writeFile(path.join(root, 'selection.txt'), second)
   const external = await evaluate('window.prism.importLocalPaper()')
   assert(external.pdfPath.startsWith(path.join(root, 'external-papers')))
   assert(external.notePath.startsWith(vault)); assert.equal(external.externalAssets, true)
@@ -568,8 +580,14 @@ try {
   assert(externalAnchors, 'Second PDF must finish real extraction')
   const externalCited = externalAnchors.anchors.find(anchor => anchor.source === citedSource.source)
   assert.equal(externalCited.id, citedSource.id, 'Fixture exercises a cross-paper anchor ID collision')
-  const engineeringTitle = externalAnchors.anchors.find(anchor => anchor.source.includes('Engineering:'))
-  const biologyTitle = anchorData.anchors.find(anchor => anchor.source.includes('Cell biology:'))
+  // This step needs one anchor each paper renders and the other paper does not,
+  // to tell whose PDF the source pane is showing. It used to take the title
+  // line, which is now preserved as original publication metadata rather than
+  // translated: an artifact carries no anchor element, so the wait below could
+  // never succeed. Take the first page-1 anchor that is actually rendered.
+  const distinctAnchor = (anchors, others) => anchors.find(anchor => anchor.page === 1 && anchor.type !== 'artifact' && !others.some(other => other.id === anchor.id))
+  const engineeringTitle = distinctAnchor(externalAnchors.anchors, anchorData.anchors)
+  const biologyTitle = distinctAnchor(anchorData.anchors, externalAnchors.anchors)
   assert(engineeringTitle && biologyTitle && engineeringTitle.id !== biologyTitle.id)
   await fs.writeFile(external.translationPath, JSON.stringify({ segments: externalAnchors.anchors.map(anchor => ({ ...anchor, kind: anchor.type, translation: translations.get(anchor.source) })) }))
   for (const [targetPaper, targetTitle, previousPaper, previousTitle] of [[paper, biologyTitle, external, engineeringTitle], [external, engineeringTitle, paper, biologyTitle]]) {

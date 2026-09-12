@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { transformWithOxc } from 'vite'
-const source = await fs.readFile('src/paper/textExtraction.ts', 'utf8')
-const { code } = await transformWithOxc(source, 'src/paper/textExtraction.ts')
-const { segmentsFromItems } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+import { loadTs as load } from './load-ts.mjs'
+const { segmentsFromItems } = await load('src/paper/textExtraction.ts')
 const fixture = JSON.parse(await fs.readFile('scripts/fixtures/engineering-text-items.json', 'utf8'))
 const subheadingFixture = JSON.parse(await fs.readFile('scripts/fixtures/engineering-p4-subheading.json', 'utf8'))
 const page4 = segmentsFromItems(4, subheadingFixture.items)

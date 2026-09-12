@@ -67,7 +67,15 @@ const settledAnswers = new Set<string>()
 const memoryAttempts = new Set<string>()
 const sessionOwners = new Map<string, { task?: 'context'; sender: WebContents; sessionId: string; messageId: string; model: string; startedAt: number; inputCharacters: number; inputComposition?: import('./aiUsageTypes.js').InputComposition; usage?: AiUsage }>()
 const translationRuns = new Map<string, { cancelled: boolean }>()
-const translationJobs = new Map<string, ChildProcessWithoutNullStreams>()
+// One paper can have several batches in flight, so every child of a job is
+// tracked; cancelling or quitting must reach all of them, not just the last.
+const translationJobs = new Map<string, Set<ChildProcessWithoutNullStreams>>()
+function trackTranslationJob(jobKey: string, child: ChildProcessWithoutNullStreams) {
+  const children = translationJobs.get(jobKey) ?? new Set<ChildProcessWithoutNullStreams>()
+  children.add(child); translationJobs.set(jobKey, children)
+  return () => { children.delete(child); if (!children.size) translationJobs.delete(jobKey) }
+}
+let translationRunCounter = 0
 const activeAuthProcesses = new Map<string, ChildProcessWithoutNullStreams>()
 
 function findCli(name: string): string | null {
@@ -1045,11 +1053,15 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   if (!executable) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude'} CLI를 찾지 못했습니다.`)
   const cwd = path.join(app.getPath('userData'), 'cli-tasks')
   await fs.mkdir(cwd, { recursive: true })
-  const instructionsFile = path.join(cwd, 'instructions.txt')
+  // Each run writes its own instructions file. With batches running together a
+  // shared one is rewritten while another child is still reading it, and the CLI
+  // would occasionally start against a half-written prompt.
+  const runIndex = translationRunCounter += 1
+  const instructionsFile = path.join(cwd, `instructions-${process.pid}-${runIndex}.txt`)
   await fs.writeFile(instructionsFile, taskInstructions, 'utf8')
   const args = cliTaskArgs(provider, model, instructionsFile)
   const child = spawnCli(executable, args, { cwd, env: { NO_COLOR: '1' }, windowsHide: true })
-  translationJobs.set(jobKey, child)
+  const untrack = trackTranslationJob(jobKey, child)
   let stdout = ''; let stderr = ''
   child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { stdout += chunk })
   child.stderr.setEncoding('utf8'); child.stderr.on('data', (chunk: string) => { stderr += chunk })
@@ -1057,12 +1069,14 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
   const timeout = setTimeout(() => child.kill(), 180_000)
   let code: number | null
   try { code = await new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject) }) }
-  finally { clearTimeout(timeout); if (translationJobs.get(jobKey) === child) translationJobs.delete(jobKey) }
+  finally { clearTimeout(timeout); untrack(); await fs.rm(instructionsFile, { force: true }).catch(() => { /* the next run writes its own */ }) }
   let measuredUsage: AiUsage = {}
   for (const line of stdout.split(/\r?\n/)) {
     try { const event = JSON.parse(line); if (event.usage) measuredUsage = parseAiUsage(provider, event.usage) } catch { /* non-JSON diagnostic */ }
   }
-  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}`, task: jobKey.startsWith('guide-') ? 'guide' : jobKey.startsWith('memory-') ? 'memory' : jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
+  // Concurrent batches of one paper can start inside the same millisecond, and
+  // the usage log keys on this id: without the counter they overwrite each other.
+  await recordAiRun(aiUsagePath(), { id: `${jobKey}-${startedAt}-${runIndex}`, task: jobKey.startsWith('guide-') ? 'guide' : jobKey.startsWith('memory-') ? 'memory' : jobKey.startsWith('digest-') ? 'digest' : jobKey.startsWith('knowledge-') ? 'knowledge' : jobKey.startsWith('structure-') ? 'structure' : 'translation', provider, model, startedAt, durationMs: Date.now() - startedAt, inputCharacters: prompt.length, status: code === 0 ? 'completed' : 'failed', ...measuredUsage })
   if (code !== 0) throw new Error(stderr.trim() || '번역 CLI 실행에 실패했습니다.')
   if (provider === 'claude') {
     const result = JSON.parse(stdout) as { result?: string }
@@ -1078,6 +1092,10 @@ async function runTranslationCli(provider: ProviderId, model: string, prompt: st
 function cachedSegments(value: unknown): TranslationSegment[] {
   return Array.isArray(value) ? value.filter(segment => segment && typeof segment.id === 'string' && typeof segment.source === 'string' && Number.isInteger(segment.page) && typeof segment.kind === 'string' && (segment.translation === undefined || typeof segment.translation === 'string')) : []
 }
+
+// How many translation batches may be in flight for one paper. Enough to hide
+// each CLI's cold start, low enough to stay inside a provider's rate limit.
+const translationConcurrency = 3
 
 async function translatePaper(sender: WebContents, record: PaperRecord, segments: TranslationSegment[], force = false, pages?: number[]) {
   const settings = await readSettings()
@@ -1107,7 +1125,14 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
   }
 
   const batches = translationBatches(missing, contextFor)
-  for (let index = 0; index < batches.length; index += 1) {
+  // Every batch is an independent CLI process, and each pays a cold start before
+  // the model even sees the prompt. Running them one at a time made a long paper
+  // take as many round trips as it has batches; the work itself is independent,
+  // so a bounded number run together. The bound stays small so a provider's rate
+  // limiter is not the thing that fails the translation.
+  const cursor = { next: 0, completed: 0 }
+  let writes: Promise<void> = Promise.resolve()
+  const translateBatch = async (index: number) => {
     if (run.cancelled) return
     const input = batches[index]
     const request = prepareTranslationRequest(input, contextFor(input))
@@ -1122,7 +1147,10 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
     checked.rejected.forEach(item => rejectedIds.add(item.id))
     for (const segment of merged) if (translated.has(segment.id)) segment.translation = translated.get(segment.id)
     cache = { version: 1, provider: settings.translationProvider, model: settings.translationModel, sourceHash: createHash('sha256').update(segments.map((segment) => segment.source).join('\n')).digest('hex'), segments: merged }
-    await atomicWriteFile(record.translationPath, JSON.stringify(cache, null, 2))
+    // Serialise the saves: concurrent batches would otherwise race the rename
+    // and could publish a snapshot older than one already on disk.
+    const save = (snapshot: string) => { writes = writes.then(() => atomicWriteFile(record.translationPath, snapshot)); return writes }
+    await save(JSON.stringify(cache, null, 2))
     for (let retryIndex = 0; retryIndex < checked.rejected.length; retryIndex += 6) {
       if (run.cancelled) return
       const ids = new Set(checked.rejected.slice(retryIndex, retryIndex + 6).map(item => item.id))
@@ -1135,11 +1163,24 @@ async function translatePaper(sender: WebContents, record: PaperRecord, segments
       for (const segment of merged) if (retry.accepted.has(segment.id)) {
         segment.translation = retry.accepted.get(segment.id); rejectedIds.delete(segment.id)
       }
-      await atomicWriteFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2))
+      await save(JSON.stringify({ ...cache, segments: merged }, null, 2))
     }
+    cursor.completed += 1
     const completedSegments = merged.filter((segment) => inScope(segment) && segment.translation).length
-    safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: index + 1, total: batches.length, completedSegments, totalSegments, segments: merged, force })
+    safeSend(sender, 'translation:progress', { arxivId: record.arxivId, completed: cursor.completed, total: batches.length, completedSegments, totalSegments, segments: merged, force })
   }
+  let failure: unknown
+  const worker = async () => {
+    while (!run.cancelled && failure === undefined && cursor.next < batches.length) {
+      try { await translateBatch(cursor.next++) } catch (reason) { failure ??= reason; throw reason }
+    }
+  }
+  // Wait for the batches already in flight before reporting a failure, so no CLI
+  // process outlives the run and no save lands after the error is shown.
+  const outcomes = await Promise.allSettled(Array.from({ length: Math.min(translationConcurrency, batches.length) }, worker))
+  const rejection = outcomes.find((outcome) => outcome.status === 'rejected')
+  if (rejection?.status === 'rejected') throw rejection.reason
+  if (run.cancelled) return
   for (const segment of merged) if (segment.kind === 'equation' || segment.kind === 'table' || segment.kind === 'artifact') segment.translation = segment.source
   await atomicWriteFile(record.translationPath, JSON.stringify({ ...cache, segments: merged }, null, 2))
   safeSend(sender, 'translation:done', { arxivId: record.arxivId, segments: merged, warning: rejectedIds.size ? `${rejectedIds.size}개 문장은 자동 재시도 후에도 번역 검증을 통과하지 못해 원문을 유지했습니다. 나머지 번역은 저장했습니다. 해당 페이지에서 다시 시도할 수 있습니다.` : undefined })
@@ -1845,9 +1886,9 @@ ipcMain.handle('translation:start', async (event, arxivId: string, segments: Tra
 ipcMain.handle('translation:cancel', (_event, arxivId: string) => {
   const run = translationRuns.get(arxivId)
   if (run) run.cancelled = true
-  const child = translationJobs.get(arxivId)
-  child?.kill()
-  return Boolean(run || child)
+  const children = translationJobs.get(arxivId)
+  for (const child of children ?? []) child.kill()
+  return Boolean(run || children?.size)
 })
 ipcMain.handle('chat:send', async (event, request: ChatRequest) => {
   const prompt = request.prompt?.trim()
@@ -1899,7 +1940,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => { if (mcpAnchorTimer) { clearInterval(mcpAnchorTimer); mcpAnchorTimer = undefined } })
 app.on('window-all-closed', () => {
   for (const active of activeChats.values()) active.process?.kill()
-  for (const child of translationJobs.values()) child.kill()
+  for (const children of translationJobs.values()) for (const child of children) child.kill()
   codexServer.stop()
   if (process.platform !== 'darwin') app.quit()
 })

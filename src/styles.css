@@ -312,3 +312,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .message-actions button { height: 22px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid light-dark(#d9d5cc, #403f3c); border-radius: 11px; background: light-dark(#fff, #1a1a1a); color: light-dark(#6c675f, #9b9894); font-size: 9px; cursor: pointer; opacity: .75; }
 .message-actions button:hover { opacity: 1; border-color: light-dark(#9cc9bb, #64aa95); color: light-dark(#4d8a78, #74b19f); }
 .message-actions span { color: light-dark(#5f7a4a, #97b382); font-size: 9px; }
+/* A preserved equation or table inside the translated page carries the same
+   green marker as the source pane, so both panes agree about what is taggable. */
+.paper-layout-block .original-excerpt.structure-anchor { position: relative; border: 1px solid transparent; border-radius: 3px; }
+.paper-layout-block .original-excerpt.structure-anchor > svg { position: absolute; top: -8px; right: -8px; box-sizing: content-box; padding: 3px; border: 1px solid light-dark(#bfded5, #2e5549); border-radius: 5px; background: light-dark(#f4faf8, #162a24); color: light-dark(#60ad96, #63ab96); opacity: 0; transition: opacity .1s; }
+.paper-layout-block .original-excerpt.structure-anchor.table > svg { border-color: light-dark(#add2c3, #64aa8e); background: light-dark(#eaf7f2, #1a3128); color: light-dark(#34705b, #8dc2af); }
+.paper-layout-block .original-excerpt.structure-anchor:hover, .paper-layout-block .original-excerpt.structure-anchor.highlighted { border-color: light-dark(#80beab, #63ab96); background: light-dark(#76b8a40b, #63ab960b); }
+.paper-layout-block .original-excerpt.structure-anchor.table:hover, .paper-layout-block .original-excerpt.structure-anchor.table.highlighted { border-color: light-dark(#4d9a7d, #69ae94); background: light-dark(#65a68d0d, #67a78f0d); }
+.paper-layout-block .original-excerpt.structure-anchor:hover > svg, .paper-layout-block .original-excerpt.structure-anchor.highlighted > svg { opacity: 1; }
+.paper-layout-block .original-excerpt.structure-anchor.figure > svg { border-color: light-dark(#bfded5, #2e5549); background: light-dark(#63ae98, #63ab96); color: light-dark(#fff, #1a1a1a); }

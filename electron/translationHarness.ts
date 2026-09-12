@@ -184,6 +184,40 @@ export function inspectTranslationBatch(output: string, input: InputSegment[]) {
   return { accepted, rejected }
 }
 
+/** Cached translations keyed by the joined source of consecutive runs.
+ *
+ * A change to sentence splitting leaves a saved translation addressing pieces
+ * that no longer exist: the new segment is two or three of the cached ones put
+ * back together, so neither its id nor its exact text is in the cache and a
+ * fully translated paper comes back half English. The pieces are still there
+ * though, and a sentence that was split is the concatenation of its parts —
+ * which is exactly what this index can match. Runs are capped because a longer
+ * one is not a re-split sentence, it is a coincidence.
+ *
+ * The joined translation is still revalidated by reuseTranslations below, so a
+ * join that drops or invents a number is rejected like any other reuse. */
+export function joinedTranslationIndex<T extends { source: string; translation?: string }>(cached: T[], maxRun = 5) {
+  const normalise = (value: string) => value.replace(/\s+/g, ' ').trim()
+  const index = new Map<string, string>()
+  for (let start = 0; start < cached.length; start += 1) {
+    if (!cached[start]?.translation) continue
+    let source = normalise(cached[start].source)
+    let translation = cached[start].translation as string
+    for (let length = 1; length < maxRun; length += 1) {
+      const next = cached[start + length]
+      if (!next?.translation) break
+      source = `${source} ${normalise(next.source)}`
+      translation = `${translation} ${next.translation}`
+      // A run that two different places would translate differently is not safe
+      // to reuse, so the first one wins and later disagreements are dropped.
+      if (index.has(source) && index.get(source) !== translation) index.set(source, '')
+      else if (!index.has(source)) index.set(source, translation)
+    }
+  }
+  for (const [key, value] of index) if (!value) index.delete(key)
+  return index
+}
+
 export function reuseTranslations<T extends { id: string; source: string; translation?: string }>(segments: T[], cached: T[]) {
   const existing = new Map(cached.map(segment => [segment.id, segment]))
   // Boundary repairs can renumber later anchors. Reuse identical source text

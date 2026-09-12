@@ -1,5 +1,6 @@
-import assert from 'node:assert/strict';import fs from 'node:fs/promises';import {transformWithOxc} from 'vite';
-const load=async file=>{const{code}=await transformWithOxc(await fs.readFile(file,'utf8'),file);return import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'))};
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';
+import { loadTs as load } from './load-ts.mjs'
+
 const{segmentsFromItems}=await load('src/paper/textExtraction.ts');const{preservePdfTables}=await load('src/paper/tableRegions.ts');const{preservePublicationFurniture}=await load('src/paper/publicationFurniture.ts');const{segmentRects}=await load('src/paper/itemGeometry.ts');const{latexSentenceSource}=await load('src/paper/latexProse.ts');const{paddedExcerptBounds}=await load('src/paper/excerptBounds.ts');
 const fixtures=JSON.parse(await fs.readFile('scripts/fixtures/translation-review3.json','utf8'));
 const extract=(paper,page)=>{const f=fixtures.find(f=>f.paper===paper&&f.page===page);return preservePdfTables(preservePublicationFurniture(segmentsFromItems(page,f.items,f.weights).map(s=>({...s,preciseRects:segmentRects(s,f.rects)})),new Map([[page,f]])))};

@@ -1,6 +1,6 @@
 import { latexSentenceSource } from './paper/latexProse'
 import { textItemRect, segmentRects, type ItemRect } from './paper/itemGeometry'
-import { reuseTranslations } from '../electron/translationHarness'
+import { reuseTranslations, joinedTranslationIndex } from '../electron/translationHarness'
 import { collectSourceFontWeights, dominantSourceWeight } from './paper/sourceEmphasis'
 import { captureGlyphGeometry } from './paper/glyphGeometry'
 import { mixedProseParagraphs } from './paper/excerptGeometry'
@@ -9,7 +9,8 @@ import { preservePublicationFurniture } from './paper/publicationFurniture'
 import { segmentsFromItems, hasDamagedMathEncoding, type PdfTextItem } from './paper/textExtraction'
 import { withoutBibliography, unsafeParagraphIds } from '../electron/translationScope'
 import { useDialogFocus } from './useDialogFocus'
-import { figureRegionWithCaption, figureOverlapsProse, joinBitmapRegions, joinVectorRegions, sourceFigureRegion } from './paper/figureGeometry'
+import { joinPreservedRegions, mergeOverlappingRegions } from './paper/preservedRegions'
+import { figureRegionWithCaption, figureOverlapsProse, joinBitmapRegions, joinVectorRegions, horizontalRules, sourceFigureRegion } from './paper/figureGeometry'
 import { evidenceInlineMathParts } from './evidenceInlineMath'
 import { preservePdfTables, tableRegionFromEvidence } from './paper/tableRegions'
 import { monotoneMatches } from './paper/equationAlignment'
@@ -259,6 +260,8 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   const [pageError, setPageError] = useState('')
   const [renderAttempt, setRenderAttempt] = useState(0)
   const [detectedFigureRects, setDetectedFigureRects] = useState<ItemRect[]>([])
+  // Table rules are too thin to be figure candidates and are collected apart.
+  const [detectedRuleRects, setDetectedRuleRects] = useState<ItemRect[]>([])
   const pageSize = { width: naturalWidth * scale, height: naturalHeight * scale }
   const [nearViewport, setNearViewport] = useState(pageNumber <= 2); const [rendered, setRendered] = useState(false)
   const [selection, setSelection] = useState<{ startX: number; startY: number; x: number; y: number }>()
@@ -314,8 +317,9 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
           }
         }
         const regions = [...joinBitmapRegions(figures, scale, viewport.width * viewport.height), ...joinVectorRegions(vectors, scale, viewport.width * viewport.height)]
+        if (!cancelled) setDetectedRuleRects(horizontalRules(vectors, scale))
         if (!cancelled) setDetectedFigureRects(regions.filter((figure, index, all) => all.findIndex((candidate) => Math.abs(candidate.left - figure.left) < 3 && Math.abs(candidate.top - figure.top) < 3 && Math.abs(candidate.width - figure.width) < 3 && Math.abs(candidate.height - figure.height) < 3) === index))
-      } catch { if (!cancelled) setDetectedFigureRects([]) }
+      } catch { if (!cancelled) { setDetectedFigureRects([]); setDetectedRuleRects([]) } }
     }).catch(reason => { if (!cancelled) setPageError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { cancelled = true; renderTask?.cancel() }
   }, [pdfDocument, pageNumber, scale, nearViewport, renderAttempt, translationFormat])
@@ -378,18 +382,36 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
   const claimedFigureRects = new Set<number>()
   for (const segment of segments.filter((candidate) => candidate.kind === 'table')) {
     const boxes = segmentRects(segment, itemRects, scale); if (!boxes.length) continue
-    const matched = tableRegionFromEvidence(boxes, safeDetectedRects, scale)
+    const matched = tableRegionFromEvidence(boxes, safeDetectedRects, scale, detectedRuleRects)
     if (!matched) continue
-    if (matched.index !== undefined) claimedFigureRects.add(matched.index)
+    // Every rule the table absorbed is claimed, or the leftovers are drawn again
+    // as figures on top of the table they belong to.
+    for (const index of matched.indexes ?? []) claimedFigureRects.add(index)
     tableVectorRects.set(segment.id, matched.rect)
   }
   const displayFigureRects = safeDetectedRects.filter((_rect, index) => !claimedFigureRects.has(index))
   const rectanglesFor = (segment: TranslationSegment) => tableVectorRects.get(segment.id) ? [tableVectorRects.get(segment.id)!] : segmentRects(segment, itemRects, scale)
-  const structuredRegions = segments.filter((segment) => ['equation', 'table'].includes(segment.kind)).flatMap((segment) => {
+  // A table arrives as one segment per row — the Transformer paper's Table 2 is
+  // ten of them — and marking each row separately put ten little regions over
+  // one table. The translated pane already joins adjacent preserved fragments
+  // before cropping; the source pane joins them the same way so both panes
+  // outline the same thing. Prose between two tables still separates them,
+  // which is why every segment goes in and only preserved runs come out.
+  const structuredRegions = joinPreservedRegions(segments.flatMap((segment) => {
     const rects = rectanglesFor(segment); if (!rects.length) return []
     const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top)); const width = Math.max(...rects.map((rect) => rect.left + rect.width)) - left; const height = Math.max(...rects.map((rect) => rect.top + rect.height)) - top
-    return [{ segment, rect: { left, top, width, height } }]
-  })
+    return [{ id: segment.id, segment, items: [{ kind: segment.kind, blockId: segment.blockId }], rect: { left, top, width, height } }]
+  })).filter((region) => region.items.every((item) => ['equation', 'table'].includes(item.kind)))
+  // Reading order alone is not enough: a grid's cells are often emitted column
+  // by column, so its rows never become neighbours. Prose lines are passed in as
+  // barriers so a table cannot reach past a paragraph to another one.
+  const structuredGroups = mergeOverlappingRegions(structuredRegions, segments
+    .filter((segment) => ['text', 'heading'].includes(segment.kind))
+    .flatMap((segment) => {
+      const rects = segmentRects(segment, itemRects, scale); if (!rects.length) return []
+      const left = Math.min(...rects.map((rect) => rect.left)); const top = Math.min(...rects.map((rect) => rect.top))
+      return [{ left, top, width: Math.max(...rects.map((rect) => rect.left + rect.width)) - left, height: Math.max(...rects.map((rect) => rect.top + rect.height)) - top }]
+    }))
   const sourceFigureRects = sourceFigures.flatMap((figure) => {
     const caption = segments.find((segment) => segment.id === figure.captionAnchorId)
     const rects = caption ? segmentRects(caption, itemRects, scale) : []
@@ -423,7 +445,13 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     const figure = sourceFigures.find(source => source.captionAnchorId === caption?.segment.id)
     return { key: `pdf-${index}`, figure, rect: caption?.caption ?? rect }
   })
+  // A region can reach the reading view twice — once as a detected figure and
+  // once as a compound source figure covering the same box — and the translated
+  // page then showed the same picture twice in a row. The source pane already
+  // deduplicates its own list; this one did not.
   const readingFigureRects = [...detectedFigures.map(item => item.rect), ...compoundFigureRects.map(({ rect }) => rect)]
+    .filter((rect, index, all) => all.findIndex(other => Math.abs(other.left - rect.left) < 3 && Math.abs(other.top - rect.top) < 3
+      && Math.abs(other.width - rect.width) < 3 && Math.abs(other.height - rect.height) < 3) === index)
   const matchedSourceFigures = new Set(detectedFigures.map(({ figure }) => figure?.id).filter(Boolean))
   const automaticFigures: Array<{ key: string; figure?: PaperFigureAsset & { preview?: string }; rect: ItemRect }> = [...detectedFigures, ...sourceFigureRects.filter(({ figure }) => figure.compound || !matchedSourceFigures.has(figure.id)).map(({ figure, rect }) => ({ key: figure.id, figure, rect }))]
   if (mode === 'translated') return <div className={`continuous-page translated flow-page ${translationFormat === 'paper' ? 'paper-layout-page' : ''} ${rendered ? "rendered" : "pending"}`} ref={pageRef} data-page={`translated-${pageNumber}`} data-render-scale={scale} style={{ width: pageSize.width, minHeight: translationFormat === 'paper' ? pageSize.height : undefined, fontSize: 15 * scale }}>
@@ -447,7 +475,7 @@ function PdfPage({ document: pdfDocument, pageNumber, scale: requestedScale, fit
     {capturing && <div className="figure-capture-status" role="status">피겨를 준비하고 있습니다…</div>}
     {mode === 'original' && <div className="source-figure-layer">{automaticFigures.map(({ key, figure, rect }, index) => <button key={key} style={rect} title={`${figure?.caption || `PDF 피겨 ${index + 1}`} · 클릭하여 채팅에 태그`} onClick={() => captureFigure(rect.left, rect.top, rect.width, rect.height, figure)}><Image size={15} /><span>피겨 {figure ? figure.order + 1 : index + 1}</span></button>)}</div>}
     <div className="anchor-layer">{segments.filter((segment) => !['artifact', 'equation', 'table'].includes(segment.kind)).flatMap((segment) => segmentRects(segment, itemRects, scale).map((rect, rectIndex) => <span key={`${segment.id}-${rectIndex}`} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title="클릭: 채팅 태그 · 우클릭: 노트에 담기" onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => tagWithPreview(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }} />))}</div>
-    <div className="structure-anchor-layer">{structuredRegions.map(({ segment, rect }) => <button key={segment.id} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title={`${segment.kind === 'table' ? '표' : '수식'} · 클릭: 채팅 태그 · 우클릭: 노트에 담기`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => tagWithPreview(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }}>{segment.kind === 'table' ? <Table2 size={11} /> : <Sigma size={11} />}</button>)}</div>
+    <div className="structure-anchor-layer">{structuredGroups.map(({ id, segment, rect }) => <button key={id} data-anchor={segment.id} className={`${segment.kind} ${segment.id === highlighted ? 'highlighted' : ''}`} style={rect} title={`${segment.kind === 'table' ? '표' : '수식'} · 클릭: 채팅 태그 · 우클릭: 노트에 담기`} onMouseEnter={() => onHighlight(segment.id)} onMouseLeave={() => onHighlight(undefined)} onClick={() => tagWithPreview(segment)} onContextMenu={(event) => { event.preventDefault(); onFindNotes(segment) }}>{segment.kind === 'table' ? <Table2 size={11} /> : <Sigma size={11} />}</button>)}</div>
     {figureSelect && <div className="figure-capture-layer" onPointerDown={(event) => { const value = point(event); const next = { startX: value.x, startY: value.y, x: value.x, y: value.y }; event.currentTarget.setPointerCapture(event.pointerId); selectionRef.current = next; setSelection(next) }} onPointerMove={(event) => { const current = selectionRef.current; if (!current) return; const value = point(event); const next = { ...current, x: value.x, y: value.y }; selectionRef.current = next; setSelection(next) }} onPointerUp={finishFigure}>{selection && <span style={{ left: Math.min(selection.startX, selection.x), top: Math.min(selection.startY, selection.y), width: Math.abs(selection.x - selection.startX), height: Math.abs(selection.y - selection.startY) }} />}</div>}
     {focusedFigure && <span data-saved-figure={focusedFigure.anchorId} style={{ position: 'absolute', pointerEvents: 'none', zIndex: 7, left: focusedFigure.rect.x * pageSize.width, top: focusedFigure.rect.y * pageSize.height, width: focusedFigure.rect.width * pageSize.width, height: focusedFigure.rect.height * pageSize.height, outline: '2px solid #8873cb', outlineOffset: 3 }} />}
     <span className="page-badge">{pageNumber}</span>
@@ -738,9 +766,13 @@ export default function PaperWorkspace({ providers, onOpenNote, command, sidebar
       if (cache?.segments.length) {
         const byId = new Map(cache.segments.map((segment) => [segment.id, segment]))
         const bySource = new Map(cache.segments.filter((segment) => segment.translation).map((segment) => [segment.source.replace(/\s+/g, ' ').trim(), segment.translation]))
+        // A sentence the extractor now keeps whole was several cached ones, so
+        // it matches neither by id nor by text. Its pieces are still cached.
+        const byJoinedSource = joinedTranslationIndex(cache.segments)
         const candidates = source.segments.map((segment) => {
           const previous = byId.get(segment.id)
-          const translatedBySource = bySource.get(segment.source.replace(/\s+/g, ' ').trim())
+          const key = segment.source.replace(/\s+/g, ' ').trim()
+          const translatedBySource = bySource.get(key) ?? byJoinedSource.get(key)
           return { ...segment, translation: previous?.translation ?? translatedBySource, source: previous?.translation ? previous.source : segment.source }
         })
         const restored = reuseTranslations(source.segments, candidates).filter(segment => segment.translation)

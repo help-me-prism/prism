@@ -1,0 +1,123 @@
+{
+ "recorded": "2026-09-11",
+ "splits": {
+  "tune": {
+   "papers": 17,
+   "unreadable": 0,
+   "pages": 285,
+   "findings": 31,
+   "byType": {
+    "running-furniture": 1,
+    "micro-fragment": 8,
+    "inline-math-cut": 2,
+    "dropped-prose": 6,
+    "equation-as-prose": 6,
+    "table-as-prose": 2,
+    "prose-as-table": 1,
+    "heading-too-long": 4,
+    "caption-absorbed-table": 1
+   },
+   "byFamily": {
+    "arxiv": {
+     "papers": 10,
+     "pages": 175,
+     "findings": 20
+    },
+    "journal": {
+     "papers": 7,
+     "pages": 110,
+     "findings": 11
+    }
+   },
+   "byLang": {
+    "en": {
+     "papers": 15,
+     "pages": 264,
+     "findings": 29
+    },
+    "ko": {
+     "papers": 1,
+     "pages": 18,
+     "findings": 0
+    },
+    "zh": {
+     "papers": 1,
+     "pages": 3,
+     "findings": 2
+    }
+   }
+  },
+  "holdout": {
+   "papers": 64,
+   "unreadable": 0,
+   "pages": 1114,
+   "findings": 374,
+   "byType": {
+    "equation-as-prose": 67,
+    "dropped-prose": 37,
+    "micro-fragment": 111,
+    "heading-too-long": 85,
+    "inline-math-cut": 24,
+    "table-as-prose": 28,
+    "figure-over-reading-page": 16,
+    "split-mid-sentence": 1,
+    "running-furniture": 4,
+    "replacement-glyph": 1
+   },
+   "byFamily": {
+    "arxiv": {
+     "papers": 20,
+     "pages": 640,
+     "findings": 198
+    },
+    "journal": {
+     "papers": 44,
+     "pages": 474,
+     "findings": 176
+    }
+   },
+   "byLang": {
+    "en": {
+     "papers": 48,
+     "pages": 962,
+     "findings": 293
+    },
+    "und": {
+     "papers": 2,
+     "pages": 37,
+     "findings": 3
+    },
+    "ru": {
+     "papers": 1,
+     "pages": 26,
+     "findings": 8
+    },
+    "uk": {
+     "papers": 2,
+     "pages": 5,
+     "findings": 3
+    },
+    "es": {
+     "papers": 1,
+     "pages": 2,
+     "findings": 1
+    },
+    "ja": {
+     "papers": 1,
+     "pages": 4,
+     "findings": 3
+    },
+    "zh": {
+     "papers": 5,
+     "pages": 15,
+     "findings": 40
+    },
+    "ko": {
+     "papers": 4,
+     "pages": 63,
+     "findings": 23
+    }
+   }
+  }
+ }
+}
